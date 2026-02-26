@@ -22,7 +22,7 @@ export const TEAM_NAMES: Record<string, string> = {
   NQC: 'North Queensland Cowboys',
   NZL: 'New Zealand Warriors',
   PAR: 'Parramatta Eels',
-  PTH: 'Perth',
+  PTH: 'Penrith Panthers',
   SHA: 'Cronulla Sharks',
   STG: 'St George Illawarra Dragons',
   STH: 'South Sydney Rabbitohs',

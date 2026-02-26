@@ -27,6 +27,9 @@ npm-debug.log*
 # Test coverage
 coverage/
 
+# Server public folder (built client)
+server/public/
+
 # Temporary files
 *.tmp
 *.temp
@@ -37,3 +40,5 @@ specs/*/
 
 # Keep constitution if it exists
 !specs/constitution.md
+
+.vite

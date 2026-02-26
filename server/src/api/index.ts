@@ -1,12 +1,17 @@
 /**
- * Express app setup with CORS middleware
+ * Express app setup with CORS middleware and static file serving
  */
 
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { router } from './routes.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export function createApp(): Express {
   const app = express();
@@ -33,7 +38,25 @@ export function createApp(): Express {
   // API routes
   app.use('/api', router);
 
-  // 404 handler
+  // Serve static files from public directory (production build)
+  const publicPath = path.join(__dirname, '..', '..', 'public');
+  app.use(express.static(publicPath));
+
+  // SPA fallback: serve index.html for all non-API routes
+  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+    // Skip if this is an API route (should have been handled above)
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(publicPath, 'index.html'), (err) => {
+      if (err) {
+        // If index.html doesn't exist, fall through to 404 handler
+        next();
+      }
+    });
+  });
+
+  // 404 handler (for API routes or when static files don't exist)
   app.use((_req: Request, res: Response) => {
     res.status(404).json({
       error: 'NOT_FOUND',

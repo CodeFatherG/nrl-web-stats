@@ -3,7 +3,13 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import type { HealthResponse, YearsResponse } from '../models/types.js';
+import type {
+  HealthResponse,
+  YearsResponse,
+  TeamRoundRankingResponse,
+  TeamSeasonRankingResponse,
+  AllTeamsRankingResponse,
+} from '../models/types.js';
 import { ScrapeRequestSchema, FixtureQuerySchema, YearSchema, RoundSchema } from '../models/schemas.js';
 import { scrapeAndLoadSchedule } from '../scraper/index.js';
 import {
@@ -15,6 +21,11 @@ import {
   getFixturesByRound,
 } from '../database/store.js';
 import { fixtures } from '../database/query.js';
+import {
+  getTeamRoundRanking,
+  getTeamSeasonRanking,
+  getAllTeamSeasonRankings,
+} from '../database/rankings.js';
 import { InvalidParameterError, NotFoundError } from '../utils/errors.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
 
@@ -267,6 +278,139 @@ export async function getRoundDetails(req: Request, res: Response, next: NextFun
       matches: Array.from(matchMap.values()),
       byeTeams,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ============================================
+// US4: Team Rankings
+// ============================================
+
+/**
+ * GET /api/rankings/:year/:code - Get team season ranking
+ */
+export async function getTeamRanking(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const yearResult = YearSchema.safeParse(req.params.year);
+    const code = req.params.code?.toUpperCase();
+
+    if (!yearResult.success) {
+      throw new InvalidParameterError('Year must be between 2010 and 2030');
+    }
+
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      throw new InvalidParameterError(
+        `Unknown team code: ${code}`,
+        VALID_TEAM_CODES
+      );
+    }
+
+    const year = yearResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      throw new NotFoundError(`Team not found: ${code}`);
+    }
+
+    const ranking = getTeamSeasonRanking(year, code);
+    if (!ranking) {
+      throw new NotFoundError(`No data found for ${code} in ${year}`);
+    }
+
+    const response: TeamSeasonRankingResponse = {
+      team,
+      ranking,
+    };
+
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/rankings/:year/:code/:round - Get team ranking for specific round
+ */
+export async function getTeamRoundRankingHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const yearResult = YearSchema.safeParse(req.params.year);
+    const roundResult = RoundSchema.safeParse(req.params.round);
+    const code = req.params.code?.toUpperCase();
+
+    if (!yearResult.success) {
+      throw new InvalidParameterError('Year must be between 2010 and 2030');
+    }
+    if (!roundResult.success) {
+      throw new InvalidParameterError(
+        'Round must be between 1 and 27',
+        Array.from({ length: 27 }, (_, i) => i + 1)
+      );
+    }
+
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      throw new InvalidParameterError(
+        `Unknown team code: ${code}`,
+        VALID_TEAM_CODES
+      );
+    }
+
+    const year = yearResult.data;
+    const round = roundResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      throw new NotFoundError(`Team not found: ${code}`);
+    }
+
+    const ranking = getTeamRoundRanking(year, code, round);
+    if (!ranking) {
+      throw new NotFoundError(`No data found for ${code} in round ${round} of ${year}`);
+    }
+
+    const response: TeamRoundRankingResponse = {
+      team,
+      ranking,
+    };
+
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/rankings/:year - Get all teams rankings for a year
+ */
+export async function getAllTeamsRanking(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const yearResult = YearSchema.safeParse(req.params.year);
+
+    if (!yearResult.success) {
+      throw new InvalidParameterError('Year must be between 2010 and 2030');
+    }
+
+    const year = yearResult.data;
+    const rankedTeams = getAllTeamSeasonRankings(year);
+
+    if (rankedTeams.length === 0) {
+      throw new NotFoundError(`No data found for ${year}`);
+    }
+
+    const response: AllTeamsRankingResponse = {
+      year,
+      rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
+        const team = getTeamByCode(teamCode);
+        return {
+          team: team || { code: teamCode, name: teamCode },
+          totalStrength: ranking.totalStrength,
+          averageStrength: ranking.averageStrength,
+          percentile: ranking.percentile,
+          category: ranking.category,
+          rank,
+        };
+      }),
+    };
+
+    res.json(response);
   } catch (error) {
     next(error);
   }

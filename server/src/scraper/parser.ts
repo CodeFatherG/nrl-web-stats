@@ -130,11 +130,20 @@ export function parseScheduleHtml(html: string, year: number): ParseResult {
 
   logger.debug('Found tables', { count: tables.length });
 
+  // Only process the first valid schedule table to avoid duplicates
+  // (some pages have the same table twice for different viewport sizes)
+  let foundValidTable = false;
+
   tables.each((tableIndex, table) => {
+    // Skip if we already found a valid table
+    if (foundValidTable) {
+      return;
+    }
+
     const rows = $(table).find('tr');
 
     // Look for header row with round numbers
-    let headerRow: cheerio.Cheerio<cheerio.Element> | null = null;
+    let headerRow: ReturnType<typeof $> | null = null;
     let roundCount = 0;
 
     rows.each((rowIndex, row) => {
@@ -153,6 +162,10 @@ export function parseScheduleHtml(html: string, year: number): ParseResult {
     if (!headerRow || roundCount === 0) {
       return; // Continue to next table
     }
+
+    // Mark that we found a valid table - don't process any more tables
+    foundValidTable = true;
+    logger.debug('Using table', { tableIndex });
 
     // Process data rows (rows after header that contain team data)
     let headerRowIndex = rows.index(headerRow);
@@ -202,14 +215,16 @@ export function parseScheduleHtml(html: string, year: number): ParseResult {
       teamsFound.add(teamCode);
 
       // Parse each round cell
-      let roundNumber = 0;
+      // The data row has: [team code cell] [team image cell] [Rd1 data] [Rd2 data] ...
+      // So we need to skip the first 2 cells before fixture data begins
+      const teamInfoCells = 2;
       cells.each((cellIndex, cell) => {
+        // Skip the team info cells at the start
+        if (cellIndex < teamInfoCells) return;
+
         const cellText = $(cell).text().trim();
+        const roundNumber = cellIndex - teamInfoCells + 1;
 
-        // Skip the first cell(s) that contain team info
-        if (cellIndex === 0) return;
-
-        roundNumber++;
         if (roundNumber > roundCount) return;
 
         const { data, warning } = parseCell(cellText, dataRowIndex, cellIndex);

@@ -6,6 +6,7 @@ import type { Fixture } from '../models/fixture.js';
 import type { Team } from '../models/team.js';
 import { TEAM_NAMES, VALID_TEAM_CODES } from '../models/team.js';
 import { logger } from '../utils/logger.js';
+import { clearRankingsCache } from './rankings.js';
 
 interface DatabaseState {
   // Primary storage
@@ -66,6 +67,9 @@ export function loadFixtures(year: number, fixtures: Fixture[]): void {
 
   // Rebuild indexes
   rebuildIndexes();
+
+  // Clear rankings cache for this year
+  clearRankingsCache(year);
 
   // Update metadata
   database.loadedYears.add(year);
@@ -213,5 +217,6 @@ export function getTeamByCode(code: string): Team | undefined {
  */
 export function resetDatabase(): void {
   db = null;
+  clearRankingsCache();
   logger.info('Database reset');
 }

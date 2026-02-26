@@ -25,3 +25,8 @@ router.get('/fixtures', handlers.getFixtures);
 
 // Rounds endpoint
 router.get('/rounds/:year/:round', handlers.getRoundDetails);
+
+// Rankings endpoints (order matters - more specific routes first)
+router.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler);
+router.get('/rankings/:year/:code', handlers.getTeamRanking);
+router.get('/rankings/:year', handlers.getAllTeamsRanking);
