@@ -1,35 +1,23 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
+import { createApiRoutes } from './api/routes.js';
+import { setDebugMode, logger } from './utils/logger.js';
 
 // Environment bindings type
-interface Env {
+export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS middleware for API routes
-app.use('/api/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type'],
-  maxAge: 600,
-}));
-
-// Health check endpoint
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'ok',
-    loadedYears: [],
-    totalFixtures: 0,
-  });
+// Initialize logger based on environment
+app.use('*', async (c, next) => {
+  setDebugMode(c.env?.ENVIRONMENT !== 'production');
+  await next();
 });
 
-// API routes placeholder - will be expanded in Phase 2
-app.get('/api/teams', (c) => {
-  return c.json([]);
-});
+// Mount API routes under /api
+app.route('/api', createApiRoutes());
 
 // Static file serving and SPA fallback
 // Handled by Cloudflare Workers Sites via wrangler.jsonc [site] config
@@ -63,6 +51,6 @@ export default app;
 
 // Scheduled handler for cache invalidation (Monday 4pm AEST = 6am UTC)
 export const scheduled: ExportedHandlerScheduledHandler = async (event, env, ctx) => {
-  console.log('Scheduled cache invalidation triggered at', new Date().toISOString());
+  logger.info('Scheduled cache invalidation triggered', { timestamp: new Date().toISOString() });
   // TODO: Implement cache invalidation in Phase 5
 };
