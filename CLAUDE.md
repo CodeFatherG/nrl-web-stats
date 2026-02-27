@@ -1,38 +1,61 @@
 # nrlschedulescraper Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-02-26
+Auto-generated from all feature plans. Last updated: 2026-02-28
 
 ## Active Technologies
-- TypeScript 5.x (React 18.x for frontend, Node.js 20 LTS for server) + React 18, MUI (Material-UI) 5.x, Vite (build tool), concurrently (dev launch) (002-nrl-schedule-ui)
-- In-memory only (existing server implementation) (002-nrl-schedule-ui)
-- TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + Express.js 4.x (server), React 18, MUI 5.x, Vite (frontend), Zod (validation), Cheerio (parsing) (003-compact-season-view)
-- In-memory database with indexed lookups (existing implementation) (003-compact-season-view)
-- TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + React 18, MUI 5.x, Vite (frontend); Express.js 4.x (server) (004-bye-overview)
-- In-memory database (existing implementation) (004-bye-overview)
-- TypeScript 5.x with strict mode + Hono (edge-native HTTP framework), Cheerio (HTML parsing), Zod (validation), React 18, MUI 5.x (005-serverless-edge-refactor)
-- In-memory cache within worker isolate (no persistent storage) (005-serverless-edge-refactor)
 
-- TypeScript 5.x (Node.js 20 LTS) + Express.js (HTTP server), Cheerio (HTML parsing), Zod (validation) (001-nrl-schedule-scraper)
+**Current Stack (Cloudflare Workers - Serverless Edge):**
+- TypeScript 5.x with strict mode
+- Hono (edge-native HTTP framework)
+- LinkedOM (HTML parsing for Workers runtime)
+- Zod (validation)
+- React 18, MUI 5.x (frontend)
+- Vite (frontend build)
+- In-memory cache within worker isolate (no persistent storage)
 
 ## Project Structure
 
 ```text
 src/
+  api/          # Hono routes and handlers
+    middleware/ # CORS, logging middleware
+  cache/        # In-memory cache with request coalescing
+  database/     # In-memory data store and queries
+  models/       # Types, schemas, team data
+  scraper/      # HTML fetching and parsing
+  utils/        # Logger, error utilities
+  worker.ts     # Cloudflare Worker entry point
+client/         # React frontend (SPA)
 tests/
+  unit/         # Unit tests for cache, etc.
+  integration/  # Miniflare integration tests
+  contract/     # API contract tests
 ```
 
 ## Commands
 
-npm test && npm run lint
+```bash
+npm test              # Run all tests (vitest)
+npm run build         # Build worker + frontend
+npm run build:worker  # Build worker only (esbuild)
+npm run build:frontend # Build frontend (vite)
+npm run dev           # Start wrangler dev server
+npm run deploy        # Deploy to Cloudflare Workers
+```
 
 ## Code Style
 
-TypeScript 5.x (Node.js 20 LTS): Follow standard conventions
+TypeScript 5.x strict mode: Follow standard conventions
+
+## Key Implementation Details
+
+- **HTML Parsing**: Uses LinkedOM instead of Cheerio (Workers-compatible)
+- **Caching**: Monday 4pm AEST weekly expiry with request coalescing
+- **Static Files**: Served via Cloudflare Workers Sites (ASSETS binding)
+- **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
-- 005-serverless-edge-refactor: Added TypeScript 5.x with strict mode + Hono (edge-native HTTP framework), Cheerio (HTML parsing), Zod (validation), React 18, MUI 5.x
-- 004-bye-overview: Added TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + React 18, MUI 5.x, Vite (frontend); Express.js 4.x (server)
-- 003-compact-season-view: Added TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + Express.js 4.x (server), React 18, MUI 5.x, Vite (frontend), Zod (validation), Cheerio (parsing)
+- 005-serverless-edge-refactor: Migrated to Cloudflare Workers with Hono, LinkedOM, in-memory caching
 
 
 <!-- MANUAL ADDITIONS START -->
