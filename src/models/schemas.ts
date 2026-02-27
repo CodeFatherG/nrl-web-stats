@@ -8,6 +8,7 @@ import { VALID_TEAM_CODES } from './team.js';
 /** Schema for scrape request */
 export const ScrapeRequestSchema = z.object({
   year: z.number().int().min(2010).max(2030),
+  force: z.boolean().optional(),
 });
 
 /** Schema for fixture query parameters */

@@ -38,6 +38,8 @@ import {
   getAllTeamSeasonRankings,
 } from '../database/rankings.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
+import { cacheStore } from '../cache/store.js';
+import type { CachedSeasonData } from '../cache/types.js';
 
 // Environment bindings type
 interface Env {
@@ -64,10 +66,12 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
  * GET /api/health - Health check
  */
 export async function getHealth(c: ApiContext) {
-  const response: HealthResponse = {
+  const cacheStatus = cacheStore.getStatus();
+  const response: HealthResponse & { cache: typeof cacheStatus } = {
     status: 'ok',
     loadedYears: getLoadedYears(),
     totalFixtures: getTotalFixtureCount(),
+    cache: cacheStatus,
   };
   return c.json(response);
 }
@@ -457,6 +461,7 @@ export async function getSeasonSummary(c: ApiContext) {
 
 /**
  * POST /api/scrape - Trigger scrape operation
+ * Uses cache with request coalescing to prevent duplicate concurrent scrapes
  */
 export async function triggerScrape(c: ApiContext) {
   try {
@@ -467,10 +472,39 @@ export async function triggerScrape(c: ApiContext) {
       return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
     }
 
-    const { year } = parseResult.data;
-    const result = await scrapeAndLoadSchedule(year);
+    const { year, force } = parseResult.data;
 
-    return c.json(result);
+    // Use cache with request coalescing
+    const cacheResult = await cacheStore.fetchWithCoalescing(
+      year,
+      async (): Promise<CachedSeasonData | null> => {
+        const result = await scrapeAndLoadSchedule(year);
+        if (result.success) {
+          return {
+            year,
+            fixtureCount: result.fixturesLoaded,
+            cachedAt: new Date(),
+            expiresAt: new Date(), // Will be set by cache store
+            isStale: false,
+          };
+        }
+        return null;
+      },
+      { forceRefresh: force === true }
+    );
+
+    if (cacheResult.error && !cacheResult.data) {
+      return errorResponse(c, 'SCRAPE_FAILED', cacheResult.error.message, 500);
+    }
+
+    return c.json({
+      success: true,
+      year,
+      fixturesLoaded: cacheResult.data?.fixtureCount ?? 0,
+      fromCache: cacheResult.fromCache,
+      isStale: cacheResult.isStale,
+      ...(cacheResult.error && { warning: 'Using stale data due to fetch error' }),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return errorResponse(c, 'SCRAPE_FAILED', message, 500);

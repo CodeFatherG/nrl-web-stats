@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { createApiRoutes } from './api/routes.js';
 import { setDebugMode, logger } from './utils/logger.js';
+import { cacheStore } from './cache/store.js';
 
 // Environment bindings type
 export interface Env {
@@ -50,7 +51,15 @@ app.get('*', async (c) => {
 export default app;
 
 // Scheduled handler for cache invalidation (Monday 4pm AEST = 6am UTC)
-export const scheduled: ExportedHandlerScheduledHandler = async (event, env, ctx) => {
-  logger.info('Scheduled cache invalidation triggered', { timestamp: new Date().toISOString() });
-  // TODO: Implement cache invalidation in Phase 5
+export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) => {
+  logger.info('Scheduled cache invalidation triggered', {
+    timestamp: new Date().toISOString(),
+    scheduledTime: new Date(event.scheduledTime).toISOString(),
+    cron: event.cron,
+  });
+
+  // Invalidate all cached data to trigger fresh scrapes
+  cacheStore.invalidateAll();
+
+  logger.info('Cache invalidated by scheduled trigger');
 };
