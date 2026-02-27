@@ -67,10 +67,12 @@ describe('Frontend API Integration', () => {
     expect(response.headers.get('access-control-allow-methods')).toContain('GET');
   });
 
-  it('GET /api/fixtures returns expected format (stub)', async () => {
+  it('GET /api/fixtures returns fixtures array', async () => {
     const response = await mf.dispatchFetch('http://localhost/api/fixtures');
 
-    // Currently returns 501 (not implemented) - will be implemented in Phase 4
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(200);
+
+    const data = await response.json();
+    expect(Array.isArray(data)).toBe(true);
   });
 });

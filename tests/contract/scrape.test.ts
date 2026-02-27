@@ -1,0 +1,45 @@
+/**
+ * Contract tests for POST /api/scrape endpoint
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Miniflare } from 'miniflare';
+
+describe('POST /api/scrape', () => {
+  let mf: Miniflare;
+
+  beforeAll(async () => {
+    mf = new Miniflare({
+      modules: true,
+      scriptPath: './dist/worker.js',
+      compatibilityDate: '2024-01-01',
+      compatibilityFlags: ['nodejs_compat'],
+    });
+  });
+
+  afterAll(async () => {
+    await mf.dispose();
+  });
+
+  it('returns 400 for invalid year', async () => {
+    const response = await mf.dispatchFetch('http://localhost/api/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year: 1990 }),
+    });
+
+    expect(response.status).toBe(400);
+    const data = await response.json() as { error: string };
+    expect(data.error).toBe('INVALID_YEAR');
+  });
+
+  it('returns 400 for missing year', async () => {
+    const response = await mf.dispatchFetch('http://localhost/api/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(400);
+  });
+});
