@@ -35,6 +35,12 @@ export const RoundSchema = z.coerce.number().int().min(1).max(27);
 /** Schema for year parameter */
 export const YearSchema = z.coerce.number().int().min(2010).max(2030);
 
+/** Schema for season summary year parameter */
+export const SeasonSummaryParamsSchema = z.object({
+  year: z.coerce.number().int().min(2001).max(new Date().getFullYear()),
+});
+
 /** Type inference helpers */
 export type ScrapeRequest = z.infer<typeof ScrapeRequestSchema>;
 export type FixtureQuery = z.infer<typeof FixtureQuerySchema>;
+export type SeasonSummaryParams = z.infer<typeof SeasonSummaryParamsSchema>;

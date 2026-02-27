@@ -5,6 +5,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-26
 ## Active Technologies
 - TypeScript 5.x (React 18.x for frontend, Node.js 20 LTS for server) + React 18, MUI (Material-UI) 5.x, Vite (build tool), concurrently (dev launch) (002-nrl-schedule-ui)
 - In-memory only (existing server implementation) (002-nrl-schedule-ui)
+- TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + Express.js 4.x (server), React 18, MUI 5.x, Vite (frontend), Zod (validation), Cheerio (parsing) (003-compact-season-view)
+- In-memory database with indexed lookups (existing implementation) (003-compact-season-view)
 
 - TypeScript 5.x (Node.js 20 LTS) + Express.js (HTTP server), Cheerio (HTML parsing), Zod (validation) (001-nrl-schedule-scraper)
 
@@ -24,6 +26,7 @@ npm test && npm run lint
 TypeScript 5.x (Node.js 20 LTS): Follow standard conventions
 
 ## Recent Changes
+- 003-compact-season-view: Added TypeScript 5.x (Node.js 20 LTS for server, React 18.x for frontend) + Express.js 4.x (server), React 18, MUI 5.x, Vite (frontend), Zod (validation), Cheerio (parsing)
 - 002-nrl-schedule-ui: Added TypeScript 5.x (React 18.x for frontend, Node.js 20 LTS for server) + React 18, MUI (Material-UI) 5.x, Vite (build tool), concurrently (dev launch)
 
 - 001-nrl-schedule-scraper: Added TypeScript 5.x (Node.js 20 LTS) + Express.js (HTTP server), Cheerio (HTML parsing), Zod (validation)

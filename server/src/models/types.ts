@@ -111,3 +111,30 @@ export interface AllTeamsRankingResponse {
     rank: number;
   }>;
 }
+
+/** Compact match data for season summary */
+export interface CompactMatch {
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  scheduledTime: string | null;
+  isComplete: boolean;
+  /** Strength rating for home team's fixture */
+  homeStrength: number;
+  /** Strength rating for away team's fixture */
+  awayStrength: number;
+}
+
+/** Compact round data for season summary */
+export interface CompactRound {
+  round: number;
+  matches: CompactMatch[];
+  byeTeams: string[];
+}
+
+/** Season summary response for compact season view */
+export interface SeasonSummaryResponse {
+  year: number;
+  rounds: CompactRound[];
+}

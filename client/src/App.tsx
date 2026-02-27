@@ -6,9 +6,10 @@ import { NoDataState } from './components/NoDataState';
 import { TabNavigation } from './components/TabNavigation';
 import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
-import { getHealth, scrapeYear, getTeams, getTeamSchedule, getRound, getAllTeamsRanking } from './services/api';
+import { CompactSeasonView } from './views/CompactSeasonView';
+import { getHealth, scrapeYear, getTeams, getTeamSchedule, getRound, getAllTeamsRanking, getSeasonSummary } from './services/api';
 import { calculateStrengthPercentiles } from './utils/strengthColors';
-import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse } from './types';
+import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode } from './types';
 
 type AppStatus = 'loading' | 'error' | 'no-data' | 'ready';
 
@@ -26,7 +27,7 @@ function App() {
   const [scraping, setScraping] = useState(false);
 
   // Tab navigation state
-  const [activeTab, setActiveTab] = useState<ActiveTab>('team');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('round');
 
   // Team schedule state
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>(null);
@@ -40,6 +41,12 @@ function App() {
   const [roundData, setRoundData] = useState<RoundResponse | null>(null);
   const [roundLoading, setRoundLoading] = useState(false);
   const [roundError, setRoundError] = useState<string | null>(null);
+
+  // Season summary state (compact view)
+  const [roundViewMode, setRoundViewMode] = useState<RoundViewMode>('compact');
+  const [seasonSummary, setSeasonSummary] = useState<SeasonSummaryResponse | null>(null);
+  const [seasonSummaryLoading, setSeasonSummaryLoading] = useState(false);
+  const [seasonSummaryError, setSeasonSummaryError] = useState<string | null>(null);
 
   // Rankings state
   const [rankings, setRankings] = useState<AllTeamsRankingResponse | null>(null);
@@ -153,12 +160,46 @@ function App() {
     [loadedYears]
   );
 
-  // Load round data when switching to round tab
+  const fetchSeasonSummary = useCallback(async () => {
+    const year = loadedYears[0];
+    if (year === undefined) return;
+
+    setSeasonSummaryLoading(true);
+    setSeasonSummaryError(null);
+
+    try {
+      const data = await getSeasonSummary(year);
+      setSeasonSummary(data);
+    } catch (err) {
+      setSeasonSummaryError(
+        err instanceof Error ? err.message : 'Failed to load season summary'
+      );
+    } finally {
+      setSeasonSummaryLoading(false);
+    }
+  }, [loadedYears]);
+
+  const handleRoundClickFromCompact = useCallback(
+    (round: number) => {
+      setRoundViewMode('detailed');
+      void handleRoundSelect(round);
+    },
+    [handleRoundSelect]
+  );
+
+  // Load round data when switching to round tab in detailed mode
   useEffect(() => {
-    if (activeTab === 'round' && !roundData && loadedYears.length > 0) {
+    if (activeTab === 'round' && roundViewMode === 'detailed' && !roundData && loadedYears.length > 0) {
       void handleRoundSelect(selectedRound);
     }
-  }, [activeTab, roundData, loadedYears, selectedRound, handleRoundSelect]);
+  }, [activeTab, roundViewMode, roundData, loadedYears, selectedRound, handleRoundSelect]);
+
+  // Load season summary when switching to compact view
+  useEffect(() => {
+    if (activeTab === 'round' && roundViewMode === 'compact' && !seasonSummary && loadedYears.length > 0) {
+      void fetchSeasonSummary();
+    }
+  }, [activeTab, roundViewMode, seasonSummary, loadedYears, fetchSeasonSummary]);
 
   if (status === 'loading') {
     return <LoadingState />;
@@ -195,7 +236,12 @@ function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
-        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabNavigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          roundViewMode={roundViewMode}
+          onRoundViewModeChange={setRoundViewMode}
+        />
 
         {activeTab === 'team' && (
           <TeamScheduleView
@@ -212,7 +258,7 @@ function App() {
           />
         )}
 
-        {activeTab === 'round' && (
+        {activeTab === 'round' && roundViewMode === 'detailed' && (
           <RoundOverviewView
             year={currentYear}
             selectedRound={selectedRound}
@@ -222,6 +268,17 @@ function App() {
             strengthThresholds={strengthThresholds}
             loading={roundLoading}
             error={roundError}
+          />
+        )}
+
+        {activeTab === 'round' && roundViewMode === 'compact' && (
+          <CompactSeasonView
+            year={currentYear}
+            seasonData={seasonSummary}
+            loading={seasonSummaryLoading}
+            error={seasonSummaryError}
+            onRetry={fetchSeasonSummary}
+            onRoundClick={handleRoundClickFromCompact}
           />
         )}
       </Container>

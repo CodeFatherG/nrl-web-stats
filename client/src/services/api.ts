@@ -6,6 +6,7 @@ import type {
   RoundResponse,
   TeamSeasonRankingResponse,
   AllTeamsRankingResponse,
+  SeasonSummaryResponse,
   ApiError,
 } from '../types';
 
@@ -71,4 +72,10 @@ export async function getAllTeamsRanking(
   year: number
 ): Promise<AllTeamsRankingResponse> {
   return fetchApi<AllTeamsRankingResponse>(`/rankings/${year}`);
+}
+
+export async function getSeasonSummary(
+  year: number
+): Promise<SeasonSummaryResponse> {
+  return fetchApi<SeasonSummaryResponse>(`/season/${year}/summary`);
 }

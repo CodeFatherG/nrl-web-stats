@@ -30,3 +30,6 @@ router.get('/rounds/:year/:round', handlers.getRoundDetails);
 router.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler);
 router.get('/rankings/:year/:code', handlers.getTeamRanking);
 router.get('/rankings/:year', handlers.getAllTeamsRanking);
+
+// Season summary endpoint (for compact season view)
+router.get('/season/:year/summary', handlers.getSeasonSummary);

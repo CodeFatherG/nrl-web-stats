@@ -11,6 +11,7 @@ import {
   getFixtures,
   getTeamSchedule,
   getRoundDetails,
+  getSeasonSummary,
 } from '../src/api/handlers.js';
 import { loadFixtures, resetDatabase } from '../src/database/store.js';
 import { createFixture } from '../src/models/fixture.js';
@@ -233,6 +234,71 @@ describe('API Handlers', () => {
       const next = mockNext();
 
       await getRoundDetails(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
+  describe('getSeasonSummary', () => {
+    it('should return season summary with all rounds', async () => {
+      const req = mockRequest({ year: '2026' }, {});
+      const res = mockResponse();
+      const next = mockNext();
+
+      await getSeasonSummary(req as Request, res as Response, next);
+
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          year: 2026,
+          rounds: expect.any(Array),
+        })
+      );
+
+      const call = res.json.mock.calls[0][0];
+      expect(call.rounds).toHaveLength(27); // All 27 rounds
+    });
+
+    it('should include matches grouped by round', async () => {
+      const req = mockRequest({ year: '2026' }, {});
+      const res = mockResponse();
+      const next = mockNext();
+
+      await getSeasonSummary(req as Request, res as Response, next);
+
+      const call = res.json.mock.calls[0][0];
+      const round1 = call.rounds.find((r: { round: number }) => r.round === 1);
+      expect(round1).toBeDefined();
+      expect(round1.matches.length).toBeGreaterThan(0);
+    });
+
+    it('should include bye teams in rounds', async () => {
+      const req = mockRequest({ year: '2026' }, {});
+      const res = mockResponse();
+      const next = mockNext();
+
+      await getSeasonSummary(req as Request, res as Response, next);
+
+      const call = res.json.mock.calls[0][0];
+      const round3 = call.rounds.find((r: { round: number }) => r.round === 3);
+      expect(round3.byeTeams).toContain('MEL'); // MEL has bye in round 3
+    });
+
+    it('should call next with error for year not loaded', async () => {
+      const req = mockRequest({ year: '2020' }, {});
+      const res = mockResponse();
+      const next = mockNext();
+
+      await getSeasonSummary(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('should call next with error for invalid year format', async () => {
+      const req = mockRequest({ year: 'invalid' }, {});
+      const res = mockResponse();
+      const next = mockNext();
+
+      await getSeasonSummary(req as Request, res as Response, next);
 
       expect(next).toHaveBeenCalled();
     });

@@ -9,8 +9,11 @@ import type {
   TeamRoundRankingResponse,
   TeamSeasonRankingResponse,
   AllTeamsRankingResponse,
+  SeasonSummaryResponse,
+  CompactRound,
+  CompactMatch,
 } from '../models/types.js';
-import { ScrapeRequestSchema, FixtureQuerySchema, YearSchema, RoundSchema } from '../models/schemas.js';
+import { ScrapeRequestSchema, FixtureQuerySchema, YearSchema, RoundSchema, SeasonSummaryParamsSchema } from '../models/schemas.js';
 import { scrapeAndLoadSchedule } from '../scraper/index.js';
 import {
   getLoadedYears,
@@ -19,6 +22,8 @@ import {
   getAllTeams,
   getTeamByCode,
   getFixturesByRound,
+  getFixturesByYear,
+  isYearLoaded,
 } from '../database/store.js';
 import { fixtures } from '../database/query.js';
 import {
@@ -408,6 +413,91 @@ export async function getAllTeamsRanking(req: Request, res: Response, next: Next
           rank,
         };
       }),
+    };
+
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ============================================
+// Season Summary (Compact View)
+// ============================================
+
+/**
+ * GET /api/season/:year/summary - Get season summary with all rounds
+ */
+export async function getSeasonSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const parseResult = SeasonSummaryParamsSchema.safeParse(req.params);
+
+    if (!parseResult.success) {
+      throw new InvalidParameterError(
+        `Year must be an integer between 2001 and ${new Date().getFullYear()}`
+      );
+    }
+
+    const { year } = parseResult.data;
+
+    if (!isYearLoaded(year)) {
+      const loadedYears = getLoadedYears();
+      const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
+      throw new NotFoundError(
+        `Season data for ${year} has not been loaded${validYearsStr}`
+      );
+    }
+
+    const yearFixtures = getFixturesByYear(year);
+
+    // Group fixtures by round and transform to compact format
+    const roundsMap = new Map<number, { matches: CompactMatch[]; byeTeams: string[] }>();
+
+    // Initialize all 27 rounds
+    for (let round = 1; round <= 27; round++) {
+      roundsMap.set(round, { matches: [], byeTeams: [] });
+    }
+
+    // Process fixtures
+    for (const fixture of yearFixtures) {
+      const roundData = roundsMap.get(fixture.round);
+      if (!roundData) continue;
+
+      if (fixture.isBye) {
+        roundData.byeTeams.push(fixture.teamCode);
+      } else if (fixture.isHome && fixture.opponentCode) {
+        // Only process home fixtures to avoid duplicates
+        // Find the corresponding away fixture to get away team's strength rating
+        const awayFixture = yearFixtures.find(
+          f => f.round === fixture.round && f.teamCode === fixture.opponentCode && !f.isHome
+        );
+
+        const match: CompactMatch = {
+          homeTeam: fixture.teamCode,
+          awayTeam: fixture.opponentCode,
+          homeScore: null, // Scores not available in current data model
+          awayScore: null,
+          scheduledTime: null, // Times not available in current data model
+          isComplete: false,
+          homeStrength: fixture.strengthRating,
+          awayStrength: awayFixture?.strengthRating ?? 0,
+        };
+        roundData.matches.push(match);
+      }
+    }
+
+    // Convert map to sorted array
+    const rounds: CompactRound[] = Array.from(roundsMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([round, data]) => ({
+        round,
+        matches: data.matches,
+        byeTeams: data.byeTeams,
+      }));
+
+    const response: SeasonSummaryResponse = {
+      year,
+      rounds,
     };
 
     res.json(response);

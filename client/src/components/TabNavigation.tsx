@@ -1,32 +1,52 @@
-import { Tabs, Tab, Box } from '@mui/material';
+import { Tabs, Tab, Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import GroupsIcon from '@mui/icons-material/Groups';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import type { ActiveTab } from '../types';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import GridViewIcon from '@mui/icons-material/GridView';
+import type { ActiveTab, RoundViewMode } from '../types';
 
 interface TabNavigationProps {
   activeTab: ActiveTab;
   onTabChange: (tab: ActiveTab) => void;
+  roundViewMode?: RoundViewMode;
+  onRoundViewModeChange?: (mode: RoundViewMode) => void;
 }
 
-export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
+export function TabNavigation({
+  activeTab,
+  onTabChange,
+  roundViewMode = 'compact',
+  onRoundViewModeChange,
+}: TabNavigationProps) {
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
-    onTabChange(newValue === 0 ? 'team' : 'round');
+    onTabChange(newValue === 0 ? 'round' : 'team');
+  };
+
+  const handleViewModeChange = (
+    _event: React.MouseEvent<HTMLElement>,
+    newMode: RoundViewMode | null
+  ) => {
+    if (newMode !== null && onRoundViewModeChange) {
+      onRoundViewModeChange(newMode);
+    }
   };
 
   return (
-    <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+    <Box
+      sx={{
+        borderBottom: 1,
+        borderColor: 'divider',
+        mb: 3,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}
+    >
       <Tabs
-        value={activeTab === 'team' ? 0 : 1}
+        value={activeTab === 'round' ? 0 : 1}
         onChange={handleChange}
         aria-label="Schedule view tabs"
       >
-        <Tab
-          icon={<GroupsIcon />}
-          iconPosition="start"
-          label="Team Schedule"
-          id="tab-team"
-          aria-controls="tabpanel-team"
-        />
         <Tab
           icon={<CalendarMonthIcon />}
           iconPosition="start"
@@ -34,7 +54,34 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
           id="tab-round"
           aria-controls="tabpanel-round"
         />
+        <Tab
+          icon={<GroupsIcon />}
+          iconPosition="start"
+          label="Team Schedule"
+          id="tab-team"
+          aria-controls="tabpanel-team"
+        />
       </Tabs>
+
+      {activeTab === 'round' && onRoundViewModeChange && (
+        <ToggleButtonGroup
+          value={roundViewMode}
+          exclusive
+          onChange={handleViewModeChange}
+          aria-label="Round view mode"
+          size="small"
+          sx={{ mb: 1 }}
+        >
+          <ToggleButton value="detailed" aria-label="Detailed view">
+            <ViewListIcon sx={{ mr: 0.5 }} fontSize="small" />
+            Detailed
+          </ToggleButton>
+          <ToggleButton value="compact" aria-label="Compact view">
+            <GridViewIcon sx={{ mr: 0.5 }} fontSize="small" />
+            Compact
+          </ToggleButton>
+        </ToggleButtonGroup>
+      )}
     </Box>
   );
 }
