@@ -9,10 +9,11 @@ describe('TabNavigation', () => {
     onTabChange: vi.fn(),
   };
 
-  it('should render team and round tabs', () => {
+  it('should render team, round, and bye tabs', () => {
     render(<TabNavigation {...defaultProps} />);
     expect(screen.getByRole('tab', { name: /Team Schedule/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Round Overview/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Bye Overview/i })).toBeInTheDocument();
   });
 
   it('should highlight team tab when activeTab is team', () => {
@@ -45,6 +46,21 @@ describe('TabNavigation', () => {
     expect(onTabChange).toHaveBeenCalledWith('round');
   });
 
+  it('should highlight bye tab when activeTab is bye', () => {
+    render(<TabNavigation {...defaultProps} activeTab="bye" />);
+    const byeTab = screen.getByRole('tab', { name: /Bye Overview/i });
+    expect(byeTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('should call onTabChange with "bye" when bye tab is clicked', () => {
+    const onTabChange = vi.fn();
+    render(<TabNavigation activeTab="team" onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Bye Overview/i }));
+
+    expect(onTabChange).toHaveBeenCalledWith('bye');
+  });
+
   it('should have proper accessibility attributes', () => {
     render(<TabNavigation {...defaultProps} />);
 
@@ -58,5 +74,9 @@ describe('TabNavigation', () => {
     const roundTab = screen.getByRole('tab', { name: /Round Overview/i });
     expect(roundTab).toHaveAttribute('id', 'tab-round');
     expect(roundTab).toHaveAttribute('aria-controls', 'tabpanel-round');
+
+    const byeTab = screen.getByRole('tab', { name: /Bye Overview/i });
+    expect(byeTab).toHaveAttribute('id', 'tab-bye');
+    expect(byeTab).toHaveAttribute('aria-controls', 'tabpanel-bye');
   });
 });

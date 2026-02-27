@@ -7,6 +7,7 @@ import { TabNavigation } from './components/TabNavigation';
 import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
+import { ByeOverviewView } from './views/ByeOverviewView';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getRound, getAllTeamsRanking, getSeasonSummary } from './services/api';
 import { calculateStrengthPercentiles } from './utils/strengthColors';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode } from './types';
@@ -194,9 +195,13 @@ function App() {
     }
   }, [activeTab, roundViewMode, roundData, loadedYears, selectedRound, handleRoundSelect]);
 
-  // Load season summary when switching to compact view
+  // Load season summary when switching to compact view or bye overview
   useEffect(() => {
-    if (activeTab === 'round' && roundViewMode === 'compact' && !seasonSummary && loadedYears.length > 0) {
+    const needsSeasonSummary =
+      (activeTab === 'round' && roundViewMode === 'compact') ||
+      activeTab === 'bye';
+
+    if (needsSeasonSummary && !seasonSummary && loadedYears.length > 0) {
       void fetchSeasonSummary();
     }
   }, [activeTab, roundViewMode, seasonSummary, loadedYears, fetchSeasonSummary]);
@@ -279,6 +284,16 @@ function App() {
             error={seasonSummaryError}
             onRetry={fetchSeasonSummary}
             onRoundClick={handleRoundClickFromCompact}
+          />
+        )}
+
+        {activeTab === 'bye' && (
+          <ByeOverviewView
+            teams={teams}
+            seasonSummary={seasonSummary}
+            loading={seasonSummaryLoading}
+            error={seasonSummaryError}
+            onRetry={fetchSeasonSummary}
           />
         )}
       </Container>

@@ -7,6 +7,10 @@ import type {
   RoundMatch,
   HealthResponse,
   StrengthThresholds,
+  SeasonSummaryResponse,
+  CompactRound,
+  ByeGridData,
+  SignificantByeRound,
 } from '../../types';
 
 // Mock Teams
@@ -97,3 +101,100 @@ export function getTeamName(code: string): string {
   const team = mockTeams.find((t) => t.code === code);
   return team?.name ?? code;
 }
+
+// Mock Season Summary for Bye Overview tests
+export const mockCompactRounds: CompactRound[] = [
+  { round: 1, matches: [], byeTeams: [] },
+  { round: 2, matches: [], byeTeams: [] },
+  { round: 3, matches: [], byeTeams: [] },
+  { round: 4, matches: [], byeTeams: [] },
+  { round: 5, matches: [], byeTeams: ['BRI', 'CAN'] },
+  { round: 6, matches: [], byeTeams: ['CBY', 'CRO'] },
+  { round: 7, matches: [], byeTeams: ['DOL', 'GLD'] },
+  { round: 8, matches: [], byeTeams: ['MAN', 'MEL'] },
+  { round: 9, matches: [], byeTeams: ['NEW', 'NZL'] },
+  { round: 10, matches: [], byeTeams: ['NTH', 'PAR'] },
+  { round: 11, matches: [], byeTeams: ['PEN', 'SGI'] },
+  { round: 12, matches: [], byeTeams: ['SOU', 'SYD', 'WST'] },
+  { round: 13, matches: [], byeTeams: [] },
+  { round: 14, matches: [], byeTeams: [] },
+  { round: 15, matches: [], byeTeams: [] },
+  { round: 16, matches: [], byeTeams: [] },
+  { round: 17, matches: [], byeTeams: [] },
+  { round: 18, matches: [], byeTeams: [] },
+  { round: 19, matches: [], byeTeams: [] },
+  { round: 20, matches: [], byeTeams: [] },
+  { round: 21, matches: [], byeTeams: [] },
+  { round: 22, matches: [], byeTeams: [] },
+  { round: 23, matches: [], byeTeams: [] },
+  { round: 24, matches: [], byeTeams: [] },
+  { round: 25, matches: [], byeTeams: [] },
+  { round: 26, matches: [], byeTeams: [] },
+  { round: 27, matches: [], byeTeams: [] },
+];
+
+export const mockSeasonSummaryResponse: SeasonSummaryResponse = {
+  year: 2026,
+  rounds: mockCompactRounds,
+};
+
+// Mock ByeGridData for component tests
+export const mockByeGridData: ByeGridData = {
+  teams: [...mockTeams].sort((a, b) => a.name.localeCompare(b.name)),
+  rounds: Array.from({ length: 27 }, (_, i) => i + 1),
+  byeMap: new Map([
+    ['BRI', new Set([5])],
+    ['CAN', new Set([5])],
+    ['CBY', new Set([6])],
+    ['CRO', new Set([6])],
+    ['DOL', new Set([7])],
+    ['GLD', new Set([7])],
+    ['MAN', new Set([8])],
+    ['MEL', new Set([8])],
+    ['NEW', new Set([9])],
+    ['NZL', new Set([9])],
+    ['NTH', new Set([10])],
+    ['PAR', new Set([10])],
+    ['PEN', new Set([11])],
+    ['SGI', new Set([11])],
+    ['SOU', new Set([12])],
+    ['SYD', new Set([12])],
+    ['WST', new Set([12])],
+  ]),
+  byeCountByRound: new Map([
+    [1, 0], [2, 0], [3, 0], [4, 0],
+    [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2], [11, 2], [12, 3],
+    [13, 0], [14, 0], [15, 0], [16, 0], [17, 0], [18, 0], [19, 0], [20, 0],
+    [21, 0], [22, 0], [23, 0], [24, 0], [25, 0], [26, 0], [27, 0],
+  ]),
+  maxByeCount: 3,
+  columnStrengths: new Map(),
+  rowStrengths: new Map(),
+};
+
+// Mock Significant Bye Rounds for SignificantByeStats tests
+// Only round 12 has >2 byes (SOU, SYD, WST = 3 teams)
+export const mockSignificantByeRounds: SignificantByeRound[] = [
+  {
+    round: 12,
+    affectedTeams: ['SOU', 'SYD', 'WST'],
+    unaffectedTeams: ['BRI', 'CAN', 'CBY', 'CRO', 'DOL', 'GLD', 'MAN', 'MEL', 'NEW', 'NTH', 'NZL', 'PAR', 'PEN', 'SGI'],
+  },
+];
+
+// Mock with multiple significant rounds for additional testing
+export const mockMultipleSignificantByeRounds: SignificantByeRound[] = [
+  {
+    round: 5,
+    affectedTeams: ['BRI', 'CAN', 'CBY'],
+    unaffectedTeams: ['CRO', 'DOL', 'GLD', 'MAN', 'MEL', 'NEW', 'NTH', 'NZL', 'PAR', 'PEN', 'SGI', 'SOU', 'SYD', 'WST'],
+  },
+  {
+    round: 12,
+    affectedTeams: ['SOU', 'SYD', 'WST'],
+    unaffectedTeams: ['BRI', 'CAN', 'CBY', 'CRO', 'DOL', 'GLD', 'MAN', 'MEL', 'NEW', 'NTH', 'NZL', 'PAR', 'PEN', 'SGI'],
+  },
+];
+
+// Empty significant rounds for testing empty state
+export const mockEmptySignificantByeRounds: SignificantByeRound[] = [];

@@ -148,7 +148,7 @@ export interface StrengthThresholds {
 
 export type StrengthCategory = 'easy' | 'medium' | 'hard';
 
-export type ActiveTab = 'team' | 'round';
+export type ActiveTab = 'team' | 'round' | 'bye';
 
 export interface AppState {
   serverReady: boolean;
@@ -198,3 +198,77 @@ export interface SeasonSummaryResponse {
 
 /** View mode for round tab */
 export type RoundViewMode = 'compact' | 'detailed';
+
+// Bye Overview Types
+
+/**
+ * Transformed data structure optimized for bye grid rendering.
+ * Built from SeasonSummaryResponse.rounds and Team[].
+ */
+export interface ByeGridData {
+  /** All teams sorted alphabetically by full name */
+  teams: Team[];
+  /** All round numbers from 1 to 27 */
+  rounds: number[];
+  /** Map from team code to set of round numbers where team has bye */
+  byeMap: Map<string, Set<number>>;
+  /** Map from round number to count of teams with byes */
+  byeCountByRound: Map<number, number>;
+  /** Maximum bye count in any single round */
+  maxByeCount: number;
+  /** Strength from 0-1 on a round's bye effect */
+  columnStrengths: Map<number, number>;
+  /** Strength from 0-1 on a team's bye effect */
+  rowStrengths: Map<string, number>;
+}
+
+/**
+ * Component state for the bye overview view.
+ */
+export interface ByeOverviewState {
+  /** Currently highlighted team code, or null if no row highlighted */
+  highlightedRow: string | null;
+  /** Currently highlighted round number, or null if no column highlighted */
+  highlightedColumn: number | null;
+  /** Round range filter: [start, end] inclusive. Default: [1, 27] */
+  roundRange: [number, number];
+}
+
+// Significant Bye Statistics Types
+
+/**
+ * Data for the significant bye statistics table.
+ * Shows rounds with high bye concentration (>2 byes).
+ */
+export interface SignificantByeRound {
+  /** Round number */
+  round: number;
+  /** Team codes with byes in this round (affected teams) */
+  affectedTeams: string[];
+  /** Team codes without byes in this round (unaffected teams) */
+  unaffectedTeams: string[];
+}
+
+/**
+ * Props for the SignificantByeStats component.
+ */
+export interface SignificantByeStatsProps {
+  /** Significant rounds data (rounds with >2 byes) */
+  significantRounds: SignificantByeRound[];
+  /** Currently highlighted team code in the statistics table */
+  highlightedTeam: string | null;
+  /** Callback when a team chip is clicked */
+  onTeamClick: (teamCode: string) => void;
+}
+
+/**
+ * Props for the TeamChip component.
+ */
+export interface TeamChipProps {
+  /** Team code to display */
+  teamCode: string;
+  /** Whether this chip should be highlighted */
+  isHighlighted: boolean;
+  /** Callback when chip is clicked */
+  onClick: (teamCode: string) => void;
+}

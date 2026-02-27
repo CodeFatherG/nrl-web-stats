@@ -113,8 +113,28 @@ describe('App', () => {
       mockedApi.getRound.mockResolvedValue(mockRoundResponse);
     });
 
-    it('should default to Team Schedule tab', async () => {
+    it('should default to Round Overview tab in compact mode', async () => {
       render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /Round Overview/i })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        );
+      });
+
+      // Compact view mode toggle should be visible
+      expect(screen.getByRole('button', { name: /Compact view/i })).toBeInTheDocument();
+    });
+
+    it('should switch to Team Schedule tab when clicked', async () => {
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /Team Schedule/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('tab', { name: /Team Schedule/i }));
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /Team Schedule/i })).toHaveAttribute(
@@ -127,13 +147,21 @@ describe('App', () => {
       expect(screen.getByLabelText('Select Team')).toBeInTheDocument();
     });
 
-    it('should switch to Round Overview tab when clicked', async () => {
+    it('should switch back to Round Overview tab', async () => {
       render(<App />);
 
       await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /Round Overview/i })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /Team Schedule/i })).toBeInTheDocument();
       });
 
+      // Go to Team tab
+      fireEvent.click(screen.getByRole('tab', { name: /Team Schedule/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Select Team')).toBeInTheDocument();
+      });
+
+      // Go back to Round tab
       fireEvent.click(screen.getByRole('tab', { name: /Round Overview/i }));
 
       await waitFor(() => {
@@ -143,48 +171,15 @@ describe('App', () => {
         );
       });
 
-      // Round selector should be visible
-      expect(screen.getByLabelText('Select Round')).toBeInTheDocument();
+      // Compact view mode should be visible
+      expect(screen.getByRole('button', { name: /Compact view/i })).toBeInTheDocument();
     });
 
-    it('should switch back to Team Schedule tab', async () => {
+    it('should show Bye Overview tab', async () => {
       render(<App />);
 
       await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /Round Overview/i })).toBeInTheDocument();
-      });
-
-      // Go to Round tab
-      fireEvent.click(screen.getByRole('tab', { name: /Round Overview/i }));
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Select Round')).toBeInTheDocument();
-      });
-
-      // Go back to Team tab
-      fireEvent.click(screen.getByRole('tab', { name: /Team Schedule/i }));
-
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /Team Schedule/i })).toHaveAttribute(
-          'aria-selected',
-          'true'
-        );
-      });
-
-      expect(screen.getByLabelText('Select Team')).toBeInTheDocument();
-    });
-
-    it('should load round data when switching to Round Overview tab', async () => {
-      render(<App />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /Round Overview/i })).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByRole('tab', { name: /Round Overview/i }));
-
-      await waitFor(() => {
-        expect(mockedApi.getRound).toHaveBeenCalled();
+        expect(screen.getByRole('tab', { name: /Bye Overview/i })).toBeInTheDocument();
       });
     });
   });

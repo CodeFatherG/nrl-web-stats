@@ -1,6 +1,7 @@
 import { Tabs, Tab, Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import GroupsIcon from '@mui/icons-material/Groups';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
 import type { ActiveTab, RoundViewMode } from '../types';
@@ -19,7 +20,8 @@ export function TabNavigation({
   onRoundViewModeChange,
 }: TabNavigationProps) {
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
-    onTabChange(newValue === 0 ? 'round' : 'team');
+    const tabs: ActiveTab[] = ['round', 'team', 'bye'];
+    onTabChange(tabs[newValue] ?? 'round');
   };
 
   const handleViewModeChange = (
@@ -43,7 +45,7 @@ export function TabNavigation({
       }}
     >
       <Tabs
-        value={activeTab === 'round' ? 0 : 1}
+        value={activeTab === 'round' ? 0 : activeTab === 'team' ? 1 : 2}
         onChange={handleChange}
         aria-label="Schedule view tabs"
       >
@@ -60,6 +62,13 @@ export function TabNavigation({
           label="Team Schedule"
           id="tab-team"
           aria-controls="tabpanel-team"
+        />
+        <Tab
+          icon={<EventBusyIcon />}
+          iconPosition="start"
+          label="Bye Overview"
+          id="tab-bye"
+          aria-controls="tabpanel-bye"
         />
       </Tabs>
 
