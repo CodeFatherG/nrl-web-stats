@@ -26,14 +26,15 @@ describe('Frontend API Integration', () => {
 
     expect(response.status).toBe(200);
 
-    const data = await response.json() as Array<{ code: string; name: string }>;
+    const data = await response.json() as { teams: Array<{ code: string; name: string }> };
 
-    expect(Array.isArray(data)).toBe(true);
+    expect(data).toHaveProperty('teams');
+    expect(Array.isArray(data.teams)).toBe(true);
     // Should have 17 NRL teams
-    expect(data.length).toBe(17);
+    expect(data.teams.length).toBe(17);
 
     // Check structure
-    const team = data[0];
+    const team = data.teams[0];
     expect(team).toHaveProperty('code');
     expect(team).toHaveProperty('name');
     expect(typeof team.code).toBe('string');

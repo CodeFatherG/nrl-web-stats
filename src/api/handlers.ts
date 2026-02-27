@@ -95,7 +95,7 @@ export async function getYears(c: ApiContext) {
  * GET /api/teams - List all teams
  */
 export async function getTeams(c: ApiContext) {
-  return c.json(getAllTeamsFromDb());
+  return c.json({ teams: getAllTeamsFromDb() });
 }
 
 /**
@@ -132,9 +132,30 @@ export async function getTeamSchedule(c: ApiContext) {
     return a.round - b.round;
   });
 
+  // Transform to match frontend ScheduleFixture type
+  const schedule = teamFixtures.map(f => ({
+    round: f.round,
+    year: f.year,
+    opponent: f.opponentCode,
+    isHome: f.isHome,
+    isBye: f.isBye,
+    strengthRating: f.strengthRating,
+  }));
+
+  // Calculate totals
+  const totalStrength = schedule
+    .filter(f => !f.isBye)
+    .reduce((sum, f) => sum + f.strengthRating, 0);
+
+  const byeRounds = schedule
+    .filter(f => f.isBye)
+    .map(f => f.round);
+
   return c.json({
     team,
-    fixtures: teamFixtures,
+    schedule,
+    totalStrength,
+    byeRounds,
   });
 }
 
@@ -225,7 +246,7 @@ export async function getRoundDetails(c: ApiContext) {
   const roundResult = RoundSchema.safeParse(c.req.param('round'));
 
   if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
   }
   if (!roundResult.success) {
     return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
@@ -261,7 +282,7 @@ export async function getRoundDetails(c: ApiContext) {
   return c.json({
     year,
     round,
-    fixtures: roundFixtures,
+    matches: Array.from(matchMap.values()),
     byeTeams,
   });
 }
@@ -277,7 +298,7 @@ export async function getAllTeamsRanking(c: ApiContext) {
   const yearResult = YearSchema.safeParse(c.req.param('year'));
 
   if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
   }
 
   const year = yearResult.data;
@@ -313,7 +334,7 @@ export async function getTeamRanking(c: ApiContext) {
   const code = c.req.param('code')?.toUpperCase();
 
   if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
   }
 
   if (!code || !VALID_TEAM_CODES.includes(code)) {
@@ -348,7 +369,7 @@ export async function getTeamRoundRankingHandler(c: ApiContext) {
   const code = c.req.param('code')?.toUpperCase();
 
   if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
   }
   if (!roundResult.success) {
     return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
@@ -389,7 +410,7 @@ export async function getSeasonSummary(c: ApiContext) {
   const parseResult = SeasonSummaryParamsSchema.safeParse({ year: c.req.param('year') });
 
   if (!parseResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', `Year must be an integer between 2001 and ${new Date().getFullYear()}`, 400);
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be a valid integer (1998 or later)', 400);
   }
 
   const { year } = parseResult.data;
@@ -469,7 +490,7 @@ export async function triggerScrape(c: ApiContext) {
     const parseResult = ScrapeRequestSchema.safeParse(body);
 
     if (!parseResult.success) {
-      return errorResponse(c, 'INVALID_YEAR', 'Year must be between 2010 and 2030', 400);
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
     }
 
     const { year, force } = parseResult.data;

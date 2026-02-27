@@ -41,11 +41,11 @@ describe('GET /api/rounds/:year/:round', () => {
     const response = await mf.dispatchFetch('http://localhost/api/rounds/2026/1');
 
     expect(response.status).toBe(200);
-    const data = await response.json() as { year: number; round: number; fixtures: unknown[]; byeTeams: string[] };
+    const data = await response.json() as { year: number; round: number; matches: unknown[]; byeTeams: string[] };
 
     expect(data.year).toBe(2026);
     expect(data.round).toBe(1);
-    expect(Array.isArray(data.fixtures)).toBe(true);
+    expect(Array.isArray(data.matches)).toBe(true);
     expect(Array.isArray(data.byeTeams)).toBe(true);
   });
 });

@@ -27,8 +27,8 @@ npm-debug.log*
 # Test coverage
 coverage/
 
-# Server public folder (built client)
-server/public/
+# Cloudflare Workers local state
+.wrangler/
 
 # Temporary files
 *.tmp

@@ -5,9 +5,9 @@
 import { z } from 'zod';
 import { VALID_TEAM_CODES } from './team.js';
 
-/** Schema for scrape request */
+/** Schema for scrape request - min 1998 (first NRL season), no max limit */
 export const ScrapeRequestSchema = z.object({
-  year: z.number().int().min(2010).max(2030),
+  year: z.number().int().min(1998),
   force: z.boolean().optional(),
 });
 
@@ -33,12 +33,12 @@ export const TeamCodeSchema = z.string().length(3).toUpperCase().refine(
 /** Schema for round parameter */
 export const RoundSchema = z.coerce.number().int().min(1).max(27);
 
-/** Schema for year parameter */
-export const YearSchema = z.coerce.number().int().min(2010).max(2030);
+/** Schema for year parameter - min 1998 (first NRL season), no max limit */
+export const YearSchema = z.coerce.number().int().min(1998);
 
-/** Schema for season summary year parameter */
+/** Schema for season summary year parameter - no max, actual validation is isYearLoaded() */
 export const SeasonSummaryParamsSchema = z.object({
-  year: z.coerce.number().int().min(2001).max(new Date().getFullYear()),
+  year: z.coerce.number().int().min(1998),
 });
 
 /** Type inference helpers */

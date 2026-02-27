@@ -26,12 +26,12 @@ describe('Teams API', () => {
       const response = await mf.dispatchFetch('http://localhost/api/teams');
 
       expect(response.status).toBe(200);
-      const data = await response.json() as Array<{ code: string; name: string }>;
+      const data = await response.json() as { teams: Array<{ code: string; name: string }> };
 
-      expect(data).toHaveLength(17);
+      expect(data.teams).toHaveLength(17);
 
       // Verify known teams exist
-      const codes = data.map(t => t.code);
+      const codes = data.teams.map(t => t.code);
       expect(codes).toContain('MEL');
       expect(codes).toContain('BRO');
       expect(codes).toContain('SYD');
@@ -40,9 +40,9 @@ describe('Teams API', () => {
 
     it('returns teams with correct structure', async () => {
       const response = await mf.dispatchFetch('http://localhost/api/teams');
-      const data = await response.json() as Array<{ code: string; name: string }>;
+      const data = await response.json() as { teams: Array<{ code: string; name: string }> };
 
-      for (const team of data) {
+      for (const team of data.teams) {
         expect(team).toHaveProperty('code');
         expect(team).toHaveProperty('name');
         expect(team.code).toHaveLength(3);
@@ -64,13 +64,15 @@ describe('Teams API', () => {
       const response = await mf.dispatchFetch('http://localhost/api/teams/MEL/schedule');
 
       expect(response.status).toBe(200);
-      const data = await response.json() as { team: { code: string; name: string }; fixtures: unknown[] };
+      const data = await response.json() as { team: { code: string; name: string }; schedule: unknown[]; totalStrength: number; byeRounds: number[] };
 
       expect(data).toHaveProperty('team');
       expect(data.team.code).toBe('MEL');
       expect(data.team.name).toBe('Melbourne Storm');
-      expect(data).toHaveProperty('fixtures');
-      expect(Array.isArray(data.fixtures)).toBe(true);
+      expect(data).toHaveProperty('schedule');
+      expect(Array.isArray(data.schedule)).toBe(true);
+      expect(data).toHaveProperty('totalStrength');
+      expect(data).toHaveProperty('byeRounds');
     });
 
     it('is case insensitive for team code', async () => {

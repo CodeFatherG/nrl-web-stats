@@ -9,8 +9,11 @@
   "build": {
     "command": "npm run build:worker"
   },
-  "site": {
-    "bucket": "./dist/frontend"
+  "assets": {
+    "directory": "./dist/frontend",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application"
   },
   "vars": {
     "ENVIRONMENT": "production"
