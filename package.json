@@ -2,20 +2,45 @@
   "name": "nrlschedulescraper",
   "private": true,
   "version": "1.0.0",
-  "description": "NRL Schedule Scraper with React UI Dashboard",
+  "type": "module",
+  "description": "NRL Schedule Scraper - Cloudflare Workers Edge Application",
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "wrangler dev",
+    "dev:legacy": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
-    "build": "npm run build:client && npm run copy:client",
+    "build": "npm run build:frontend && npm run build:worker",
+    "build:frontend": "cd client && npm run build && cp -r dist ../dist/frontend",
+    "build:worker": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --platform=browser --target=es2022",
+    "build:legacy": "npm run build:client && npm run copy:client",
     "build:client": "cd client && npm run build",
     "copy:client": "cp -r client/dist server/public",
-    "start": "cd server && npm start",
-    "test": "cd server && npm test && cd ../client && npm test",
+    "start": "wrangler dev",
+    "start:legacy": "cd server && npm start",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:legacy": "cd server && npm test && cd ../client && npm test",
     "test:server": "cd server && npm test",
-    "test:client": "cd client && npm test"
+    "test:client": "cd client && npm test",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "linkedom": "^0.18.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "@types/node": "^20.10.6",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.24.0",
+    "miniflare": "^3.20240925.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "wrangler": "^4.69.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
