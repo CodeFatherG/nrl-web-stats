@@ -7,7 +7,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Proxy to wrangler dev server for local development
+        target: 'http://localhost:8787',
         changeOrigin: true,
       },
     },
@@ -15,5 +16,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // Ensure assets go to assets/ subdirectory
+    assetsDir: 'assets',
+    // Generate manifest for Workers integration
+    manifest: true,
   },
 });
