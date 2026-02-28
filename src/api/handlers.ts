@@ -9,6 +9,7 @@ import type {
   TeamRoundRankingResponse,
   TeamSeasonRankingResponse,
   AllTeamsRankingResponse,
+  TeamStreaksResponse,
   SeasonSummaryResponse,
   CompactRound,
   CompactMatch,
@@ -36,7 +37,9 @@ import {
   getTeamRoundRanking,
   getTeamSeasonRanking,
   getAllTeamSeasonRankings,
+  calculateSeasonThresholds,
 } from '../database/rankings.js';
+import { analyseTeamStreaks, buildStreakSummary } from '../database/streaks.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
 import { cacheStore } from '../cache/store.js';
 import type { CachedSeasonData } from '../cache/types.js';
@@ -133,14 +136,18 @@ export async function getTeamSchedule(c: ApiContext) {
   });
 
   // Transform to match frontend ScheduleFixture type
-  const schedule = teamFixtures.map(f => ({
-    round: f.round,
-    year: f.year,
-    opponent: f.opponentCode,
-    isHome: f.isHome,
-    isBye: f.isBye,
-    strengthRating: f.strengthRating,
-  }));
+  const schedule = teamFixtures.map(f => {
+    const roundRanking = getTeamRoundRanking(f.year, code, f.round);
+    return {
+      round: f.round,
+      year: f.year,
+      opponent: f.opponentCode,
+      isHome: f.isHome,
+      isBye: f.isBye,
+      strengthRating: f.strengthRating,
+      category: roundRanking?.category ?? 'medium',
+    };
+  });
 
   // Calculate totals
   const totalStrength = schedule
@@ -151,11 +158,16 @@ export async function getTeamSchedule(c: ApiContext) {
     .filter(f => f.isBye)
     .map(f => f.round);
 
+  // Determine year for thresholds (prefer query param, fallback to first fixture's year)
+  const scheduleYear = yearParam ? Number(yearParam) : teamFixtures[0]?.year;
+  const thresholds = scheduleYear ? calculateSeasonThresholds(scheduleYear) : undefined;
+
   return c.json({
     team,
     schedule,
     totalStrength,
     byeRounds,
+    ...(thresholds && { thresholds }),
   });
 }
 
@@ -310,6 +322,7 @@ export async function getAllTeamsRanking(c: ApiContext) {
 
   const response: AllTeamsRankingResponse = {
     year,
+    thresholds: calculateSeasonThresholds(year),
     rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
       const team = getTeamByCode(teamCode);
       return {
@@ -400,6 +413,49 @@ export async function getTeamRoundRankingHandler(c: ApiContext) {
 }
 
 // ============================================
+// Streaks
+// ============================================
+
+/**
+ * GET /api/streaks/:year/:code - Get team streak analysis
+ */
+export async function getTeamStreaks(c: ApiContext) {
+  const yearResult = YearSchema.safeParse(c.req.param('year'));
+  const code = c.req.param('code')?.toUpperCase();
+
+  if (!yearResult.success) {
+    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+  }
+
+  if (!code || !VALID_TEAM_CODES.includes(code)) {
+    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+  }
+
+  const year = yearResult.data;
+  const team = getTeamByCode(code);
+  if (!team) {
+    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+  }
+
+  const ranking = getTeamSeasonRanking(year, code);
+  if (!ranking) {
+    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
+  }
+
+  const streaks = analyseTeamStreaks(ranking);
+  const summary = buildStreakSummary(streaks);
+
+  const response: TeamStreaksResponse = {
+    team,
+    year,
+    streaks,
+    summary,
+  };
+
+  return c.json(response);
+}
+
+// ============================================
 // Season Summary
 // ============================================
 
@@ -470,6 +526,7 @@ export async function getSeasonSummary(c: ApiContext) {
 
   const response: SeasonSummaryResponse = {
     year,
+    thresholds: calculateSeasonThresholds(year),
     rounds,
   };
 

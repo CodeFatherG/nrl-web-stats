@@ -8,16 +8,21 @@ import {
 
 interface StrengthBadgeProps {
   rating: number;
-  thresholds: StrengthThresholds;
+  /** Pre-computed category (preferred). If provided, thresholds are ignored. */
+  category?: StrengthCategory;
+  /** Thresholds for computing category from rating. Used only when category is not provided. */
+  thresholds?: StrengthThresholds;
   showValue?: boolean;
 }
 
 export function StrengthBadge({
   rating,
+  category: categoryProp,
   thresholds,
   showValue = true,
 }: StrengthBadgeProps) {
-  const category: StrengthCategory = getStrengthCategory(rating, thresholds);
+  const category: StrengthCategory = categoryProp
+    ?? (thresholds ? getStrengthCategory(rating, thresholds) : 'medium');
   const backgroundColor = getStrengthColor(category);
   const textColor = getStrengthTextColor(category);
 

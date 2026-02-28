@@ -6,10 +6,10 @@ import { FilterControls } from '../components/FilterControls';
 import type {
   Team,
   TeamScheduleResponse,
-  StrengthThresholds,
   FilterState,
   ScheduleFixture,
   AllTeamsRankingResponse,
+  Streak,
 } from '../types';
 
 interface TeamScheduleViewProps {
@@ -17,13 +17,14 @@ interface TeamScheduleViewProps {
   selectedTeamCode: string | null;
   onTeamSelect: (code: string) => void;
   schedule: TeamScheduleResponse | null;
-  strengthThresholds: StrengthThresholds;
   loading: boolean;
   error: string | null;
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
   /** Rankings data for all teams */
   rankings?: AllTeamsRankingResponse | null;
+  /** Streak analysis data for selected team */
+  streaks?: Streak[];
 }
 
 function applyFilters(
@@ -57,12 +58,12 @@ export function TeamScheduleView({
   selectedTeamCode,
   onTeamSelect,
   schedule,
-  strengthThresholds,
   loading,
   error,
   filters,
   onFiltersChange,
   rankings,
+  streaks,
 }: TeamScheduleViewProps) {
   const filteredFixtures = schedule
     ? applyFilters(schedule.schedule, filters)
@@ -117,8 +118,8 @@ export function TeamScheduleView({
 
           <FixtureTable
             fixtures={filteredFixtures}
-            strengthThresholds={strengthThresholds}
             teams={teams}
+            streaks={streaks}
           />
         </>
       )}

@@ -1,26 +1,12 @@
 import type { StrengthCategory, StrengthThresholds } from '../types';
 
-export function calculateStrengthPercentiles(
-  ratings: number[]
-): StrengthThresholds {
-  if (ratings.length === 0) {
-    return { p33: 0, p67: 0 };
-  }
-
-  const sorted = [...ratings].sort((a, b) => a - b);
-  const p33Index = Math.floor(sorted.length * 0.33);
-  const p67Index = Math.floor(sorted.length * 0.67);
-
-  return {
-    p33: sorted[p33Index] ?? 0,
-    p67: sorted[p67Index] ?? 0,
-  };
-}
-
 export function getStrengthCategory(
   rating: number,
   thresholds: StrengthThresholds
 ): StrengthCategory {
+  // Handle IQR outlier fences if provided
+  if (thresholds.lowerFence != null && rating < thresholds.lowerFence) return 'hard';
+  if (thresholds.upperFence != null && rating > thresholds.upperFence) return 'easy';
   // Lower ratings = fewer SC points available = harder matchup
   // Higher ratings = more SC points available = easier matchup
   if (rating <= thresholds.p33) return 'hard';

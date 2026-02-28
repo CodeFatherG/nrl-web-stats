@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Box, CircularProgress, Alert, Typography, Button } from '@mui/material';
 import { CompactRound } from '../components/CompactRound';
 import type { SeasonSummaryResponse, StrengthThresholds } from '../types';
-import { calculateStrengthPercentiles } from '../utils/strengthColors';
 
 interface CompactSeasonViewProps {
   year: number;
@@ -21,15 +20,12 @@ export function CompactSeasonView({
   onRetry,
   onRoundClick,
 }: CompactSeasonViewProps) {
-  // Calculate strength thresholds from all match ratings (both home and away)
+  // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
-    if (!seasonData) {
-      return { p33: 300, p67: 400 }; // Default values
+    if (!seasonData?.thresholds) {
+      return { p33: 300, p67: 400 }; // Default values before data loads
     }
-    const ratings = seasonData.rounds
-      .flatMap((round) => round.matches)
-      .flatMap((match) => [match.homeStrength, match.awayStrength]);
-    return calculateStrengthPercentiles(ratings);
+    return seasonData.thresholds;
   }, [seasonData]);
 
   // Loading state

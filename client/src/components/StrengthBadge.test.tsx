@@ -9,36 +9,34 @@ describe('StrengthBadge', () => {
 
   describe('rating display', () => {
     it('should display the rating value by default', () => {
-      render(<StrengthBadge rating={350} thresholds={thresholds} />);
+      render(<StrengthBadge rating={350} category="medium" />);
       expect(screen.getByText('350')).toBeInTheDocument();
     });
 
     it('should display category name when showValue is false', () => {
-      render(<StrengthBadge rating={350} thresholds={thresholds} showValue={false} />);
+      render(<StrengthBadge rating={350} category="medium" showValue={false} />);
       expect(screen.getByText('Medium')).toBeInTheDocument();
     });
   });
 
-  // Lower ratings = fewer SC points = harder matchup
-  // Higher ratings = more SC points = easier matchup
-  describe('color categories', () => {
-    it('should render with hard category for low ratings (fewer points)', () => {
-      render(<StrengthBadge rating={280} thresholds={thresholds} showValue={false} />);
+  describe('color categories with pre-computed category', () => {
+    it('should render with hard category', () => {
+      render(<StrengthBadge rating={280} category="hard" showValue={false} />);
       expect(screen.getByText('Hard')).toBeInTheDocument();
     });
 
-    it('should render with medium category for mid ratings', () => {
-      render(<StrengthBadge rating={350} thresholds={thresholds} showValue={false} />);
+    it('should render with medium category', () => {
+      render(<StrengthBadge rating={350} category="medium" showValue={false} />);
       expect(screen.getByText('Medium')).toBeInTheDocument();
     });
 
-    it('should render with easy category for high ratings (more points)', () => {
-      render(<StrengthBadge rating={450} thresholds={thresholds} showValue={false} />);
+    it('should render with easy category', () => {
+      render(<StrengthBadge rating={450} category="easy" showValue={false} />);
       expect(screen.getByText('Easy')).toBeInTheDocument();
     });
   });
 
-  describe('threshold boundaries', () => {
+  describe('fallback to thresholds when no category provided', () => {
     it('should show hard at exactly p33', () => {
       render(<StrengthBadge rating={320} thresholds={thresholds} showValue={false} />);
       expect(screen.getByText('Hard')).toBeInTheDocument();

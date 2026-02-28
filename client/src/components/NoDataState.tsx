@@ -19,11 +19,7 @@ interface NoDataStateProps {
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
-const AVAILABLE_YEARS = [
-  CURRENT_YEAR,
-  CURRENT_YEAR - 1,
-  CURRENT_YEAR + 1,
-].filter((y) => y >= 2010 && y <= 2030);
+const AVAILABLE_YEARS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - 5 + i);
 
 export function NoDataState({ onLoadData, loading = false }: NoDataStateProps) {
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);

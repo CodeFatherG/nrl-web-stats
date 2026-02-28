@@ -47,6 +47,7 @@ export interface ScheduleFixture {
   isHome: boolean;
   isBye: boolean;
   strengthRating: number;
+  category: StrengthCategory;
 }
 
 export interface TeamScheduleResponse {
@@ -54,6 +55,7 @@ export interface TeamScheduleResponse {
   schedule: ScheduleFixture[];
   totalStrength: number;
   byeRounds: number[];
+  thresholds?: StrengthThresholds;
 }
 
 export interface FixturesResponse {
@@ -117,6 +119,7 @@ export interface TeamSeasonRankingResponse {
 
 export interface AllTeamsRankingResponse {
   year: number;
+  thresholds?: StrengthThresholds;
   rankings: Array<{
     team: Team;
     totalStrength: number;
@@ -144,6 +147,8 @@ export const DEFAULT_FILTERS: FilterState = {
 export interface StrengthThresholds {
   p33: number;
   p67: number;
+  lowerFence?: number;
+  upperFence?: number;
 }
 
 export type StrengthCategory = 'easy' | 'medium' | 'hard';
@@ -193,11 +198,50 @@ export interface CompactRound {
 /** Season summary response for compact season view */
 export interface SeasonSummaryResponse {
   year: number;
+  thresholds?: StrengthThresholds;
   rounds: CompactRound[];
 }
 
 /** View mode for round tab */
 export type RoundViewMode = 'compact' | 'detailed';
+
+// Streak Analysis Types
+
+/** Streak type discriminator */
+export type StreakType = 'soft_draw' | 'rough_patch';
+
+/** A consecutive sequence of rounds qualifying as a Soft Draw or Rough Patch */
+export interface Streak {
+  type: StreakType;
+  /** First round number in the streak (inclusive) */
+  startRound: number;
+  /** Last round number in the streak (inclusive) */
+  endRound: number;
+  /** Total non-bye rounds in the streak */
+  rounds: number;
+  /** Number of favourable rounds (easy + medium category) */
+  favourableCount: number;
+  /** Number of unfavourable rounds (hard category) */
+  unfavourableCount: number;
+}
+
+/** Aggregate statistics about a team's streaks */
+export interface StreakSummary {
+  softDrawCount: number;
+  roughPatchCount: number;
+  /** Rounds in the longest soft draw, or null if none */
+  longestSoftDraw: number | null;
+  /** Rounds in the longest rough patch, or null if none */
+  longestRoughPatch: number | null;
+}
+
+/** Response for team streaks endpoint */
+export interface TeamStreaksResponse {
+  team: Team;
+  year: number;
+  streaks: Streak[];
+  summary: StreakSummary;
+}
 
 // Bye Overview Types
 

@@ -3,6 +3,8 @@
 Auto-generated from all feature plans. Last updated: 2026-02-28
 
 ## Active Technologies
+- TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (parsing), Zod (validation), React 18, MUI 5.x (006-team-streak-analysis)
+- In-memory (computed on-demand from existing fixture/ranking data) (006-team-streak-analysis)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -55,6 +57,7 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 006-team-streak-analysis: Added TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (parsing), Zod (validation), React 18, MUI 5.x
 - 005-serverless-edge-refactor: Migrated to Cloudflare Workers with Hono, LinkedOM, in-memory caching
 
 

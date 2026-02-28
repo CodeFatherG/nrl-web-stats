@@ -8,9 +8,8 @@ import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
 import { ByeOverviewView } from './views/ByeOverviewView';
-import { getHealth, scrapeYear, getTeams, getTeamSchedule, getRound, getAllTeamsRanking, getSeasonSummary } from './services/api';
-import { calculateStrengthPercentiles } from './utils/strengthColors';
-import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode } from './types';
+import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary } from './services/api';
+import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak } from './types';
 
 type AppStatus = 'loading' | 'error' | 'no-data' | 'ready';
 
@@ -52,15 +51,15 @@ function App() {
   // Rankings state
   const [rankings, setRankings] = useState<AllTeamsRankingResponse | null>(null);
 
-  // Calculate strength thresholds from loaded schedule data
+  // Streak analysis state
+  const [teamStreaks, setTeamStreaks] = useState<Streak[]>([]);
+
+  // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
-    if (!teamSchedule) {
-      return { p33: 300, p67: 400 }; // Default values
+    if (!teamSchedule?.thresholds) {
+      return { p33: 300, p67: 400 }; // Default values before data loads
     }
-    const ratings = teamSchedule.schedule
-      .filter((f) => !f.isBye)
-      .map((f) => f.strengthRating);
-    return calculateStrengthPercentiles(ratings);
+    return teamSchedule.thresholds;
   }, [teamSchedule]);
 
   const checkServerHealth = useCallback(async () => {
@@ -122,11 +121,22 @@ function App() {
       setSelectedTeamCode(code);
       setScheduleLoading(true);
       setScheduleError(null);
+      setTeamStreaks([]);
 
       try {
         const year = loadedYears[0]; // Use first loaded year
         const schedule = await getTeamSchedule(code, year);
         setTeamSchedule(schedule);
+
+        // Fetch streak data (non-blocking — schedule still displays if this fails)
+        if (year !== undefined) {
+          try {
+            const streaksResponse = await getTeamStreaks(year, code);
+            setTeamStreaks(streaksResponse.streaks);
+          } catch {
+            // Streaks are optional enhancement, don't fail the whole view
+          }
+        }
       } catch (err) {
         setScheduleError(
           err instanceof Error ? err.message : 'Failed to load team schedule'
@@ -254,12 +264,12 @@ function App() {
             selectedTeamCode={selectedTeamCode}
             onTeamSelect={handleTeamSelect}
             schedule={teamSchedule}
-            strengthThresholds={strengthThresholds}
             loading={scheduleLoading}
             error={scheduleError}
             filters={filters}
             onFiltersChange={setFilters}
             rankings={rankings}
+            streaks={teamStreaks}
           />
         )}
 

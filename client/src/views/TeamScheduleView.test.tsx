@@ -6,7 +6,6 @@ import { TeamScheduleView } from './TeamScheduleView';
 import {
   mockTeams,
   mockTeamScheduleResponse,
-  mockStrengthThresholds,
 } from '../test/fixtures';
 import type { FilterState } from '../types';
 
@@ -22,7 +21,6 @@ describe('TeamScheduleView', () => {
     selectedTeamCode: null,
     onTeamSelect: vi.fn(),
     schedule: null,
-    strengthThresholds: mockStrengthThresholds,
     loading: false,
     error: null,
     filters: defaultFilters,

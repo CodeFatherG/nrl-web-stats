@@ -2,12 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { render } from '../test/utils';
 import { FixtureTable } from './FixtureTable';
-import { mockScheduleFixtures, mockTeams, mockStrengthThresholds } from '../test/fixtures';
+import { mockScheduleFixtures, mockTeams } from '../test/fixtures';
 
 describe('FixtureTable', () => {
   const defaultProps = {
     fixtures: mockScheduleFixtures,
-    strengthThresholds: mockStrengthThresholds,
     teams: mockTeams,
   };
 

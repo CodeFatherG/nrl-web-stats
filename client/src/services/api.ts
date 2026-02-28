@@ -3,6 +3,7 @@ import type {
   ScrapeResponse,
   TeamsResponse,
   TeamScheduleResponse,
+  TeamStreaksResponse,
   RoundResponse,
   TeamSeasonRankingResponse,
   AllTeamsRankingResponse,
@@ -78,4 +79,11 @@ export async function getSeasonSummary(
   year: number
 ): Promise<SeasonSummaryResponse> {
   return fetchApi<SeasonSummaryResponse>(`/season/${year}/summary`);
+}
+
+export async function getTeamStreaks(
+  year: number,
+  teamCode: string
+): Promise<TeamStreaksResponse> {
+  return fetchApi<TeamStreaksResponse>(`/streaks/${year}/${teamCode}`);
 }

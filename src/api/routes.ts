@@ -45,6 +45,9 @@ export function createApiRoutes(): Hono<{ Bindings: Env }> {
   api.get('/rankings/:year/:code', handlers.getTeamRanking);
   api.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler);
 
+  // Streaks
+  api.get('/streaks/:year/:code', handlers.getTeamStreaks);
+
   // Season Summary
   api.get('/season/:year/summary', handlers.getSeasonSummary);
 

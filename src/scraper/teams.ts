@@ -17,7 +17,7 @@ export const TEAM_IMAGE_MAP: Record<string, string> = {
   'cowboys': 'NQC',
   'warriors': 'NZL',
   'eels': 'PAR',
-  'perth': 'PTH',
+  'panthers': 'PTH',
   'sharks': 'SHA',
   'dragons': 'STG',
   'rabbitohs': 'STH',

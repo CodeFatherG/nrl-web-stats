@@ -40,16 +40,16 @@ export const mockTeamsResponse: TeamsResponse = {
 
 // Mock Schedule Fixtures (Brisbane Broncos sample schedule)
 export const mockScheduleFixtures: ScheduleFixture[] = [
-  { round: 1, year: 2026, opponent: 'SYD', isHome: true, isBye: false, strengthRating: 420 },
-  { round: 2, year: 2026, opponent: 'MEL', isHome: false, isBye: false, strengthRating: 480 },
-  { round: 3, year: 2026, opponent: 'PEN', isHome: true, isBye: false, strengthRating: 450 },
-  { round: 4, year: 2026, opponent: 'CAN', isHome: false, isBye: false, strengthRating: 320 },
-  { round: 5, year: 2026, opponent: null, isHome: false, isBye: true, strengthRating: 0 },
-  { round: 6, year: 2026, opponent: 'DOL', isHome: true, isBye: false, strengthRating: 350 },
-  { round: 7, year: 2026, opponent: 'WST', isHome: false, isBye: false, strengthRating: 280 },
-  { round: 8, year: 2026, opponent: 'GLD', isHome: true, isBye: false, strengthRating: 310 },
-  { round: 9, year: 2026, opponent: 'NTH', isHome: false, isBye: false, strengthRating: 380 },
-  { round: 10, year: 2026, opponent: 'PAR', isHome: true, isBye: false, strengthRating: 340 },
+  { round: 1, year: 2026, opponent: 'SYD', isHome: true, isBye: false, strengthRating: 420, category: 'easy' },
+  { round: 2, year: 2026, opponent: 'MEL', isHome: false, isBye: false, strengthRating: 480, category: 'easy' },
+  { round: 3, year: 2026, opponent: 'PEN', isHome: true, isBye: false, strengthRating: 450, category: 'easy' },
+  { round: 4, year: 2026, opponent: 'CAN', isHome: false, isBye: false, strengthRating: 320, category: 'hard' },
+  { round: 5, year: 2026, opponent: null, isHome: false, isBye: true, strengthRating: 0, category: 'hard' },
+  { round: 6, year: 2026, opponent: 'DOL', isHome: true, isBye: false, strengthRating: 350, category: 'medium' },
+  { round: 7, year: 2026, opponent: 'WST', isHome: false, isBye: false, strengthRating: 280, category: 'hard' },
+  { round: 8, year: 2026, opponent: 'GLD', isHome: true, isBye: false, strengthRating: 310, category: 'hard' },
+  { round: 9, year: 2026, opponent: 'NTH', isHome: false, isBye: false, strengthRating: 380, category: 'medium' },
+  { round: 10, year: 2026, opponent: 'PAR', isHome: true, isBye: false, strengthRating: 340, category: 'medium' },
 ];
 
 export const mockTeamScheduleResponse: TeamScheduleResponse = {
