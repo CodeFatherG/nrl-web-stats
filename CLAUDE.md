@@ -5,6 +5,10 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 ## Active Technologies
 - TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (parsing), Zod (validation), React 18, MUI 5.x (006-team-streak-analysis)
 - In-memory (computed on-demand from existing fixture/ranking data) (006-team-streak-analysis)
+- TypeScript 5.x with strict mode + Zod (validation at boundaries — reuses existing dependency). No new dependencies. (007-core-domain-model)
+- N/A (interfaces only — no concrete implementations in this phase) (007-core-domain-model)
+- TypeScript 5.x with strict mode + Hono (HTTP framework — handlers only), Zod (validation — handlers only), LinkedOM (scraper), Vitest (testing) (008-application-service-layer)
+- In-memory singleton store (`src/database/store.ts`) with indexed Maps (008-application-service-layer)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -57,8 +61,9 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 008-application-service-layer: Added TypeScript 5.x with strict mode + Hono (HTTP framework — handlers only), Zod (validation — handlers only), LinkedOM (scraper), Vitest (testing)
+- 007-core-domain-model: Added TypeScript 5.x with strict mode + Zod (validation at boundaries — reuses existing dependency). No new dependencies.
 - 006-team-streak-analysis: Added TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (parsing), Zod (validation), React 18, MUI 5.x
-- 005-serverless-edge-refactor: Migrated to Cloudflare Workers with Hono, LinkedOM, in-memory caching
 
 
 <!-- MANUAL ADDITIONS START -->

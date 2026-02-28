@@ -1,0 +1,67 @@
+import type { FixtureRepository } from '../ports/fixture-repository.js';
+import type { RankingService } from '../ports/ranking-service.js';
+import type { SeasonSummaryResult, MatchPairing, RoundSummary } from '../results/season-summary-result.js';
+import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter.js';
+import { rankingServiceAdapter } from '../adapters/ranking-service-adapter.js';
+
+export class GetSeasonSummaryUseCase {
+  constructor(
+    private readonly fixtures: FixtureRepository,
+    private readonly rankings: RankingService
+  ) {}
+
+  execute(year: number): SeasonSummaryResult | null {
+    if (!this.fixtures.isYearLoaded(year)) {
+      return null;
+    }
+
+    const yearFixtures = this.fixtures.findByYear(year);
+
+    const roundsMap = new Map<number, { matches: MatchPairing[]; byeTeams: string[] }>();
+    for (let round = 1; round <= 27; round++) {
+      roundsMap.set(round, { matches: [], byeTeams: [] });
+    }
+
+    for (const fixture of yearFixtures) {
+      const roundData = roundsMap.get(fixture.round);
+      if (!roundData) continue;
+
+      if (fixture.isBye) {
+        roundData.byeTeams.push(fixture.teamCode);
+      } else if (fixture.isHome && fixture.opponentCode) {
+        const awayFixture = yearFixtures.find(
+          f => f.round === fixture.round && f.teamCode === fixture.opponentCode && !f.isHome
+        );
+
+        roundData.matches.push({
+          homeTeam: fixture.teamCode,
+          awayTeam: fixture.opponentCode,
+          homeScore: null,
+          awayScore: null,
+          scheduledTime: null,
+          isComplete: false,
+          homeStrength: fixture.strengthRating,
+          awayStrength: awayFixture?.strengthRating ?? 0,
+        });
+      }
+    }
+
+    const rounds: RoundSummary[] = Array.from(roundsMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([round, data]) => ({
+        round,
+        matches: data.matches,
+        byeTeams: data.byeTeams,
+      }));
+
+    return {
+      year,
+      thresholds: this.rankings.calculateSeasonThresholds(year),
+      rounds,
+    };
+  }
+}
+
+export function createGetSeasonSummaryUseCase(): GetSeasonSummaryUseCase {
+  return new GetSeasonSummaryUseCase(fixtureRepositoryAdapter, rankingServiceAdapter);
+}
