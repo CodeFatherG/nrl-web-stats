@@ -21,4 +21,16 @@ export interface MatchRepository {
 
   /** Find all matches for a given year */
   findByYear(year: number): Match[];
+
+  /** Replace all matches for a year atomically. Clears existing year data and inserts replacements. */
+  loadForYear(year: number, matches: Match[]): void;
+
+  /** Return sorted array of years that have loaded match data */
+  getLoadedYears(): number[];
+
+  /** Check whether any matches exist for the given year */
+  isYearLoaded(year: number): boolean;
+
+  /** Total match count across all loaded years */
+  getMatchCount(): number;
 }

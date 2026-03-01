@@ -2,12 +2,21 @@ import { Hono } from 'hono';
 import { createApiRoutes } from './api/routes.js';
 import { setDebugMode, logger } from './utils/logger.js';
 import { cacheStore } from './cache/store.js';
+import { SuperCoachStatsAdapter } from './infrastructure/adapters/supercoach-stats-adapter.js';
+import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
+import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
+import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 
 // Environment bindings type
 export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
 }
+
+// Composition root — construct and wire all dependencies
+const dataSource = new SuperCoachStatsAdapter();
+const matchRepository = new InMemoryMatchRepository();
+const scrapeDrawUseCase = new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository);
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -17,8 +26,8 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Mount API routes under /api
-app.route('/api', createApiRoutes());
+// Mount API routes under /api with injected dependencies
+app.route('/api', createApiRoutes({ scrapeDrawUseCase, matchRepository }));
 
 // Static file serving and SPA fallback
 // Handled by Cloudflare Workers Sites via wrangler.jsonc [site] config

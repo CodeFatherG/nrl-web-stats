@@ -19,13 +19,12 @@ import {
   RoundSchema,
   SeasonSummaryParamsSchema,
 } from '../models/schemas.js';
+import type { MatchRepository } from '../domain/repositories/match-repository.js';
+import type { ScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
 import {
-  getLoadedYears,
   getLastScrapeTimes,
-  getTotalFixtureCount,
   getAllTeamsFromDb,
   getTeamByCode,
-  isYearLoaded,
 } from '../database/store.js';
 import { fixtures } from '../database/query.js';
 import {
@@ -40,7 +39,12 @@ import { createGetTeamScheduleUseCase } from '../application/use-cases/get-team-
 import { createGetSeasonSummaryUseCase } from '../application/use-cases/get-season-summary.js';
 import { createGetRoundDetailsUseCase } from '../application/use-cases/get-round-details.js';
 import { createAnalyseStreaksUseCase } from '../application/use-cases/analyse-streaks.js';
-import { createScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
+
+/** Dependencies injected from the composition root */
+export interface HandlerDeps {
+  scrapeDrawUseCase: ScrapeDrawUseCase;
+  matchRepository: MatchRepository;
+}
 
 // Environment bindings type
 interface Env {
@@ -66,26 +70,30 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
 /**
  * GET /api/health - Health check
  */
-export async function getHealth(c: ApiContext) {
-  const cacheStatus = cacheStore.getStatus();
-  const response: HealthResponse & { cache: typeof cacheStatus } = {
-    status: 'ok',
-    loadedYears: getLoadedYears(),
-    totalFixtures: getTotalFixtureCount(),
-    cache: cacheStatus,
+export function getHealth(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const cacheStatus = cacheStore.getStatus();
+    const response: HealthResponse & { cache: typeof cacheStatus } = {
+      status: 'ok',
+      loadedYears: deps.matchRepository.getLoadedYears(),
+      totalFixtures: deps.matchRepository.getMatchCount(),
+      cache: cacheStatus,
+    };
+    return c.json(response);
   };
-  return c.json(response);
 }
 
 /**
  * GET /api/years - List available years
  */
-export async function getYears(c: ApiContext) {
-  const response: YearsResponse = {
-    years: getLoadedYears(),
-    lastUpdated: getLastScrapeTimes(),
+export function getYears(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const response: YearsResponse = {
+      years: deps.matchRepository.getLoadedYears(),
+      lastUpdated: getLastScrapeTimes(),
+    };
+    return c.json(response);
   };
-  return c.json(response);
 }
 
 // ============================================
@@ -367,19 +375,21 @@ export async function getTeamStreaks(c: ApiContext) {
 /**
  * GET /api/season/:year/summary - Get season summary
  */
-export async function getSeasonSummary(c: ApiContext) {
-  const parseResult = SeasonSummaryParamsSchema.safeParse({ year: c.req.param('year') });
-  if (!parseResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be a valid integer (1998 or later)', 400);
-  }
-  const { year } = parseResult.data;
-  if (!isYearLoaded(year)) {
-    const loadedYears = getLoadedYears();
-    const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
-    return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
-  }
-  const result = createGetSeasonSummaryUseCase().execute(year);
-  return c.json(result as SeasonSummaryResponse);
+export function getSeasonSummary(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const parseResult = SeasonSummaryParamsSchema.safeParse({ year: c.req.param('year') });
+    if (!parseResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be a valid integer (1998 or later)', 400);
+    }
+    const { year } = parseResult.data;
+    if (!deps.matchRepository.isYearLoaded(year)) {
+      const loadedYears = deps.matchRepository.getLoadedYears();
+      const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
+      return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
+    }
+    const result = createGetSeasonSummaryUseCase().execute(year);
+    return c.json(result as SeasonSummaryResponse);
+  };
 }
 
 // ============================================
@@ -390,18 +400,20 @@ export async function getSeasonSummary(c: ApiContext) {
  * POST /api/scrape - Trigger scrape operation
  * Uses cache with request coalescing to prevent duplicate concurrent scrapes
  */
-export async function triggerScrape(c: ApiContext) {
-  try {
-    const body = await c.req.json();
-    const parseResult = ScrapeRequestSchema.safeParse(body);
-    if (!parseResult.success) {
-      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+export function triggerScrape(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const body = await c.req.json();
+      const parseResult = ScrapeRequestSchema.safeParse(body);
+      if (!parseResult.success) {
+        return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+      }
+      const { year, force } = parseResult.data;
+      const result = await deps.scrapeDrawUseCase.execute(year, force);
+      return c.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'SCRAPE_FAILED', message, 500);
     }
-    const { year, force } = parseResult.data;
-    const result = await createScrapeDrawUseCase().execute(year, force);
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse(c, 'SCRAPE_FAILED', message, 500);
-  }
+  };
 }

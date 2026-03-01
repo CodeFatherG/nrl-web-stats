@@ -1,30 +1,32 @@
 import type { CacheService } from '../ports/cache-service.js';
+import type { DrawDataSource } from '../../domain/ports/draw-data-source.js';
+import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { ScrapeDrawResult } from '../results/scrape-result.js';
 import type { CachedSeasonData } from '../../cache/types.js';
-import { scrapeAndLoadSchedule } from '../../scraper/index.js';
-import { cacheServiceAdapter } from '../adapters/cache-service-adapter.js';
 
 export class ScrapeDrawUseCase {
   constructor(
     private readonly cache: CacheService,
-    private readonly scraper: (year: number) => Promise<{ success: boolean; fixturesLoaded: number }>
+    private readonly dataSource: DrawDataSource,
+    private readonly matchRepository: MatchRepository
   ) {}
 
   async execute(year: number, force?: boolean): Promise<ScrapeDrawResult> {
     const cacheResult = await this.cache.fetchWithCoalescing(
       year,
       async (): Promise<CachedSeasonData | null> => {
-        const result = await this.scraper(year);
+        const result = await this.dataSource.fetchDraw(year);
         if (result.success) {
+          this.matchRepository.loadForYear(year, result.data);
           return {
             year,
-            fixtureCount: result.fixturesLoaded,
+            fixtureCount: result.data.length,
             cachedAt: new Date(),
             expiresAt: new Date(),
             isStale: false,
           };
         }
-        return null;
+        throw new Error(result.error);
       },
       { forceRefresh: force === true }
     );
@@ -42,8 +44,4 @@ export class ScrapeDrawUseCase {
       ...(cacheResult.error && { warning: 'Using stale data due to fetch error' }),
     };
   }
-}
-
-export function createScrapeDrawUseCase(): ScrapeDrawUseCase {
-  return new ScrapeDrawUseCase(cacheServiceAdapter, scrapeAndLoadSchedule);
 }

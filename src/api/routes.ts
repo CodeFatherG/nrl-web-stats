@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { corsMiddleware } from './middleware/cors.js';
 import { loggerMiddleware, errorLoggerMiddleware } from './middleware/logger.js';
+import type { HandlerDeps } from './handlers.js';
 import * as handlers from './handlers.js';
 
 // Environment bindings type
@@ -14,9 +15,9 @@ interface Env {
 }
 
 /**
- * Create API routes
+ * Create API routes with injected dependencies
  */
-export function createApiRoutes(): Hono<{ Bindings: Env }> {
+export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   const api = new Hono<{ Bindings: Env }>();
 
   // Apply middleware
@@ -24,11 +25,11 @@ export function createApiRoutes(): Hono<{ Bindings: Env }> {
   api.use('*', loggerMiddleware);
   api.use('*', corsMiddleware);
 
-  // Health & Status
-  api.get('/health', handlers.getHealth);
+  // Health & Status (use injected deps for metadata)
+  api.get('/health', handlers.getHealth(deps));
 
-  // Years
-  api.get('/years', handlers.getYears);
+  // Years (use injected deps for metadata)
+  api.get('/years', handlers.getYears(deps));
 
   // Teams
   api.get('/teams', handlers.getTeams);
@@ -48,11 +49,11 @@ export function createApiRoutes(): Hono<{ Bindings: Env }> {
   // Streaks
   api.get('/streaks/:year/:code', handlers.getTeamStreaks);
 
-  // Season Summary
-  api.get('/season/:year/summary', handlers.getSeasonSummary);
+  // Season Summary (use injected deps for metadata)
+  api.get('/season/:year/summary', handlers.getSeasonSummary(deps));
 
-  // Scrape trigger
-  api.post('/scrape', handlers.triggerScrape);
+  // Scrape trigger (use injected use case)
+  api.post('/scrape', handlers.triggerScrape(deps));
 
   return api;
 }
