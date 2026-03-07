@@ -12,6 +12,7 @@ import { success, failure } from '../../domain/result.js';
 import { MatchStatus, createMatchId } from '../../domain/match.js';
 import { logger } from '../../utils/logger.js';
 import type { Warning } from '../../models/types.js';
+import { resolveNrlComTeamId } from '../shared/nrl-team-id-map.js';
 
 // ---------------------------------------------------------------------------
 // T004: Zod validation schemas for nrl.com draw API response
@@ -55,35 +56,6 @@ const NrlComDrawResponseSchema = z.object({
 });
 
 type NrlComMatchFixture = z.infer<typeof NrlComMatchFixtureSchema>;
-
-// ---------------------------------------------------------------------------
-// T005: nrl.com teamId → canonical 3-letter code mapping
-// ---------------------------------------------------------------------------
-
-const TEAM_ID_MAP = new Map<number, string>([
-  [500011, 'BRO'],
-  [500010, 'BUL'],
-  [500013, 'CBR'],
-  [500723, 'DOL'],
-  [500004, 'GCT'],
-  [500021, 'MEL'],
-  [500002, 'MNL'],
-  [500003, 'NEW'],
-  [500012, 'NQC'],
-  [500032, 'NZL'],
-  [500031, 'PAR'],
-  [500014, 'PTH'],
-  [500028, 'SHA'],
-  [500022, 'STG'],
-  [500005, 'STH'],
-  [500001, 'SYD'],
-  [500023, 'WST'],
-]);
-
-/** Resolve an nrl.com teamId to the canonical 3-letter code */
-export function resolveNrlComTeamId(teamId: number): string | null {
-  return TEAM_ID_MAP.get(teamId) ?? null;
-}
 
 /** Parse round number from roundTitle (e.g., "Round 1" → 1, "Finals Week 1" → 28) */
 function parseRoundNumber(roundTitle: string): number | null {

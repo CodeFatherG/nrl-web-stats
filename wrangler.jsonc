@@ -27,5 +27,13 @@
       "0 6 * * MON",
       "*/30 7-12 * 3-10 THU,FRI,SAT,SUN"
     ]
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nrl-player-stats",
+      "database_id": "placeholder-replace-after-d1-create",
+      "migrations_dir": "migrations"
+    }
+  ]
 }

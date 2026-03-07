@@ -14,6 +14,7 @@ import { resultCacheStore } from './cache/result-cache.js';
 export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
+  DB: D1Database;
 }
 
 // Composition root — construct and wire all dependencies
