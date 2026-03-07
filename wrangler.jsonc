@@ -24,7 +24,8 @@
   },
   "triggers": {
     "crons": [
-      "0 6 * * MON"
+      "0 6 * * MON",
+      "*/30 7-12 * 3-10 THU,FRI,SAT,SUN"
     ]
   }
 }

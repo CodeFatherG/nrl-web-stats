@@ -39,7 +39,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/fixtures', handlers.getFixtures);
 
   // Rounds
-  api.get('/rounds/:year/:round', handlers.getRoundDetails);
+  api.get('/rounds/:year/:round', handlers.getRoundDetails(deps));
 
   // Rankings
   api.get('/rankings/:year', handlers.getAllTeamsRanking);

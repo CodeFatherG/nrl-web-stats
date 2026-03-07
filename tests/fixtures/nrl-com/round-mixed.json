@@ -1,0 +1,624 @@
+{
+  "fixtures": [
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Post",
+      "matchState": "FullTime",
+      "venue": "Allegiant Stadium",
+      "venueCity": "Las Vegas",
+      "matchCentreUrl": "/draw/nrl-premiership/2025/round-1/raiders-v-warriors/",
+      "callToAction": {
+        "accessibleText": "Highlights for Raiders v Warriors",
+        "text": "Highlights",
+        "url": "https://www.nrl.com/news/2025/03/02/raiders-v-warriors--round-1-2025/",
+        "type": "MatchHighlights"
+      },
+      "homeTeam": {
+        "teamId": 500013,
+        "nickName": "Raiders",
+        "score": 30,
+        "theme": {
+          "key": "raiders",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500032,
+        "nickName": "Warriors",
+        "score": 8,
+        "theme": {
+          "key": "warriors",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2025-03-02T00:00:00Z",
+        "gameTime": "80:00"
+      },
+      "secondaryCallToAction": {
+        "accessibleText": "Latest for Raiders v Warriors",
+        "text": "Latest",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2025/round-1/raiders-v-warriors/#tab-news-video",
+        "type": "MatchLatest"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Post",
+      "matchState": "FullTime",
+      "venue": "Allegiant Stadium",
+      "venueCity": "Las Vegas",
+      "matchCentreUrl": "/draw/nrl-premiership/2025/round-1/panthers-v-sharks/",
+      "callToAction": {
+        "accessibleText": "Highlights for Panthers v Sharks",
+        "text": "Highlights",
+        "url": "https://www.nrl.com/news/2025/03/02/panthers-v-sharks--round-1-2025/",
+        "type": "MatchHighlights"
+      },
+      "homeTeam": {
+        "teamId": 500014,
+        "nickName": "Panthers",
+        "score": 28,
+        "theme": {
+          "key": "panthers",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500028,
+        "nickName": "Sharks",
+        "score": 22,
+        "theme": {
+          "key": "sharks",
+          "logos": {
+            "badge-basic24-light.svg": "202601300854",
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2025-03-02T04:30:00Z",
+        "gameTime": "80:00"
+      },
+      "secondaryCallToAction": {
+        "accessibleText": "Latest for Panthers v Sharks",
+        "text": "Latest",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2025/round-1/panthers-v-sharks/#tab-news-video",
+        "type": "MatchLatest"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Post",
+      "matchState": "FullTime",
+      "venue": "Allianz Stadium",
+      "venueCity": "Sydney",
+      "matchCentreUrl": "/draw/nrl-premiership/2025/round-1/roosters-v-broncos/",
+      "callToAction": {
+        "accessibleText": "Highlights for Roosters v Broncos",
+        "text": "Highlights",
+        "url": "https://www.nrl.com/news/2025/03/06/roosters-v-broncos--round-1-2025/",
+        "type": "MatchHighlights"
+      },
+      "homeTeam": {
+        "teamId": 500001,
+        "nickName": "Roosters",
+        "score": 14,
+        "theme": {
+          "key": "roosters",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500011,
+        "nickName": "Broncos",
+        "score": 50,
+        "theme": {
+          "key": "broncos",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202512042316",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202512042316",
+            "badge.png": "202512042316",
+            "badge.svg": "202512042316",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202512042316",
+            "silhouette.svg": "202512042316",
+            "text.svg": "202512042316",
+            "badge-basic24-light.svg": "202512042316"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2025-03-06T09:00:00Z",
+        "gameTime": "80:00"
+      },
+      "secondaryCallToAction": {
+        "accessibleText": "Latest for Roosters v Broncos",
+        "text": "Latest",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2025/round-1/roosters-v-broncos/#tab-news-video",
+        "type": "MatchLatest"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Post",
+      "matchState": "FullTime",
+      "venue": "Campbelltown Sports Stadium",
+      "venueCity": "Sydney",
+      "matchCentreUrl": "/draw/nrl-premiership/2025/round-1/wests-tigers-v-knights/",
+      "callToAction": {
+        "accessibleText": "Highlights for Wests Tigers v Knights",
+        "text": "Highlights",
+        "url": "https://www.nrl.com/news/2025/03/07/wests-tigers-v-knights--round-1-2025/",
+        "type": "MatchHighlights"
+      },
+      "homeTeam": {
+        "teamId": 500023,
+        "nickName": "Wests Tigers",
+        "score": 8,
+        "theme": {
+          "key": "wests-tigers",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500003,
+        "nickName": "Knights",
+        "score": 10,
+        "theme": {
+          "key": "knights",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2025-03-07T07:00:00Z",
+        "gameTime": "80:00"
+      },
+      "secondaryCallToAction": {
+        "accessibleText": "Latest for Wests Tigers v Knights",
+        "text": "Latest",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2025/round-1/wests-tigers-v-knights/#tab-news-video",
+        "type": "MatchLatest"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Pre",
+      "matchState": "Upcoming",
+      "venue": "Accor Stadium",
+      "venueCity": "Sydney",
+      "matchCentreUrl": "/draw/nrl-premiership/2026/round-15/rabbitohs-v-broncos/",
+      "callToAction": {
+        "accessibleText": "Get Tickets for Rabbitohs v Broncos",
+        "text": "Get Tickets",
+        "url": "https://www.ticketmaster.com.au/2026-nrl-telstra-premiership-rabbitohs-v-sydney-olympic-park-11-06-2026/event/25006449C9AF44A7?utm_source=nrl&utm_medium=network&utm_campaign=NRL26",
+        "type": "GetTickets"
+      },
+      "homeTeam": {
+        "teamId": 500005,
+        "nickName": "Rabbitohs",
+        "teamPosition": "0",
+        "theme": {
+          "key": "rabbitohs",
+          "logos": {
+            "badge-basic24-light.svg": "202601300854",
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500011,
+        "nickName": "Broncos",
+        "teamPosition": "0",
+        "theme": {
+          "key": "broncos",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202512042316",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202512042316",
+            "badge.png": "202512042316",
+            "badge.svg": "202512042316",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202512042316",
+            "silhouette.svg": "202512042316",
+            "text.svg": "202512042316",
+            "badge-basic24-light.svg": "202512042316"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2026-06-11T09:50:00Z",
+        "gameTime": "0:00"
+      },
+      "videoProviders": [
+        {
+          "id": "NINE",
+          "name": "Nine Network",
+          "url": "https://www.9now.com.au/",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/nine-small.svg"
+        },
+        {
+          "id": "9NOW",
+          "name": "Nine Now",
+          "url": "https://www.9now.com.au/",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/nine-now.svg"
+        },
+        {
+          "id": "KAYO",
+          "name": "Kayo",
+          "url": "https://kayosports.app.link/xtDzpvGKaHb",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/kayo.svg"
+        },
+        {
+          "id": "FOX",
+          "name": "Foxtel",
+          "url": "https://www.foxtel.com.au/foxtel-go.html",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/foxtel.svg"
+        }
+      ],
+      "secondaryCallToAction": {
+        "accessibleText": "Team Stats for Rabbitohs v Broncos",
+        "text": "Team Stats",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2026/round-15/rabbitohs-v-broncos/#tab-team-stats",
+        "type": "TeamStats"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Pre",
+      "matchState": "Upcoming",
+      "venue": "Suncorp Stadium",
+      "venueCity": "Brisbane",
+      "matchCentreUrl": "/draw/nrl-premiership/2026/round-15/dolphins-v-roosters/",
+      "callToAction": {
+        "accessibleText": "Get Tickets for Dolphins v Roosters",
+        "text": "Get Tickets",
+        "url": "https://premier.ticketek.com.au/shows/Show.aspx?sh=PHIN1526&utm_source=nrl&utm_medium=network&utm_campaign=NRL26",
+        "type": "GetTickets"
+      },
+      "homeTeam": {
+        "teamId": 500723,
+        "nickName": "Dolphins",
+        "teamPosition": "0",
+        "theme": {
+          "key": "dolphins",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500001,
+        "nickName": "Roosters",
+        "teamPosition": "0",
+        "theme": {
+          "key": "roosters",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2026-06-12T10:00:00Z",
+        "gameTime": "0:00"
+      },
+      "videoProviders": [
+        {
+          "id": "NINE",
+          "name": "Nine Network",
+          "url": "https://www.9now.com.au/",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/nine-small.svg"
+        },
+        {
+          "id": "9NOW",
+          "name": "Nine Now",
+          "url": "https://www.9now.com.au/",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/nine-now.svg"
+        },
+        {
+          "id": "KAYO",
+          "name": "Kayo",
+          "url": "https://kayosports.app.link/xtDzpvGKaHb",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/kayo.svg"
+        },
+        {
+          "id": "FOX",
+          "name": "Foxtel",
+          "url": "https://www.foxtel.com.au/foxtel-go.html",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/foxtel.svg"
+        }
+      ],
+      "secondaryCallToAction": {
+        "accessibleText": "Team Stats for Dolphins v Roosters",
+        "text": "Team Stats",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2026/round-15/dolphins-v-roosters/#tab-team-stats",
+        "type": "TeamStats"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Pre",
+      "matchState": "Upcoming",
+      "venue": "Go Media Stadium",
+      "venueCity": "Auckland",
+      "matchCentreUrl": "/draw/nrl-premiership/2026/round-15/warriors-v-sharks/",
+      "callToAction": {
+        "accessibleText": "Get Tickets for Warriors v Sharks",
+        "text": "Get Tickets",
+        "url": "https://www.ticketmaster.co.nz/one-new-zealand-warriors-v-cronulla-auckland-13-06-2026/event/240063828E432A6D?utm_source=nrl&utm_medium=network&utm_campaign=NRL26",
+        "type": "GetTickets"
+      },
+      "homeTeam": {
+        "teamId": 500032,
+        "nickName": "Warriors",
+        "teamPosition": "0",
+        "theme": {
+          "key": "warriors",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500028,
+        "nickName": "Sharks",
+        "teamPosition": "0",
+        "theme": {
+          "key": "sharks",
+          "logos": {
+            "badge-basic24-light.svg": "202601300854",
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2026-06-13T07:35:00Z",
+        "gameTime": "0:00"
+      },
+      "videoProviders": [
+        {
+          "id": "KAYO",
+          "name": "Kayo",
+          "url": "https://kayosports.app.link/xtDzpvGKaHb",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/kayo.svg"
+        },
+        {
+          "id": "FOX",
+          "name": "Foxtel",
+          "url": "https://www.foxtel.com.au/foxtel-go.html",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/foxtel.svg"
+        }
+      ],
+      "secondaryCallToAction": {
+        "accessibleText": "Team Stats for Warriors v Sharks",
+        "text": "Team Stats",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2026/round-15/warriors-v-sharks/#tab-team-stats",
+        "type": "TeamStats"
+      }
+    },
+    {
+      "isCurrentRound": false,
+      "roundTitle": "Round 1",
+      "type": "Match",
+      "matchMode": "Pre",
+      "matchState": "Upcoming",
+      "venue": "CommBank Stadium",
+      "venueCity": "Sydney",
+      "matchCentreUrl": "/draw/nrl-premiership/2026/round-15/eels-v-raiders/",
+      "callToAction": {
+        "accessibleText": "Get Tickets for Eels v Raiders",
+        "text": "Get Tickets",
+        "url": "https://www.ticketmaster.com.au/event/2500642FEB1394A9?utm_source=nrl&utm_medium=network&utm_campaign=NRL26",
+        "type": "GetTickets"
+      },
+      "homeTeam": {
+        "teamId": 500031,
+        "nickName": "Eels",
+        "teamPosition": "0",
+        "theme": {
+          "key": "eels",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "awayTeam": {
+        "teamId": 500013,
+        "nickName": "Raiders",
+        "teamPosition": "0",
+        "theme": {
+          "key": "raiders",
+          "logos": {
+            "badge-basic24-mono.svg": "202601300854",
+            "badge-basic24.svg": "202601300854",
+            "badge-light.png": "202601300854",
+            "badge-light.svg": "202601300854",
+            "badge.png": "202601300854",
+            "badge.svg": "202601300854",
+            "header-background.png": "202601300854",
+            "header-background.svg": "202601300854",
+            "silhouette.png": "202601300854",
+            "silhouette.svg": "202601300854",
+            "text.svg": "202601300854"
+          }
+        }
+      },
+      "clock": {
+        "kickOffTimeLong": "2026-06-13T09:35:00Z",
+        "gameTime": "0:00"
+      },
+      "videoProviders": [
+        {
+          "id": "KAYO",
+          "name": "Kayo",
+          "url": "https://kayosports.app.link/xtDzpvGKaHb",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/kayo.svg"
+        },
+        {
+          "id": "FOX",
+          "name": "Foxtel",
+          "url": "https://www.foxtel.com.au/foxtel-go.html",
+          "logoSmallUrl": "https://www.nrl.com/globalassets/media-stream-providers/video-providers/foxtel.svg"
+        }
+      ],
+      "secondaryCallToAction": {
+        "accessibleText": "Team Stats for Eels v Raiders",
+        "text": "Team Stats",
+        "url": "https://www.nrl.com/draw/nrl-premiership/2026/round-15/eels-v-raiders/#tab-team-stats",
+        "type": "TeamStats"
+      }
+    }
+  ]
+}

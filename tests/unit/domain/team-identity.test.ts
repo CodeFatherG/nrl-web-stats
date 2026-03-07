@@ -58,7 +58,7 @@ describe('TeamIdentity registry', () => {
     expect(team.code).toBe('MEL');
     expect(team.name).toBe('Melbourne Storm');
     expect(team.slug).toBe('storm');
-    expect(team.numericIds).toEqual({});
+    expect(team.numericIds).toEqual({ 'nrl.com': 500021 });
     expect(team.aliases).toEqual([]);
   });
 

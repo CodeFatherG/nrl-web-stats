@@ -9,6 +9,10 @@ import type { Result } from '../result.js';
 /** Match result data for enriching existing Match aggregates */
 export interface MatchResult {
   readonly matchId: string;
+  readonly homeTeamCode: string;
+  readonly awayTeamCode: string;
+  readonly year: number;
+  readonly round: number;
   readonly homeScore: number;
   readonly awayScore: number;
   readonly status: MatchStatus;

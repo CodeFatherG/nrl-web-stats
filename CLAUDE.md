@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - In-memory singleton store (`src/database/store.ts`) with indexed Maps (008-application-service-layer)
 - TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (HTML parsing), Zod (validation), Vitest (testing) (009-scraper-adapters)
 - In-memory Maps within worker isolate (no persistent storage) (009-scraper-adapters)
+- TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), Vitest (testing). No new dependencies — nrl.com returns JSON, so LinkedOM/HTML parsing is not needed for this adapter. (010-nrl-match-results)
+- In-memory Maps within worker isolate (`InMemoryMatchRepository`), no persistent storage (010-nrl-match-results)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -63,9 +65,9 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 010-nrl-match-results: Added TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), Vitest (testing). No new dependencies — nrl.com returns JSON, so LinkedOM/HTML parsing is not needed for this adapter.
 - 009-scraper-adapters: Added TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (HTML parsing), Zod (validation), Vitest (testing)
 - 008-application-service-layer: Added TypeScript 5.x with strict mode + Hono (HTTP framework — handlers only), Zod (validation — handlers only), LinkedOM (scraper), Vitest (testing)
-- 007-core-domain-model: Added TypeScript 5.x with strict mode + Zod (validation at boundaries — reuses existing dependency). No new dependencies.
 
 
 <!-- MANUAL ADDITIONS START -->

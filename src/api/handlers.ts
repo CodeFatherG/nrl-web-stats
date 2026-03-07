@@ -21,6 +21,7 @@ import {
 } from '../models/schemas.js';
 import type { MatchRepository } from '../domain/repositories/match-repository.js';
 import type { ScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
+import type { ScrapeMatchResultsUseCase } from '../application/use-cases/scrape-match-results.js';
 import {
   getLastScrapeTimes,
   getAllTeamsFromDb,
@@ -43,6 +44,7 @@ import { createAnalyseStreaksUseCase } from '../application/use-cases/analyse-st
 /** Dependencies injected from the composition root */
 export interface HandlerDeps {
   scrapeDrawUseCase: ScrapeDrawUseCase;
+  scrapeMatchResultsUseCase: ScrapeMatchResultsUseCase;
   matchRepository: MatchRepository;
 }
 
@@ -213,17 +215,19 @@ export async function getFixtures(c: ApiContext) {
 /**
  * GET /api/rounds/:year/:round - Get round details
  */
-export async function getRoundDetails(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const roundResult = RoundSchema.safeParse(c.req.param('round'));
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
-  if (!roundResult.success) {
-    return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
-  }
-  const result = createGetRoundDetailsUseCase().execute(yearResult.data, roundResult.data);
-  return c.json(result);
+export function getRoundDetails(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
+    }
+    const result = createGetRoundDetailsUseCase(deps.matchRepository).execute(yearResult.data, roundResult.data);
+    return c.json(result);
+  };
 }
 
 // ============================================
@@ -387,7 +391,7 @@ export function getSeasonSummary(deps: HandlerDeps) {
       const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
-    const result = createGetSeasonSummaryUseCase().execute(year);
+    const result = createGetSeasonSummaryUseCase(deps.matchRepository).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }

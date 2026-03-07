@@ -48,6 +48,10 @@ describe('GetRoundDetailsUseCase', () => {
       awayTeam: 'SYD',
       homeStrength: 4.0,
       awayStrength: 6.0,
+      homeScore: null,
+      awayScore: null,
+      scheduledTime: null,
+      isComplete: false,
     });
     expect(result.byeTeams).toHaveLength(0);
   });

@@ -1,15 +1,20 @@
 import type { FixtureRepository } from '../ports/fixture-repository.js';
-import type { RoundDetailsResult } from '../results/round-details-result.js';
+import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { RoundDetailsResult, RoundMatch } from '../results/round-details-result.js';
+import { createMatchId, MatchStatus } from '../../domain/match.js';
 import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter.js';
 
 export class GetRoundDetailsUseCase {
-  constructor(private readonly fixtures: FixtureRepository) {}
+  constructor(
+    private readonly fixtures: FixtureRepository,
+    private readonly matchRepository?: MatchRepository
+  ) {}
 
   execute(year: number, round: number): RoundDetailsResult {
     const roundFixtures = this.fixtures.findByRound(year, round);
 
     const byeTeams: string[] = [];
-    const matchMap = new Map<string, { homeTeam: string; awayTeam: string; homeStrength: number; awayStrength: number }>();
+    const matchMap = new Map<string, RoundMatch>();
 
     for (const fixture of roundFixtures) {
       if (fixture.isBye) {
@@ -19,11 +24,32 @@ export class GetRoundDetailsUseCase {
           f => f.teamCode === fixture.opponentCode && f.opponentCode === fixture.teamCode
         );
 
+        // Look up enriched match data if available
+        let homeScore: number | null = null;
+        let awayScore: number | null = null;
+        let scheduledTime: string | null = null;
+        let isComplete = false;
+
+        if (this.matchRepository) {
+          const matchId = createMatchId(fixture.teamCode, fixture.opponentCode, year, round);
+          const match = this.matchRepository.findById(matchId);
+          if (match) {
+            homeScore = match.homeScore;
+            awayScore = match.awayScore;
+            scheduledTime = match.scheduledTime;
+            isComplete = match.status === MatchStatus.Completed;
+          }
+        }
+
         matchMap.set(`${fixture.teamCode}-${fixture.opponentCode}`, {
           homeTeam: fixture.teamCode,
           awayTeam: fixture.opponentCode,
           homeStrength: fixture.strengthRating,
           awayStrength: awayFixture?.strengthRating ?? 0,
+          homeScore,
+          awayScore,
+          scheduledTime,
+          isComplete,
         });
       }
     }
@@ -37,6 +63,6 @@ export class GetRoundDetailsUseCase {
   }
 }
 
-export function createGetRoundDetailsUseCase(): GetRoundDetailsUseCase {
-  return new GetRoundDetailsUseCase(fixtureRepositoryAdapter);
+export function createGetRoundDetailsUseCase(matchRepository?: MatchRepository): GetRoundDetailsUseCase {
+  return new GetRoundDetailsUseCase(fixtureRepositoryAdapter, matchRepository);
 }

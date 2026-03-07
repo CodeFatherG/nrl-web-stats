@@ -3,7 +3,7 @@
  */
 
 /** Warning types for malformed data during scraping */
-export type WarningType = 'MALFORMED_CELL' | 'MISSING_DATA' | 'PARSE_ERROR';
+export type WarningType = 'MALFORMED_CELL' | 'MISSING_DATA' | 'PARSE_ERROR' | 'UNPAIRED_FIXTURE' | 'UNMAPPED_TEAM' | 'UNPARSEABLE_ROUND';
 
 /** Warning for malformed data during scraping */
 export interface Warning {
