@@ -9,6 +9,9 @@ import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
 import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape } from './application/use-cases/scrape-match-results.js';
 import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
+import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
+import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
+import { ScrapePlayerStatsUseCase } from './application/use-cases/scrape-player-stats.js';
 
 // Environment bindings type
 export interface Env {
@@ -23,6 +26,7 @@ const matchResultSource = new NrlComMatchResultAdapter();
 const matchRepository = new InMemoryMatchRepository();
 const scrapeDrawUseCase = new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository);
 const scrapeMatchResultsUseCase = new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore);
+const playerStatsSource = new NrlComPlayerStatsAdapter();
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -33,7 +37,14 @@ app.use('*', async (c, next) => {
 });
 
 // Mount API routes under /api with injected dependencies
-app.route('/api', createApiRoutes({ scrapeDrawUseCase, scrapeMatchResultsUseCase, matchRepository }));
+app.route('/api', createApiRoutes({
+  scrapeDrawUseCase,
+  scrapeMatchResultsUseCase,
+  matchRepository,
+  createPlayerRepository: (db: D1Database) => new D1PlayerRepository(db),
+  createScrapePlayerStatsUseCase: (db: D1Database) =>
+    new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(db)),
+}));
 
 // Static file serving and SPA fallback
 // Handled by Cloudflare Workers Sites via wrangler.jsonc [site] config
@@ -93,6 +104,12 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
     rounds: roundsToScrape,
   });
 
+  // Create per-request player stats use case with D1 binding
+  const scrapePlayerStatsUseCase = new ScrapePlayerStatsUseCase(
+    playerStatsSource,
+    new D1PlayerRepository(env.DB)
+  );
+
   for (const { year, round } of roundsToScrape) {
     ctx.waitUntil(
       scrapeMatchResultsUseCase.execute(year, round).then(result => {
@@ -103,8 +120,19 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
           enriched: result.enrichedCount,
           created: result.createdCount,
         });
+
+        // After match results are scraped, also scrape player stats
+        return scrapePlayerStatsUseCase.execute(year, round).then(playerResult => {
+          logger.info('Scheduled player stats scrape complete', {
+            year,
+            round,
+            playersProcessed: playerResult.playersProcessed,
+            created: playerResult.created,
+            updated: playerResult.updated,
+          });
+        });
       }).catch(error => {
-        logger.error('Scheduled result scrape failed', {
+        logger.error('Scheduled scrape failed', {
           year,
           round,
           error: error instanceof Error ? error.message : 'Unknown error',

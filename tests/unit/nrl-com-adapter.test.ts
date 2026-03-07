@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NrlComMatchResultAdapter, resolveNrlComTeamId } from '../../src/infrastructure/adapters/nrl-com-match-result-adapter.js';
+import { NrlComMatchResultAdapter } from '../../src/infrastructure/adapters/nrl-com-match-result-adapter.js';
+import { resolveNrlComTeamId } from '../../src/infrastructure/shared/nrl-team-id-map.js';
 import { MatchStatus } from '../../src/domain/match.js';
 import * as fs from 'fs';
 import * as path from 'path';

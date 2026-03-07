@@ -3,6 +3,7 @@
  */
 
 import type { Context } from 'hono';
+import { z } from 'zod';
 import type {
   HealthResponse,
   YearsResponse,
@@ -20,8 +21,10 @@ import {
   SeasonSummaryParamsSchema,
 } from '../models/schemas.js';
 import type { MatchRepository } from '../domain/repositories/match-repository.js';
+import type { PlayerRepository } from '../domain/repositories/player-repository.js';
 import type { ScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
 import type { ScrapeMatchResultsUseCase } from '../application/use-cases/scrape-match-results.js';
+import type { ScrapePlayerStatsUseCase } from '../application/use-cases/scrape-player-stats.js';
 import {
   getLastScrapeTimes,
   getAllTeamsFromDb,
@@ -46,12 +49,17 @@ export interface HandlerDeps {
   scrapeDrawUseCase: ScrapeDrawUseCase;
   scrapeMatchResultsUseCase: ScrapeMatchResultsUseCase;
   matchRepository: MatchRepository;
+  /** Factory to create a per-request D1PlayerRepository from the DB binding */
+  createPlayerRepository: (db: D1Database) => PlayerRepository;
+  /** Factory to create a per-request ScrapePlayerStatsUseCase from the DB binding */
+  createScrapePlayerStatsUseCase: (db: D1Database) => ScrapePlayerStatsUseCase;
 }
 
 // Environment bindings type
 interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
+  DB: D1Database;
 }
 
 type ApiContext = Context<{ Bindings: Env }>;
@@ -418,6 +426,220 @@ export function triggerScrape(deps: HandlerDeps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'SCRAPE_FAILED', message, 500);
+    }
+  };
+}
+
+// ============================================
+// Player Statistics
+// ============================================
+
+const PlayerScrapeRequestSchema = z.object({
+  year: z.number().int().min(2020).max(2030),
+  round: z.number().int().min(1).max(31),
+  force: z.boolean().optional().default(false),
+});
+
+const SeasonQuerySchema = z.coerce.number().int().min(2020).max(2030);
+
+/**
+ * GET /api/players/team/:teamCode - Get players for a team
+ */
+export function getTeamPlayers(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const teamCode = c.req.param('teamCode')?.toUpperCase();
+    if (!teamCode || !VALID_TEAM_CODES.includes(teamCode)) {
+      return errorResponse(c, 'Bad Request', `Invalid team code: ${teamCode}`, 400, VALID_TEAM_CODES);
+    }
+
+    const seasonParam = c.req.query('season');
+    let season: number | undefined;
+    if (seasonParam) {
+      const parsed = SeasonQuerySchema.safeParse(seasonParam);
+      if (!parsed.success) {
+        return errorResponse(c, 'Bad Request', `Invalid season: ${seasonParam}`, 400);
+      }
+      season = parsed.data;
+    }
+
+    const repo = deps.createPlayerRepository(c.env.DB);
+    const players = await repo.findByTeam(teamCode, season);
+
+    const playerResults = [];
+    for (const player of players) {
+      const performances = await repo.findMatchPerformances(player.id, season ?? new Date().getFullYear());
+      const aggregates = await repo.findSeasonAggregates(player.id, season ?? new Date().getFullYear());
+
+      playerResults.push({
+        id: player.id,
+        name: player.name,
+        position: player.position,
+        seasonStats: aggregates ?? {
+          matchesPlayed: 0,
+          totalTries: 0,
+          totalGoals: 0,
+          totalTackles: 0,
+          totalRunMetres: 0,
+          totalFantasyPoints: 0,
+        },
+        performances: performances.map(p => ({
+          matchId: p.matchId,
+          round: p.round,
+          teamCode: p.teamCode,
+          tries: p.tries,
+          goals: p.goals,
+          tackles: p.tackles,
+          runMetres: p.runMetres,
+          fantasyPoints: p.fantasyPoints,
+          isComplete: p.isComplete,
+        })),
+      });
+    }
+
+    return c.json({
+      team: teamCode,
+      season: season ?? null,
+      players: playerResults,
+    });
+  };
+}
+
+/**
+ * GET /api/players/:playerId - Get a single player
+ */
+export function getPlayer(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const playerId = c.req.param('playerId');
+    if (!playerId) {
+      return errorResponse(c, 'Bad Request', 'Missing playerId', 400);
+    }
+
+    const seasonParam = c.req.query('season');
+    let seasonFilter: number | undefined;
+    if (seasonParam) {
+      const parsed = SeasonQuerySchema.safeParse(seasonParam);
+      if (!parsed.success) {
+        return errorResponse(c, 'Bad Request', `Invalid season: ${seasonParam}`, 400);
+      }
+      seasonFilter = parsed.data;
+    }
+
+    const repo = deps.createPlayerRepository(c.env.DB);
+    const player = await repo.findById(playerId);
+
+    if (!player) {
+      return errorResponse(c, 'Not Found', `Player not found: ${playerId}`, 404);
+    }
+
+    // Group performances by season
+    const seasons: Record<string, {
+      matchesPlayed: number;
+      totalTries: number;
+      totalGoals: number;
+      totalTackles: number;
+      totalRunMetres: number;
+      totalFantasyPoints: number;
+      performances: Array<{
+        matchId: string;
+        round: number;
+        teamCode: string;
+        tries: number;
+        goals: number;
+        tackles: number;
+        runMetres: number;
+        fantasyPoints: number;
+        isComplete: boolean;
+      }>;
+    }> = {};
+
+    // Get unique seasons from performances
+    const performanceSeasons = new Set(player.performances.map(p => p.year));
+    const seasonsToQuery = seasonFilter ? [seasonFilter] : [...performanceSeasons];
+
+    for (const year of seasonsToQuery) {
+      const performances = await repo.findMatchPerformances(playerId, year);
+      const aggregates = await repo.findSeasonAggregates(playerId, year);
+
+      if (performances.length > 0 || aggregates) {
+        seasons[String(year)] = {
+          matchesPlayed: aggregates?.matchesPlayed ?? 0,
+          totalTries: aggregates?.totalTries ?? 0,
+          totalGoals: aggregates?.totalGoals ?? 0,
+          totalTackles: aggregates?.totalTackles ?? 0,
+          totalRunMetres: aggregates?.totalRunMetres ?? 0,
+          totalFantasyPoints: aggregates?.totalFantasyPoints ?? 0,
+          performances: performances.map(p => ({
+            matchId: p.matchId,
+            round: p.round,
+            teamCode: p.teamCode,
+            tries: p.tries,
+            goals: p.goals,
+            tackles: p.tackles,
+            runMetres: p.runMetres,
+            fantasyPoints: p.fantasyPoints,
+            isComplete: p.isComplete,
+          })),
+        };
+      }
+    }
+
+    return c.json({
+      id: player.id,
+      name: player.name,
+      position: player.position,
+      teamCode: player.teamCode,
+      seasons,
+    });
+  };
+}
+
+/**
+ * POST /api/scrape/players - Trigger player stats scrape
+ */
+export function triggerPlayerScrape(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const body = await c.req.json();
+      const parseResult = PlayerScrapeRequestSchema.safeParse(body);
+
+      if (!parseResult.success) {
+        const issue = parseResult.error.issues[0];
+        return errorResponse(c, 'Bad Request', `Missing required field: ${issue.path.join('.')}`, 400);
+      }
+
+      const { year, round, force } = parseResult.data;
+
+      // Check if round is already complete before scraping
+      if (!force) {
+        const repo = deps.createPlayerRepository(c.env.DB);
+        const isComplete = await repo.isRoundComplete(year, round);
+        if (isComplete) {
+          return errorResponse(
+            c,
+            'Bad Request',
+            `Round ${round} is already complete. Use force: true to re-scrape.`,
+            400
+          );
+        }
+      }
+
+      const useCase = deps.createScrapePlayerStatsUseCase(c.env.DB);
+      const result = await useCase.execute(year, round, force);
+
+      return c.json({
+        success: true,
+        year: result.year,
+        round: result.round,
+        playersProcessed: result.playersProcessed,
+        matchesScraped: result.matchesScraped,
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        warnings: result.warnings,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'Bad Gateway', message, 502 as unknown as 500);
     }
   };
 }

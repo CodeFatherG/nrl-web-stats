@@ -12,6 +12,7 @@ import * as handlers from './handlers.js';
 interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
+  DB: D1Database;
 }
 
 /**
@@ -54,6 +55,11 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
 
   // Scrape trigger (use injected use case)
   api.post('/scrape', handlers.triggerScrape(deps));
+
+  // Player Statistics
+  api.get('/players/team/:teamCode', handlers.getTeamPlayers(deps));
+  api.get('/players/:playerId', handlers.getPlayer(deps));
+  api.post('/scrape/players', handlers.triggerPlayerScrape(deps));
 
   return api;
 }
