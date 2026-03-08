@@ -8,7 +8,8 @@ import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
 import { ByeOverviewView } from './views/ByeOverviewView';
-import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary } from './services/api';
+import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook } from './services/api';
+import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak } from './types';
 
 type AppStatus = 'loading' | 'error' | 'no-data' | 'ready';
@@ -53,6 +54,10 @@ function App() {
 
   // Streak analysis state
   const [teamStreaks, setTeamStreaks] = useState<Streak[]>([]);
+
+  // Analytics state
+  const [teamFormData, setTeamFormData] = useState<FormTrajectoryResponse | null>(null);
+  const [matchOutlookData, setMatchOutlookData] = useState<MatchOutlookResponse | null>(null);
 
   // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
@@ -122,19 +127,26 @@ function App() {
       setScheduleLoading(true);
       setScheduleError(null);
       setTeamStreaks([]);
+      setTeamFormData(null);
 
       try {
         const year = loadedYears[0]; // Use first loaded year
         const schedule = await getTeamSchedule(code, year);
         setTeamSchedule(schedule);
 
-        // Fetch streak data (non-blocking — schedule still displays if this fails)
+        // Fetch streak and form data (non-blocking — schedule still displays if these fail)
         if (year !== undefined) {
           try {
             const streaksResponse = await getTeamStreaks(year, code);
             setTeamStreaks(streaksResponse.streaks);
           } catch {
             // Streaks are optional enhancement, don't fail the whole view
+          }
+          try {
+            const formResponse = await getTeamForm(year, code);
+            setTeamFormData(formResponse);
+          } catch {
+            // Form data is optional, don't fail the whole view
           }
         }
       } catch (err) {
@@ -153,12 +165,19 @@ function App() {
       setSelectedRound(round);
       setRoundLoading(true);
       setRoundError(null);
+      setMatchOutlookData(null);
 
       try {
         const year = loadedYears[0]; // Use first loaded year
         if (year !== undefined) {
           const data = await getRound(year, round);
           setRoundData(data);
+          try {
+            const outlook = await getMatchOutlook(year, round);
+            setMatchOutlookData(outlook);
+          } catch {
+            // Outlook data is optional, don't fail the round view
+          }
         }
       } catch (err) {
         setRoundError(
@@ -270,6 +289,7 @@ function App() {
             onFiltersChange={setFilters}
             rankings={rankings}
             streaks={teamStreaks}
+            formData={teamFormData}
           />
         )}
 
@@ -283,6 +303,7 @@ function App() {
             strengthThresholds={strengthThresholds}
             loading={roundLoading}
             error={roundError}
+            outlookData={matchOutlookData}
           />
         )}
 

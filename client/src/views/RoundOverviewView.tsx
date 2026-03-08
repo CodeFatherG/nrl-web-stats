@@ -3,6 +3,7 @@ import { RoundSelector } from '../components/RoundSelector';
 import { MatchCard } from '../components/MatchCard';
 import { ByeTeamsList } from '../components/ByeTeamsList';
 import type { Team, RoundResponse, StrengthThresholds } from '../types';
+import type { MatchOutlookResponse } from '../services/api';
 
 interface RoundOverviewViewProps {
   year: number;
@@ -13,6 +14,7 @@ interface RoundOverviewViewProps {
   strengthThresholds: StrengthThresholds;
   loading: boolean;
   error: string | null;
+  outlookData?: MatchOutlookResponse | null;
 }
 
 export function RoundOverviewView({
@@ -24,10 +26,18 @@ export function RoundOverviewView({
   strengthThresholds,
   loading,
   error,
+  outlookData,
 }: RoundOverviewViewProps) {
   const getTeamName = (code: string): string => {
     const team = teams.find((t) => t.code === code);
     return team?.name ?? code;
+  };
+
+  const getOutlookForMatch = (homeTeam: string, awayTeam: string) => {
+    if (!outlookData) return undefined;
+    return outlookData.matches.find(
+      (m) => m.homeTeamCode === homeTeam && m.awayTeamCode === awayTeam
+    );
   };
 
   return (
@@ -62,17 +72,22 @@ export function RoundOverviewView({
           </Typography>
 
           <Grid container spacing={2}>
-            {roundData.matches.map((match, index) => (
-              <Grid item xs={12} sm={6} md={4} key={index}>
-                <MatchCard
-                  homeStrength={match.homeStrength}
-                  awayStrength={match.awayStrength}
-                  homeTeamName={getTeamName(match.homeTeam)}
-                  awayTeamName={getTeamName(match.awayTeam)}
-                  strengthThresholds={strengthThresholds}
-                />
-              </Grid>
-            ))}
+            {roundData.matches.map((match, index) => {
+              const outlook = getOutlookForMatch(match.homeTeam, match.awayTeam);
+              return (
+                <Grid item xs={12} sm={6} md={4} key={index}>
+                  <MatchCard
+                    homeStrength={match.homeStrength}
+                    awayStrength={match.awayStrength}
+                    homeTeamName={getTeamName(match.homeTeam)}
+                    awayTeamName={getTeamName(match.awayTeam)}
+                    strengthThresholds={strengthThresholds}
+                    outlookLabel={outlook?.label}
+                    outlookTooltip={outlook ? `Composite: ${outlook.compositeScore.toFixed(2)} (${outlook.factorsAvailable} factors)` : undefined}
+                  />
+                </Grid>
+              );
+            })}
           </Grid>
 
           <ByeTeamsList teamCodes={roundData.byeTeams} teams={teams} />

@@ -61,5 +61,11 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/players/:playerId', handlers.getPlayer(deps));
   api.post('/scrape/players', handlers.triggerPlayerScrape(deps));
 
+  // Analytics
+  api.get('/analytics/form/:year/:teamCode', handlers.getTeamForm(deps));
+  api.get('/analytics/outlook/:year/:round', handlers.getMatchOutlook(deps));
+  api.get('/analytics/trends/:year/:teamCode', handlers.getPlayerTrends(deps));
+  api.get('/analytics/composition/:year/:teamCode', handlers.getCompositionImpact(deps));
+
   return api;
 }

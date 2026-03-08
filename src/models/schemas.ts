@@ -41,7 +41,53 @@ export const SeasonSummaryParamsSchema = z.object({
   year: z.coerce.number().int().min(1998),
 });
 
+/** Schema for analytics form/composition path params: year + teamCode */
+export const AnalyticsFormParamsSchema = z.object({
+  year: z.coerce.number().int().min(1998),
+  teamCode: z.string().length(3).toUpperCase().refine(
+    (code) => VALID_TEAM_CODES.includes(code),
+    { message: 'Invalid team code' }
+  ),
+});
+
+/** Schema for analytics form query params */
+export const AnalyticsFormQuerySchema = z.object({
+  window: z.coerce.number().int().min(1).max(27).optional().default(5),
+});
+
+/** Schema for analytics player trends query params */
+export const AnalyticsTrendsQuerySchema = z.object({
+  window: z.coerce.number().int().min(1).max(27).optional().default(5),
+  significantOnly: z.coerce.boolean().optional().default(false),
+});
+
+/** Schema for analytics outlook path params: year + round */
+export const AnalyticsOutlookParamsSchema = z.object({
+  year: z.coerce.number().int().min(1998),
+  round: z.coerce.number().int().min(1).max(27),
+});
+
+/** Schema for analytics outlook query params */
+export const AnalyticsOutlookQuerySchema = z.object({
+  window: z.coerce.number().int().min(1).max(27).optional().default(5),
+});
+
+/** Schema for analytics composition path params (same as form params) */
+export const AnalyticsCompositionParamsSchema = z.object({
+  year: z.coerce.number().int().min(1998),
+  teamCode: z.string().length(3).toUpperCase().refine(
+    (code) => VALID_TEAM_CODES.includes(code),
+    { message: 'Invalid team code' }
+  ),
+});
+
 /** Type inference helpers */
 export type ScrapeRequest = z.infer<typeof ScrapeRequestSchema>;
 export type FixtureQuery = z.infer<typeof FixtureQuerySchema>;
 export type SeasonSummaryParams = z.infer<typeof SeasonSummaryParamsSchema>;
+export type AnalyticsFormParams = z.infer<typeof AnalyticsFormParamsSchema>;
+export type AnalyticsFormQuery = z.infer<typeof AnalyticsFormQuerySchema>;
+export type AnalyticsTrendsQuery = z.infer<typeof AnalyticsTrendsQuerySchema>;
+export type AnalyticsOutlookParams = z.infer<typeof AnalyticsOutlookParamsSchema>;
+export type AnalyticsOutlookQuery = z.infer<typeof AnalyticsOutlookQuerySchema>;
+export type AnalyticsCompositionParams = z.infer<typeof AnalyticsCompositionParamsSchema>;

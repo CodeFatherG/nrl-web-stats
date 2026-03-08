@@ -11,6 +11,7 @@ import type {
   AllTeamsRankingResponse,
   Streak,
 } from '../types';
+import type { FormTrajectoryResponse } from '../services/api';
 
 interface TeamScheduleViewProps {
   teams: Team[];
@@ -25,6 +26,8 @@ interface TeamScheduleViewProps {
   rankings?: AllTeamsRankingResponse | null;
   /** Streak analysis data for selected team */
   streaks?: Streak[];
+  /** Form trajectory data for selected team */
+  formData?: FormTrajectoryResponse | null;
 }
 
 function applyFilters(
@@ -64,6 +67,7 @@ export function TeamScheduleView({
   onFiltersChange,
   rankings,
   streaks,
+  formData,
 }: TeamScheduleViewProps) {
   const filteredFixtures = schedule
     ? applyFilters(schedule.schedule, filters)
@@ -107,6 +111,7 @@ export function TeamScheduleView({
             rank={teamRanking?.rank}
             totalTeams={rankings?.rankings.length}
             category={teamRanking?.category}
+            formSnapshots={formData?.snapshots}
           />
 
           <FilterControls

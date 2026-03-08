@@ -1,6 +1,9 @@
 import { Card, CardContent, Typography, Box, Divider } from '@mui/material';
 import { StrengthBadge } from './StrengthBadge';
+import { OutlookBadge } from './OutlookBadge';
 import type { StrengthThresholds } from '../types';
+
+type OutlookLabel = 'Easy' | 'Competitive' | 'Tough' | 'Upset Alert';
 
 interface MatchCardProps {
   homeStrength: number;
@@ -8,6 +11,8 @@ interface MatchCardProps {
   homeTeamName: string;
   awayTeamName: string;
   strengthThresholds: StrengthThresholds;
+  outlookLabel?: OutlookLabel;
+  outlookTooltip?: string;
 }
 
 export function MatchCard({
@@ -16,6 +21,8 @@ export function MatchCard({
   homeTeamName,
   awayTeamName,
   strengthThresholds,
+  outlookLabel,
+  outlookTooltip,
 }: MatchCardProps) {
   return (
     <Card sx={{ height: '100%' }}>
@@ -61,6 +68,12 @@ export function MatchCard({
           </Box>
           <StrengthBadge rating={awayStrength} thresholds={strengthThresholds} />
         </Box>
+
+        {outlookLabel && (
+          <Box display="flex" justifyContent="center" mt={1.5}>
+            <OutlookBadge label={outlookLabel} tooltip={outlookTooltip} />
+          </Box>
+        )}
       </CardContent>
     </Card>
   );

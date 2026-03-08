@@ -1,6 +1,7 @@
 import { Card, CardContent, Typography, Box, Chip, Stack } from '@mui/material';
 import type { Team, StrengthCategory } from '../types';
 import { getStrengthColor } from '../utils/strengthColors';
+import { FormSparkline } from './FormSparkline';
 
 interface TeamScheduleSummaryProps {
   team: Team;
@@ -13,6 +14,8 @@ interface TeamScheduleSummaryProps {
   totalTeams?: number;
   /** Category based on percentile */
   category?: StrengthCategory;
+  /** Form trajectory snapshots for sparkline */
+  formSnapshots?: Array<{ round: number; formScore: number }>;
 }
 
 export function TeamScheduleSummary({
@@ -23,6 +26,7 @@ export function TeamScheduleSummary({
   rank,
   totalTeams,
   category,
+  formSnapshots,
 }: TeamScheduleSummaryProps) {
   const matchCount = fixtureCount - byeRounds.length;
   const avgStrength = matchCount > 0 ? Math.round(totalStrength / matchCount) : 0;
@@ -38,9 +42,14 @@ export function TeamScheduleSummary({
           gap={2}
         >
           <Box>
-            <Typography variant="h5" component="h2" gutterBottom>
-              {team.name}
-            </Typography>
+            <Box display="flex" alignItems="center" gap={1}>
+              <Typography variant="h5" component="h2" gutterBottom>
+                {team.name}
+              </Typography>
+              {formSnapshots && formSnapshots.length > 0 && (
+                <FormSparkline snapshots={formSnapshots} />
+              )}
+            </Box>
             <Typography variant="body2" color="text.secondary">
               {fixtureCount} fixtures • {byeRounds.length} bye weeks
             </Typography>

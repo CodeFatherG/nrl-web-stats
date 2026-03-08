@@ -12,6 +12,12 @@ import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
 import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
 import { ScrapePlayerStatsUseCase } from './application/use-cases/scrape-player-stats.js';
+import { AnalyticsCache } from './analytics/analytics-cache.js';
+import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
+import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outlook.js';
+import { GetPlayerTrendsUseCase } from './application/use-cases/get-player-trends.js';
+import { GetCompositionImpactUseCase } from './application/use-cases/get-composition-impact.js';
+import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 
 // Environment bindings type
 export interface Env {
@@ -27,6 +33,12 @@ const matchRepository = new InMemoryMatchRepository();
 const scrapeDrawUseCase = new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository);
 const scrapeMatchResultsUseCase = new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore);
 const playerStatsSource = new NrlComPlayerStatsAdapter();
+const analyticsCache = new AnalyticsCache();
+const getTeamFormUseCase = new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache);
+const getMatchOutlookUseCase = new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache);
+const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
+const getPlayerTrendsUseCase = new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache);
+const getCompositionImpactUseCase = new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache);
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -41,9 +53,13 @@ app.route('/api', createApiRoutes({
   scrapeDrawUseCase,
   scrapeMatchResultsUseCase,
   matchRepository,
-  createPlayerRepository: (db: D1Database) => new D1PlayerRepository(db),
+  createPlayerRepository: createPlayerRepo,
   createScrapePlayerStatsUseCase: (db: D1Database) =>
     new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(db)),
+  getTeamFormUseCase,
+  getMatchOutlookUseCase,
+  getPlayerTrendsUseCase,
+  getCompositionImpactUseCase,
 }));
 
 // Static file serving and SPA fallback

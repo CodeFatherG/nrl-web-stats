@@ -15,6 +15,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - In-memory Maps within worker isolate (`InMemoryMatchRepository`), no persistent storage (010-nrl-match-results)
 - TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), D1 (database) (011-player-stats-persistence)
 - Cloudflare D1 (SQLite-based, native Workers binding) (011-player-stats-persistence)
+- TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), React 18, MUI 5.x (frontend) (012-analytics-engine)
+- Computed on-demand from existing repositories (MatchRepository in-memory, PlayerRepository on D1, FixtureRepository in-memory). Analytics results cached in-memory. (012-analytics-engine)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -67,9 +69,9 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 012-analytics-engine: Added TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), React 18, MUI 5.x (frontend)
 - 011-player-stats-persistence: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), D1 (database)
 - 010-nrl-match-results: Added TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), Vitest (testing). No new dependencies — nrl.com returns JSON, so LinkedOM/HTML parsing is not needed for this adapter.
-- 009-scraper-adapters: Added TypeScript 5.x with strict mode + Hono (HTTP), LinkedOM (HTML parsing), Zod (validation), Vitest (testing)
 
 
 <!-- MANUAL ADDITIONS START -->

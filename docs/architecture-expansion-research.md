@@ -424,7 +424,7 @@ Refer to docs/architecture-expansion-research.md section 2.2 for adapter design,
 **Why this phase fifth:** This is the first phase requiring persistent storage, which is a significant infrastructure change. By this point, the repository pattern is already proven with in-memory implementations (Phases 3-4). Swapping to a real database is just providing a new repository implementation — the use cases and domain model don't change.
 
 **Speckit prompt:**
-In progress
+Completed
 ```
 Add a persistence layer for historic player statistics and implement the player data scraper from nrl.com. Player statistics are immutable historical records that must survive application restarts, unlike the ephemeral schedule and result data.
 
@@ -462,6 +462,7 @@ Refer to docs/architecture-expansion-research.md section 2.7 for repository patt
 **Why this phase last:** Analytics is a pure consumer of other contexts' data. It adds no new scraping sources or storage mechanisms — it computes derived insights. Waiting until all data sources are in place means analytics can leverage the full dataset from day one.
 
 **Speckit prompt:**
+Completed
 ```
 Build an analytics engine that aggregates data from schedule strength ratings, match results, and player statistics to provide trend insights and future performance predictions.
 

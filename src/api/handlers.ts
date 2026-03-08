@@ -19,12 +19,22 @@ import {
   YearSchema,
   RoundSchema,
   SeasonSummaryParamsSchema,
+  AnalyticsFormParamsSchema,
+  AnalyticsFormQuerySchema,
+  AnalyticsOutlookParamsSchema,
+  AnalyticsOutlookQuerySchema,
+  AnalyticsTrendsQuerySchema,
+  AnalyticsCompositionParamsSchema,
 } from '../models/schemas.js';
 import type { MatchRepository } from '../domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../domain/repositories/player-repository.js';
 import type { ScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
 import type { ScrapeMatchResultsUseCase } from '../application/use-cases/scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from '../application/use-cases/scrape-player-stats.js';
+import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
+import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
+import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
+import type { GetCompositionImpactUseCase } from '../application/use-cases/get-composition-impact.js';
 import {
   getLastScrapeTimes,
   getAllTeamsFromDb,
@@ -53,6 +63,11 @@ export interface HandlerDeps {
   createPlayerRepository: (db: D1Database) => PlayerRepository;
   /** Factory to create a per-request ScrapePlayerStatsUseCase from the DB binding */
   createScrapePlayerStatsUseCase: (db: D1Database) => ScrapePlayerStatsUseCase;
+  /** Analytics use cases */
+  getTeamFormUseCase: GetTeamFormUseCase;
+  getMatchOutlookUseCase: GetMatchOutlookUseCase;
+  getPlayerTrendsUseCase: GetPlayerTrendsUseCase;
+  getCompositionImpactUseCase: GetCompositionImpactUseCase;
 }
 
 // Environment bindings type
@@ -422,6 +437,14 @@ export function triggerScrape(deps: HandlerDeps) {
       }
       const { year, force } = parseResult.data;
       const result = await deps.scrapeDrawUseCase.execute(year, force);
+
+      // After draw loads, also scrape match results so analytics have data
+      try {
+        await deps.scrapeMatchResultsUseCase.execute(year);
+      } catch {
+        // Match results are optional — don't fail the draw scrape
+      }
+
       return c.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -641,5 +664,120 @@ export function triggerPlayerScrape(deps: HandlerDeps) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'Bad Gateway', message, 502 as unknown as 500);
     }
+  };
+}
+
+// ============================================
+// Analytics
+// ============================================
+
+/**
+ * GET /api/analytics/form/:year/:teamCode - Team form trajectory
+ */
+export function getTeamForm(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const paramsResult = AnalyticsFormParamsSchema.safeParse({
+      year: c.req.param('year'),
+      teamCode: c.req.param('teamCode'),
+    });
+    if (!paramsResult.success) {
+      const issue = paramsResult.error.issues[0];
+      return errorResponse(c, 'VALIDATION_ERROR', issue.message, 400, VALID_TEAM_CODES);
+    }
+
+    const queryResult = AnalyticsFormQuerySchema.safeParse({
+      window: c.req.query('window'),
+    });
+    if (!queryResult.success) {
+      return errorResponse(c, 'VALIDATION_ERROR', 'Window must be between 1 and 27', 400);
+    }
+
+    const { year, teamCode } = paramsResult.data;
+    const { window: windowSize } = queryResult.data;
+
+    const trajectory = deps.getTeamFormUseCase.execute(teamCode, year, windowSize);
+    return c.json(trajectory);
+  };
+}
+
+/**
+ * GET /api/analytics/outlook/:year/:round - Match outlook for a round
+ */
+export function getMatchOutlook(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const paramsResult = AnalyticsOutlookParamsSchema.safeParse({
+      year: c.req.param('year'),
+      round: c.req.param('round'),
+    });
+    if (!paramsResult.success) {
+      const issue = paramsResult.error.issues[0];
+      return errorResponse(c, 'VALIDATION_ERROR', issue.message, 400);
+    }
+
+    const queryResult = AnalyticsOutlookQuerySchema.safeParse({
+      window: c.req.query('window'),
+    });
+    if (!queryResult.success) {
+      return errorResponse(c, 'VALIDATION_ERROR', 'Window must be between 1 and 27', 400);
+    }
+
+    const { year, round } = paramsResult.data;
+    const { window: windowSize } = queryResult.data;
+
+    const result = deps.getMatchOutlookUseCase.execute(year, round, windowSize);
+    return c.json(result);
+  };
+}
+
+/**
+ * GET /api/analytics/trends/:year/:teamCode - Player performance trends
+ */
+export function getPlayerTrends(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const paramsResult = AnalyticsFormParamsSchema.safeParse({
+      year: c.req.param('year'),
+      teamCode: c.req.param('teamCode'),
+    });
+    if (!paramsResult.success) {
+      const issue = paramsResult.error.issues[0];
+      return errorResponse(c, 'VALIDATION_ERROR', issue.message, 400, VALID_TEAM_CODES);
+    }
+
+    const queryResult = AnalyticsTrendsQuerySchema.safeParse({
+      window: c.req.query('window'),
+      significantOnly: c.req.query('significantOnly'),
+    });
+    if (!queryResult.success) {
+      return errorResponse(c, 'VALIDATION_ERROR', 'Invalid query parameters', 400);
+    }
+
+    const { year, teamCode } = paramsResult.data;
+    const { window: windowSize, significantOnly } = queryResult.data;
+
+    const result = await deps.getPlayerTrendsUseCase.execute(
+      c.env.DB, teamCode, year, windowSize, significantOnly
+    );
+    return c.json(result);
+  };
+}
+
+/**
+ * GET /api/analytics/composition/:year/:teamCode - Team composition impact
+ */
+export function getCompositionImpact(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const paramsResult = AnalyticsCompositionParamsSchema.safeParse({
+      year: c.req.param('year'),
+      teamCode: c.req.param('teamCode'),
+    });
+    if (!paramsResult.success) {
+      const issue = paramsResult.error.issues[0];
+      return errorResponse(c, 'VALIDATION_ERROR', issue.message, 400, VALID_TEAM_CODES);
+    }
+
+    const { year, teamCode } = paramsResult.data;
+
+    const result = await deps.getCompositionImpactUseCase.execute(c.env.DB, teamCode, year);
+    return c.json(result);
   };
 }
