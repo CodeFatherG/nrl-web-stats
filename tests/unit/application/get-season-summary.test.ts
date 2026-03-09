@@ -46,27 +46,27 @@ function createMockRankingService(): RankingService {
 }
 
 describe('GetSeasonSummaryUseCase', () => {
-  it('returns null when year is not loaded', () => {
+  it('returns null when year is not loaded', async () => {
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo([], false),
       createMockRankingService()
     );
-    expect(useCase.execute(2025)).toBeNull();
+    expect(await useCase.execute(2025)).toBeNull();
   });
 
-  it('returns 27 rounds for a loaded year with no fixtures', () => {
+  it('returns 27 rounds for a loaded year with no fixtures', async () => {
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo([], true),
       createMockRankingService()
     );
-    const result = useCase.execute(2025);
+    const result = await useCase.execute(2025);
     expect(result).not.toBeNull();
     expect(result!.year).toBe(2025);
     expect(result!.rounds).toHaveLength(27);
     expect(result!.thresholds).toEqual(defaultThresholds);
   });
 
-  it('correctly pairs home/away fixtures into matches', () => {
+  it('correctly pairs home/away fixtures into matches', async () => {
     const fixtures: Fixture[] = [
       createMockFixture({ teamCode: 'MNL', opponentCode: 'SYD', isHome: true, round: 1, strengthRating: 4.0 }),
       createMockFixture({ teamCode: 'SYD', opponentCode: 'MNL', isHome: false, round: 1, strengthRating: 6.0 }),
@@ -75,7 +75,7 @@ describe('GetSeasonSummaryUseCase', () => {
       createMockFixtureRepo(fixtures),
       createMockRankingService()
     );
-    const result = useCase.execute(2025)!;
+    const result = (await useCase.execute(2025))!;
     const round1 = result.rounds[0];
     expect(round1.matches).toHaveLength(1);
     expect(round1.matches[0].homeTeam).toBe('MNL');
@@ -85,7 +85,7 @@ describe('GetSeasonSummaryUseCase', () => {
     expect(round1.byeTeams).toHaveLength(0);
   });
 
-  it('identifies bye teams correctly', () => {
+  it('identifies bye teams correctly', async () => {
     const fixtures: Fixture[] = [
       createMockFixture({ teamCode: 'MNL', isBye: true, isHome: false, opponentCode: null, round: 3, strengthRating: 0 }),
       createMockFixture({ teamCode: 'SYD', isBye: true, isHome: false, opponentCode: null, round: 3, strengthRating: 0 }),
@@ -94,7 +94,7 @@ describe('GetSeasonSummaryUseCase', () => {
       createMockFixtureRepo(fixtures),
       createMockRankingService()
     );
-    const result = useCase.execute(2025)!;
+    const result = (await useCase.execute(2025))!;
     const round3 = result.rounds[2];
     expect(round3.matches).toHaveLength(0);
     expect(round3.byeTeams).toEqual(['MNL', 'SYD']);

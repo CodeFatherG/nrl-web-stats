@@ -13,7 +13,7 @@ export class GetSeasonSummaryUseCase {
     private readonly matchRepository?: MatchRepository
   ) {}
 
-  execute(year: number): SeasonSummaryResult | null {
+  async execute(year: number): Promise<SeasonSummaryResult | null> {
     if (!this.fixtures.isYearLoaded(year)) {
       return null;
     }
@@ -44,7 +44,7 @@ export class GetSeasonSummaryUseCase {
 
         if (this.matchRepository) {
           const matchId = createMatchId(fixture.teamCode, fixture.opponentCode, year, fixture.round);
-          const match = this.matchRepository.findById(matchId);
+          const match = await this.matchRepository.findById(matchId);
           if (match) {
             homeScore = match.homeScore;
             awayScore = match.awayScore;

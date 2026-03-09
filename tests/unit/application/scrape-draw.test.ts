@@ -34,17 +34,17 @@ function createMockDataSource(result: ReturnType<typeof success> | ReturnType<ty
   };
 }
 
-function createMockMatchRepository(): MatchRepository & { loadForYear: ReturnType<typeof vi.fn> } {
+function createMockMatchRepository(): MatchRepository & { saveAll: ReturnType<typeof vi.fn> } {
   return {
-    save: vi.fn(),
-    findById: vi.fn().mockReturnValue(null),
-    findByYear: vi.fn().mockReturnValue([]),
-    findByYearAndRound: vi.fn().mockReturnValue([]),
-    findByTeam: vi.fn().mockReturnValue([]),
-    loadForYear: vi.fn(),
-    getLoadedYears: vi.fn().mockReturnValue([]),
-    isYearLoaded: vi.fn().mockReturnValue(false),
-    getMatchCount: vi.fn().mockReturnValue(0),
+    save: vi.fn().mockResolvedValue(undefined),
+    saveAll: vi.fn().mockResolvedValue(undefined),
+    findById: vi.fn().mockResolvedValue(null),
+    findByYear: vi.fn().mockResolvedValue([]),
+    findByYearAndRound: vi.fn().mockResolvedValue([]),
+    findByTeam: vi.fn().mockResolvedValue([]),
+    getLoadedYears: vi.fn().mockResolvedValue([]),
+    isYearLoaded: vi.fn().mockResolvedValue(false),
+    getMatchCount: vi.fn().mockResolvedValue(0),
   };
 }
 
@@ -85,7 +85,7 @@ describe('ScrapeDrawUseCase', () => {
     await useCase.execute(2025);
 
     expect(dataSource.fetchDraw).toHaveBeenCalledWith(2025);
-    expect(repo.loadForYear).toHaveBeenCalledWith(2025, testMatches);
+    expect(repo.saveAll).toHaveBeenCalledWith(testMatches);
   });
 
   it('returns cached result when available', async () => {
@@ -159,6 +159,6 @@ describe('ScrapeDrawUseCase', () => {
       // expected
     }
 
-    expect(repo.loadForYear).not.toHaveBeenCalled();
+    expect(repo.saveAll).not.toHaveBeenCalled();
   });
 });

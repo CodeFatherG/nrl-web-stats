@@ -19,17 +19,17 @@ import type { Fixture } from '../../src/models/fixture.js';
 // Minimal mock implementations
 function createMockMatchRepository(matches: Match[]): MatchRepository {
   return {
-    save: () => {},
-    findByYearAndRound: (year, round) => matches.filter(m => m.year === year && m.round === round),
-    findByTeam: (code, year) => matches.filter(m =>
+    save: async () => {},
+    saveAll: async () => {},
+    findByYearAndRound: async (year, round) => matches.filter(m => m.year === year && m.round === round),
+    findByTeam: async (code, year) => matches.filter(m =>
       (m.homeTeamCode === code || m.awayTeamCode === code) && (!year || m.year === year)
     ),
-    findById: (id) => matches.find(m => m.id === id) ?? null,
-    findByYear: (year) => matches.filter(m => m.year === year),
-    loadForYear: () => {},
-    getLoadedYears: () => [...new Set(matches.map(m => m.year))],
-    isYearLoaded: (year) => matches.some(m => m.year === year),
-    getMatchCount: () => matches.length,
+    findById: async (id) => matches.find(m => m.id === id) ?? null,
+    findByYear: async (year) => matches.filter(m => m.year === year),
+    getLoadedYears: async () => [...new Set(matches.map(m => m.year))],
+    isYearLoaded: async (year) => matches.some(m => m.year === year),
+    getMatchCount: async () => matches.length,
   };
 }
 
@@ -66,6 +66,9 @@ describe('Analytics Handlers Integration', () => {
       createPlayerRepository: () => ({} as any),
       createScrapePlayerStatsUseCase: () => ({} as any),
       getTeamFormUseCase,
+      getMatchOutlookUseCase: {} as HandlerDeps['getMatchOutlookUseCase'],
+      getPlayerTrendsUseCase: {} as HandlerDeps['getPlayerTrendsUseCase'],
+      getCompositionImpactUseCase: {} as HandlerDeps['getCompositionImpactUseCase'],
     };
 
     app = new Hono();

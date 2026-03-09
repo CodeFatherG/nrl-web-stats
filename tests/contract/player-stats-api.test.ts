@@ -59,15 +59,15 @@ describe('Player Stats API', () => {
     season: number,
     round: number,
     teamCode: string,
-    opts: { tries?: number; goals?: number; tackles?: number; runMetres?: number; fantasyPoints?: number; isComplete?: number } = {}
+    opts: { tries?: number; goals?: number; tacklesMade?: number; allRunMetres?: number; fantasyPointsTotal?: number; isComplete?: number } = {}
   ) {
     await db.prepare(
-      `INSERT INTO match_performances (player_id, match_id, season, round, team_code, tries, goals, tackles, run_metres, fantasy_points, is_complete)
+      `INSERT INTO match_performances (player_id, match_id, season, round, team_code, tries, goals, tackles_made, all_run_metres, fantasy_points_total, is_complete)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       playerId, matchId, season, round, teamCode,
-      opts.tries ?? 0, opts.goals ?? 0, opts.tackles ?? 10,
-      opts.runMetres ?? 50, opts.fantasyPoints ?? 20, opts.isComplete ?? 1
+      opts.tries ?? 0, opts.goals ?? 0, opts.tacklesMade ?? 10,
+      opts.allRunMetres ?? 50, opts.fantasyPointsTotal ?? 20, opts.isComplete ?? 1
     ).run();
   }
 
@@ -79,7 +79,7 @@ describe('Player Stats API', () => {
     it('returns 200 with players for valid team code', async () => {
       const db = await mf.getD1Database('DB');
       await seedPlayer(db, '1001', 'Test Player', 'CBR', 'Fullback');
-      await seedPerformance(db, '1001', 'match-1', 2025, 1, 'CBR', { tries: 2, tackles: 15 });
+      await seedPerformance(db, '1001', 'match-1', 2025, 1, 'CBR', { tries: 2, tacklesMade: 15 });
 
       const res = await mf.dispatchFetch('http://localhost/api/players/team/CBR?season=2025');
       expect(res.status).toBe(200);
@@ -130,8 +130,8 @@ describe('Player Stats API', () => {
     it('returns 200 with player data and seasons grouped', async () => {
       const db = await mf.getD1Database('DB');
       await seedPlayer(db, '1001', 'Test Player', 'CBR', 'Fullback');
-      await seedPerformance(db, '1001', 'match-1', 2025, 1, 'CBR', { tries: 1, tackles: 20, fantasyPoints: 35 });
-      await seedPerformance(db, '1001', 'match-2', 2025, 2, 'CBR', { tries: 0, tackles: 18, fantasyPoints: 28 });
+      await seedPerformance(db, '1001', 'match-1', 2025, 1, 'CBR', { tries: 1, tacklesMade: 20, fantasyPointsTotal: 35 });
+      await seedPerformance(db, '1001', 'match-2', 2025, 2, 'CBR', { tries: 0, tacklesMade: 18, fantasyPointsTotal: 28 });
 
       const res = await mf.dispatchFetch('http://localhost/api/players/1001');
       expect(res.status).toBe(200);

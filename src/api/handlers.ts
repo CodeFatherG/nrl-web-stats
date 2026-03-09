@@ -100,8 +100,8 @@ export function getHealth(deps: HandlerDeps) {
     const cacheStatus = cacheStore.getStatus();
     const response: HealthResponse & { cache: typeof cacheStatus } = {
       status: 'ok',
-      loadedYears: deps.matchRepository.getLoadedYears(),
-      totalFixtures: deps.matchRepository.getMatchCount(),
+      loadedYears: await deps.matchRepository.getLoadedYears(),
+      totalFixtures: await deps.matchRepository.getMatchCount(),
       cache: cacheStatus,
     };
     return c.json(response);
@@ -114,7 +114,7 @@ export function getHealth(deps: HandlerDeps) {
 export function getYears(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const response: YearsResponse = {
-      years: deps.matchRepository.getLoadedYears(),
+      years: await deps.matchRepository.getLoadedYears(),
       lastUpdated: getLastScrapeTimes(),
     };
     return c.json(response);
@@ -248,7 +248,7 @@ export function getRoundDetails(deps: HandlerDeps) {
     if (!roundResult.success) {
       return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
     }
-    const result = createGetRoundDetailsUseCase(deps.matchRepository).execute(yearResult.data, roundResult.data);
+    const result = await createGetRoundDetailsUseCase(deps.matchRepository).execute(yearResult.data, roundResult.data);
     return c.json(result);
   };
 }
@@ -409,12 +409,12 @@ export function getSeasonSummary(deps: HandlerDeps) {
       return errorResponse(c, 'INVALID_YEAR', 'Year must be a valid integer (1998 or later)', 400);
     }
     const { year } = parseResult.data;
-    if (!deps.matchRepository.isYearLoaded(year)) {
-      const loadedYears = deps.matchRepository.getLoadedYears();
+    if (!(await deps.matchRepository.isYearLoaded(year))) {
+      const loadedYears = await deps.matchRepository.getLoadedYears();
       const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
-    const result = createGetSeasonSummaryUseCase(deps.matchRepository).execute(year);
+    const result = await createGetSeasonSummaryUseCase(deps.matchRepository).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }
@@ -695,7 +695,7 @@ export function getTeamForm(deps: HandlerDeps) {
     const { year, teamCode } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const trajectory = deps.getTeamFormUseCase.execute(teamCode, year, windowSize);
+    const trajectory = await deps.getTeamFormUseCase.execute(teamCode, year, windowSize);
     return c.json(trajectory);
   };
 }
@@ -724,7 +724,7 @@ export function getMatchOutlook(deps: HandlerDeps) {
     const { year, round } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const result = deps.getMatchOutlookUseCase.execute(year, round, windowSize);
+    const result = await deps.getMatchOutlookUseCase.execute(year, round, windowSize);
     return c.json(result);
   };
 }

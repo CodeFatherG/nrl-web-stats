@@ -19,15 +19,15 @@ function createMockMatchRepository(): MatchRepository & {
   findById: ReturnType<typeof vi.fn>;
 } {
   return {
-    save: vi.fn(),
-    findById: vi.fn().mockReturnValue(null),
-    findByYear: vi.fn().mockReturnValue([]),
-    findByYearAndRound: vi.fn().mockReturnValue([]),
-    findByTeam: vi.fn().mockReturnValue([]),
-    loadForYear: vi.fn(),
-    getLoadedYears: vi.fn().mockReturnValue([]),
-    isYearLoaded: vi.fn().mockReturnValue(false),
-    getMatchCount: vi.fn().mockReturnValue(0),
+    save: vi.fn().mockResolvedValue(undefined),
+    saveAll: vi.fn().mockResolvedValue(undefined),
+    findById: vi.fn().mockResolvedValue(null),
+    findByYear: vi.fn().mockResolvedValue([]),
+    findByYearAndRound: vi.fn().mockResolvedValue([]),
+    findByTeam: vi.fn().mockResolvedValue([]),
+    getLoadedYears: vi.fn().mockResolvedValue([]),
+    isYearLoaded: vi.fn().mockResolvedValue(false),
+    getMatchCount: vi.fn().mockResolvedValue(0),
   };
 }
 
@@ -42,6 +42,7 @@ const testResults: MatchResult[] = [
     awayScore: 50,
     status: MatchStatus.Completed,
     scheduledTime: '2025-03-06T09:00:00Z',
+    weather: null,
   },
   {
     matchId: '2025-R1-CBR-NZL',
@@ -53,6 +54,7 @@ const testResults: MatchResult[] = [
     awayScore: 8,
     status: MatchStatus.Completed,
     scheduledTime: '2025-03-02T00:00:00Z',
+    weather: null,
   },
 ];
 
@@ -84,7 +86,7 @@ describe('ScrapeMatchResultsUseCase', () => {
       awayStrengthRating: 800,
     });
     repo.findById.mockImplementation((id: string) =>
-      id === '2025-R1-BRO-SYD' ? existingMatch : null
+      Promise.resolve(id === '2025-R1-BRO-SYD' ? existingMatch : null)
     );
 
     const useCase = new ScrapeMatchResultsUseCase(source, repo);
@@ -231,9 +233,9 @@ describe('ScrapeMatchResultsUseCase', () => {
     // Use a stateful mock repo to simulate real behavior
     let savedMatch: Match | null = null;
     const repo = createMockMatchRepository();
-    repo.save.mockImplementation((match: Match) => { savedMatch = match; });
+    repo.save.mockImplementation((match: Match) => { savedMatch = match; return Promise.resolve(); });
     repo.findById.mockImplementation((id: string) =>
-      id === '2025-R1-BRO-SYD' ? savedMatch : null
+      Promise.resolve(id === '2025-R1-BRO-SYD' ? savedMatch : null)
     );
 
     const useCase = new ScrapeMatchResultsUseCase(source, repo);
@@ -308,7 +310,7 @@ describe('ScrapeMatchResultsUseCase', () => {
       homeStrengthRating: 750, awayStrengthRating: 800,
     });
     repo.findById.mockImplementation((id: string) =>
-      id === '2025-R1-BRO-SYD' ? existingMatch : null
+      Promise.resolve(id === '2025-R1-BRO-SYD' ? existingMatch : null)
     );
 
     const useCase = new ScrapeMatchResultsUseCase(source, repo);
@@ -351,64 +353,66 @@ describe('findRoundsNeedingScrape', () => {
       awayScore: status === MatchStatus.Completed ? 10 : null,
       status,
       scheduledTime,
+      stadium: null,
+      weather: null,
     };
   }
 
-  it('identifies rounds with games past estimated completion (kick-off + 2h)', () => {
+  it('identifies rounds with games past estimated completion (kick-off + 2h)', async () => {
     const repo = createMockMatchRepository();
     const matches = [
       // Round 1: game at 09:00Z, now is 12:00Z (3h after → past 2h buffer)
       createMatchWithScheduledTime(2025, 1, 'SYD', 'BRO', '2025-03-06T09:00:00Z'),
     ];
-    repo.findByYear.mockReturnValue(matches);
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([2025]);
+    repo.findByYear.mockResolvedValue(matches);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
 
     const currentTime = new Date('2025-03-06T12:00:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([{ year: 2025, round: 1 }]);
   });
 
-  it('does NOT flag rounds where game is still within 2h buffer', () => {
+  it('does NOT flag rounds where game is still within 2h buffer', async () => {
     const repo = createMockMatchRepository();
     const matches = [
       // Round 1: game at 09:00Z, now is 10:30Z (1.5h after → within buffer)
       createMatchWithScheduledTime(2025, 1, 'SYD', 'BRO', '2025-03-06T09:00:00Z'),
     ];
-    repo.findByYear.mockReturnValue(matches);
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([2025]);
+    repo.findByYear.mockResolvedValue(matches);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
 
     const currentTime = new Date('2025-03-06T10:30:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([]);
   });
 
-  it('skips rounds where all matches are Completed', () => {
+  it('skips rounds where all matches are Completed', async () => {
     const repo = createMockMatchRepository();
     const matches = [
       createMatchWithScheduledTime(2025, 1, 'SYD', 'BRO', '2025-03-06T09:00:00Z', MatchStatus.Completed),
     ];
-    repo.findByYear.mockReturnValue(matches);
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([2025]);
+    repo.findByYear.mockResolvedValue(matches);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
 
     const currentTime = new Date('2025-03-06T12:00:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([]);
   });
 
-  it('returns empty when no schedule data exists (off-season)', () => {
+  it('returns empty when no schedule data exists (off-season)', async () => {
     const repo = createMockMatchRepository();
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([]);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([]);
 
     const currentTime = new Date('2025-03-06T12:00:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([]);
   });
 
-  it('identifies multiple rounds needing scrape', () => {
+  it('identifies multiple rounds needing scrape', async () => {
     const repo = createMockMatchRepository();
     const matches = [
       // Round 1: past completion
@@ -418,11 +422,11 @@ describe('findRoundsNeedingScrape', () => {
       // Round 3: not yet played
       createMatchWithScheduledTime(2025, 3, 'CBR', 'NZL', '2025-03-20T09:00:00Z'),
     ];
-    repo.findByYear.mockReturnValue(matches);
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([2025]);
+    repo.findByYear.mockResolvedValue(matches);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
 
     const currentTime = new Date('2025-03-14T12:00:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([
       { year: 2025, round: 1 },
@@ -430,17 +434,17 @@ describe('findRoundsNeedingScrape', () => {
     ]);
   });
 
-  it('only flags a round once even with multiple games past completion', () => {
+  it('only flags a round once even with multiple games past completion', async () => {
     const repo = createMockMatchRepository();
     const matches = [
       createMatchWithScheduledTime(2025, 1, 'SYD', 'BRO', '2025-03-06T09:00:00Z'),
       createMatchWithScheduledTime(2025, 1, 'MEL', 'PTH', '2025-03-06T10:00:00Z'),
     ];
-    repo.findByYear.mockReturnValue(matches);
-    (repo as any).getLoadedYears = vi.fn().mockReturnValue([2025]);
+    repo.findByYear.mockResolvedValue(matches);
+    (repo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
 
     const currentTime = new Date('2025-03-06T13:00:00Z');
-    const roundsNeeded = findRoundsNeedingScrape(repo, currentTime);
+    const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([{ year: 2025, round: 1 }]);
   });

@@ -23,18 +23,22 @@ export class GetMatchOutlookUseCase {
     private readonly cache: AnalyticsCache
   ) {}
 
-  execute(year: number, round: number, windowSize: number = 5): OutlookResult {
+  async execute(year: number, round: number, windowSize: number = 5): Promise<OutlookResult> {
     const cacheKey = `outlook-${year}-${round}-${windowSize}`;
-    const version = String(this.matchRepository.getMatchCount());
+    const version = String(await this.matchRepository.getMatchCount());
 
     const cached = this.cache.get<OutlookResult>(cacheKey, version);
     if (cached) return cached;
 
-    const roundMatches = this.matchRepository.findByYearAndRound(year, round);
-    const allMatches = this.matchRepository.findByYear(year);
+    const roundMatches = await this.matchRepository.findByYearAndRound(year, round);
+    const allMatches = await this.matchRepository.findByYear(year);
     // Also get matches from other years for h2h
-    const allYears = this.matchRepository.getLoadedYears();
-    const allMatchesAllYears = allYears.flatMap(y => this.matchRepository.findByYear(y));
+    const allYears = await this.matchRepository.getLoadedYears();
+    const allMatchesAllYears: import('../../domain/match.js').Match[] = [];
+    for (const y of allYears) {
+      const yearMatches = await this.matchRepository.findByYear(y);
+      allMatchesAllYears.push(...yearMatches);
+    }
 
     const fixtures = this.fixtureRepository.findByYear(year);
 

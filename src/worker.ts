@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { createApiRoutes } from './api/routes.js';
 import { setDebugMode, logger } from './utils/logger.js';
-import { cacheStore } from './cache/store.js';
+import { cacheStore, getNextMondayExpiry } from './cache/store.js';
 import { SuperCoachStatsAdapter } from './infrastructure/adapters/supercoach-stats-adapter.js';
 import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-match-result-adapter.js';
+import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
 import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape } from './application/use-cases/scrape-match-results.js';
@@ -18,6 +19,8 @@ import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outloo
 import { GetPlayerTrendsUseCase } from './application/use-cases/get-player-trends.js';
 import { GetCompositionImpactUseCase } from './application/use-cases/get-composition-impact.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
+import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
+import type { HandlerDeps } from './api/handlers.js';
 
 // Environment bindings type
 export interface Env {
@@ -26,41 +29,107 @@ export interface Env {
   DB: D1Database;
 }
 
-// Composition root — construct and wire all dependencies
+// Stateless module-level singletons
 const dataSource = new SuperCoachStatsAdapter();
 const matchResultSource = new NrlComMatchResultAdapter();
-const matchRepository = new InMemoryMatchRepository();
-const scrapeDrawUseCase = new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository);
-const scrapeMatchResultsUseCase = new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore);
 const playerStatsSource = new NrlComPlayerStatsAdapter();
 const analyticsCache = new AnalyticsCache();
-const getTeamFormUseCase = new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache);
-const getMatchOutlookUseCase = new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache);
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
-const getPlayerTrendsUseCase = new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache);
-const getCompositionImpactUseCase = new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache);
+
+// D1-dependent deps — lazily initialized on first request when env.DB is available
+let depsInitialized = false;
+let legacyStoreHydrated = false;
+const deps = {} as HandlerDeps;
+
+function initializeDeps(db?: D1Database): void {
+  if (depsInitialized) return;
+
+  // Use D1 when available, fall back to in-memory for environments without D1 (e.g. tests)
+  const matchRepository = db ? new D1MatchRepository(db) : new InMemoryMatchRepository();
+
+  Object.assign(deps, {
+    scrapeDrawUseCase: new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository),
+    scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
+    matchRepository,
+    createPlayerRepository: createPlayerRepo,
+    createScrapePlayerStatsUseCase: (reqDb: D1Database) =>
+      new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb)),
+    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
+    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
+    getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache),
+    getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache),
+  } satisfies HandlerDeps);
+
+  depsInitialized = true;
+}
+
+/** Hydrate the legacy in-memory fixture store from D1 on cold start.
+ *  Strength ratings are persisted in D1 so no external fetch is needed. */
+async function hydrateLegacyStore(): Promise<void> {
+  if (legacyStoreHydrated) return;
+  legacyStoreHydrated = true;
+
+  try {
+    const years = await deps.matchRepository.getLoadedYears();
+    for (const year of years) {
+      const matches = await deps.matchRepository.findByYear(year);
+      buildLegacyFixtureBridge(year, matches);
+    }
+    if (years.length > 0) {
+      logger.info('Legacy fixture store hydrated from D1', { years });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Failed to hydrate legacy fixture store', { error: message });
+  }
+}
+
+/** Check if strength ratings are stale (past Monday 4pm AEST) and refresh from SuperCoach.
+ *  Only updates non-completed matches; completed match ratings are frozen in D1. */
+let ratingsLastRefreshed: Date | null = null;
+
+async function refreshRatingsIfStale(): Promise<void> {
+  const now = new Date();
+
+  // On first request, use D1 data as-is (already hydrated). Track "now" as baseline.
+  if (ratingsLastRefreshed === null) {
+    ratingsLastRefreshed = now;
+    return;
+  }
+
+  // Check if a Monday 4pm AEST boundary has passed since last refresh
+  const nextExpiry = getNextMondayExpiry(ratingsLastRefreshed);
+  if (now < nextExpiry) return;
+
+  ratingsLastRefreshed = now;
+
+  try {
+    const years = await deps.matchRepository.getLoadedYears();
+    for (const year of years) {
+      await deps.scrapeDrawUseCase.execute(year, true);
+    }
+    if (years.length > 0) {
+      logger.info('Strength ratings refreshed from SuperCoach', { years });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Failed to refresh strength ratings', { error: message });
+  }
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Initialize logger based on environment
+// Initialize logger and D1-dependent deps on first request
 app.use('*', async (c, next) => {
   setDebugMode(c.env?.ENVIRONMENT !== 'production');
+  initializeDeps(c.env?.DB);
+  await hydrateLegacyStore();
+  await refreshRatingsIfStale();
   await next();
 });
 
-// Mount API routes under /api with injected dependencies
-app.route('/api', createApiRoutes({
-  scrapeDrawUseCase,
-  scrapeMatchResultsUseCase,
-  matchRepository,
-  createPlayerRepository: createPlayerRepo,
-  createScrapePlayerStatsUseCase: (db: D1Database) =>
-    new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(db)),
-  getTeamFormUseCase,
-  getMatchOutlookUseCase,
-  getPlayerTrendsUseCase,
-  getCompositionImpactUseCase,
-}));
+// Mount API routes under /api — deps is populated by middleware before any handler runs
+app.route('/api', createApiRoutes(deps));
 
 // Static file serving and SPA fallback
 // Handled by Cloudflare Workers Sites via wrangler.jsonc [site] config
@@ -107,9 +176,13 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
     return;
   }
 
+  // Ensure deps are initialized for scheduled handler
+  initializeDeps(env.DB);
+  const matchRepository = deps.matchRepository;
+
   // Post-game result scraping: find rounds with completed games needing scrape
   const currentTime = new Date(event.scheduledTime);
-  const roundsToScrape = findRoundsNeedingScrape(matchRepository, currentTime);
+  const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
 
   if (roundsToScrape.length === 0) {
     logger.debug('No rounds need result scraping');
@@ -128,7 +201,7 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
 
   for (const { year, round } of roundsToScrape) {
     ctx.waitUntil(
-      scrapeMatchResultsUseCase.execute(year, round).then(result => {
+      deps.scrapeMatchResultsUseCase.execute(year, round).then(result => {
         logger.info('Scheduled result scrape complete', {
           year,
           round,

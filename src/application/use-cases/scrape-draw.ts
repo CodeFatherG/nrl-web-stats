@@ -3,6 +3,7 @@ import type { DrawDataSource } from '../../domain/ports/draw-data-source.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { ScrapeDrawResult } from '../results/scrape-result.js';
 import type { CachedSeasonData } from '../../cache/types.js';
+import { buildLegacyFixtureBridge } from '../../database/legacy-fixture-bridge.js';
 
 export class ScrapeDrawUseCase {
   constructor(
@@ -17,7 +18,9 @@ export class ScrapeDrawUseCase {
       async (): Promise<CachedSeasonData | null> => {
         const result = await this.dataSource.fetchDraw(year);
         if (result.success) {
-          this.matchRepository.loadForYear(year, result.data);
+          await this.matchRepository.saveAll(result.data);
+          // Populate legacy in-memory fixture store for backward compatibility
+          buildLegacyFixtureBridge(year, result.data);
           return {
             year,
             fixtureCount: result.data.length,

@@ -10,7 +10,7 @@ import { createMatchFromSchedule, enrichWithResult, MatchStatus } from '../../sr
 import type { RoundMatch } from '../../src/application/results/round-details-result.js';
 
 describe('Round Details with Scores Contract', () => {
-  it('RoundMatch includes homeScore, awayScore, scheduledTime, isComplete fields', () => {
+  it('RoundMatch includes homeScore, awayScore, scheduledTime, isComplete fields', async () => {
     const matchRepository = new InMemoryMatchRepository();
 
     // Load schedule data
@@ -27,9 +27,9 @@ describe('Round Details with Scores Contract', () => {
       scheduledTime: '2025-03-06T09:00:00Z',
     });
 
-    matchRepository.loadForYear(2025, [enrichedMatch]);
+    await matchRepository.saveAll([enrichedMatch]);
 
-    const result = createGetRoundDetailsUseCase(matchRepository).execute(2025, 1);
+    const result = await createGetRoundDetailsUseCase(matchRepository).execute(2025, 1);
 
     expect(result.matches.length).toBeGreaterThan(0);
 
@@ -54,7 +54,7 @@ describe('Round Details with Scores Contract', () => {
     expect(match.awayStrength).toBe(800);
   });
 
-  it('RoundMatch defaults to null/false when no result data exists', () => {
+  it('RoundMatch defaults to null/false when no result data exists', async () => {
     const matchRepository = new InMemoryMatchRepository();
 
     // Load schedule data without enrichment
@@ -64,9 +64,9 @@ describe('Round Details with Scores Contract', () => {
       homeStrengthRating: 750, awayStrengthRating: 800,
     });
 
-    matchRepository.loadForYear(2025, [scheduleMatch]);
+    await matchRepository.saveAll([scheduleMatch]);
 
-    const result = createGetRoundDetailsUseCase(matchRepository).execute(2025, 1);
+    const result = await createGetRoundDetailsUseCase(matchRepository).execute(2025, 1);
 
     expect(result.matches.length).toBeGreaterThan(0);
 
@@ -83,9 +83,9 @@ describe('Round Details with Scores Contract', () => {
     expect(match.awayStrength).toBe(800);
   });
 
-  it('RoundMatch defaults to null/false without matchRepository', () => {
+  it('RoundMatch defaults to null/false without matchRepository', async () => {
     // Without matchRepository (backward-compatible)
-    const result = createGetRoundDetailsUseCase().execute(2025, 1);
+    const result = await createGetRoundDetailsUseCase().execute(2025, 1);
 
     for (const match of result.matches) {
       expect(match.homeScore).toBeNull();

@@ -18,13 +18,13 @@ export class GetCompositionImpactUseCase {
 
   async execute(db: D1Database, teamCode: string, year: number): Promise<CompositionImpact> {
     const cacheKey = `composition-${teamCode}-${year}`;
-    const version = String(this.matchRepository.getMatchCount());
+    const version = String(await this.matchRepository.getMatchCount());
 
     const cached = this.cache.get<CompositionImpact>(cacheKey, version);
     if (cached) return cached;
 
     const repo = this.createPlayerRepository(db);
-    const matches = this.matchRepository.findByTeam(teamCode, year);
+    const matches = await this.matchRepository.findByTeam(teamCode, year);
     const players = await repo.findByTeam(teamCode, year);
 
     // Load full performances for each player

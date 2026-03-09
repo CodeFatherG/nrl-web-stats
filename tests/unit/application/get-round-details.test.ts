@@ -33,13 +33,13 @@ function createMockFixtureRepo(roundFixtures: Fixture[] = []): FixtureRepository
 }
 
 describe('GetRoundDetailsUseCase', () => {
-  it('correctly pairs home/away matches with strength ratings', () => {
+  it('correctly pairs home/away matches with strength ratings', async () => {
     const fixtures: Fixture[] = [
       createMockFixture({ teamCode: 'MNL', opponentCode: 'SYD', isHome: true, strengthRating: 4.0 }),
       createMockFixture({ teamCode: 'SYD', opponentCode: 'MNL', isHome: false, strengthRating: 6.0 }),
     ];
     const useCase = new GetRoundDetailsUseCase(createMockFixtureRepo(fixtures));
-    const result = useCase.execute(2025, 5);
+    const result = await useCase.execute(2025, 5);
     expect(result.year).toBe(2025);
     expect(result.round).toBe(5);
     expect(result.matches).toHaveLength(1);
@@ -56,23 +56,23 @@ describe('GetRoundDetailsUseCase', () => {
     expect(result.byeTeams).toHaveLength(0);
   });
 
-  it('returns bye teams with empty matches for bye-only round', () => {
+  it('returns bye teams with empty matches for bye-only round', async () => {
     const fixtures: Fixture[] = [
       createMockFixture({ teamCode: 'MNL', isBye: true, isHome: false, opponentCode: null, strengthRating: 0 }),
       createMockFixture({ teamCode: 'SYD', isBye: true, isHome: false, opponentCode: null, strengthRating: 0 }),
     ];
     const useCase = new GetRoundDetailsUseCase(createMockFixtureRepo(fixtures));
-    const result = useCase.execute(2025, 5);
+    const result = await useCase.execute(2025, 5);
     expect(result.matches).toHaveLength(0);
     expect(result.byeTeams).toEqual(['MNL', 'SYD']);
   });
 
-  it('handles home fixture without matching away fixture gracefully', () => {
+  it('handles home fixture without matching away fixture gracefully', async () => {
     const fixtures: Fixture[] = [
       createMockFixture({ teamCode: 'MNL', opponentCode: 'SYD', isHome: true, strengthRating: 4.0 }),
     ];
     const useCase = new GetRoundDetailsUseCase(createMockFixtureRepo(fixtures));
-    const result = useCase.execute(2025, 5);
+    const result = await useCase.execute(2025, 5);
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0].awayStrength).toBe(0);
   });

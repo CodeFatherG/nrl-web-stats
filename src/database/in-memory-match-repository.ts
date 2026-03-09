@@ -1,8 +1,6 @@
 import type { Match } from '../domain/match.js';
 import type { MatchRepository } from '../domain/repositories/match-repository.js';
-import { createFixture } from '../models/fixture.js';
-import { VALID_TEAM_CODES } from '../models/team.js';
-import { loadFixtures } from './store.js';
+import { buildLegacyFixtureBridge } from './legacy-fixture-bridge.js';
 
 export class InMemoryMatchRepository implements MatchRepository {
   private readonly matches: Map<string, Match> = new Map();
@@ -11,7 +9,7 @@ export class InMemoryMatchRepository implements MatchRepository {
   private readonly byTeam: Map<string, Set<string>> = new Map();
   private readonly loadedYears: Set<number> = new Set();
 
-  save(match: Match): void {
+  async save(match: Match): Promise<void> {
     // If match already exists, remove from indexes first
     const existing = this.matches.get(match.id);
     if (existing !== undefined) {
@@ -50,11 +48,24 @@ export class InMemoryMatchRepository implements MatchRepository {
     }
   }
 
-  findById(id: string): Match | null {
+  async saveAll(matches: Match[]): Promise<void> {
+    for (const match of matches) {
+      await this.save(match);
+    }
+
+    // Determine year from matches for loaded tracking and legacy bridge
+    if (matches.length > 0) {
+      const year = matches[0].year;
+      this.loadedYears.add(year);
+      this.buildLegacyFixtureBridgeFromMatches(year, matches);
+    }
+  }
+
+  async findById(id: string): Promise<Match | null> {
     return this.matches.get(id) ?? null;
   }
 
-  findByYear(year: number): Match[] {
+  async findByYear(year: number): Promise<Match[]> {
     const ids = this.byYear.get(year);
     if (ids === undefined) {
       return [];
@@ -69,7 +80,7 @@ export class InMemoryMatchRepository implements MatchRepository {
     return results;
   }
 
-  findByYearAndRound(year: number, round: number): Match[] {
+  async findByYearAndRound(year: number, round: number): Promise<Match[]> {
     const roundKey = `${year}-${round}`;
     const ids = this.byRound.get(roundKey);
     if (ids === undefined) {
@@ -85,7 +96,7 @@ export class InMemoryMatchRepository implements MatchRepository {
     return results;
   }
 
-  findByTeam(teamCode: string, year?: number): Match[] {
+  async findByTeam(teamCode: string, year?: number): Promise<Match[]> {
     const ids = this.byTeam.get(teamCode);
     if (ids === undefined) {
       return [];
@@ -102,87 +113,20 @@ export class InMemoryMatchRepository implements MatchRepository {
     return results;
   }
 
-  loadForYear(year: number, matches: Match[]): void {
-    // Remove all existing matches for this year
-    // Copy IDs to array first since removeMatchFromIndexes mutates the byYear Set
-    const existingIds = this.byYear.get(year);
-    if (existingIds !== undefined) {
-      const idsToRemove = Array.from(existingIds);
-      for (const id of idsToRemove) {
-        const match = this.matches.get(id);
-        if (match !== undefined) {
-          this.removeMatchFromIndexes(match);
-          this.matches.delete(id);
-        }
-      }
-      this.byYear.delete(year);
-    }
-
-    // Insert all new matches
-    for (const match of matches) {
-      this.save(match);
-    }
-
-    // Mark year as loaded
-    this.loadedYears.add(year);
-
-    // Legacy store bridge — convert Match[] to Fixture[] for the legacy store
-    const fixtures = [];
-    // Track which teams play in each round to infer byes
-    const teamsPlayingByRound = new Map<number, Set<string>>();
-
-    for (const match of matches) {
-      if (match.homeTeamCode !== null && match.awayTeamCode !== null) {
-        const homeFixture = createFixture(
-          match.year,
-          match.round,
-          match.homeTeamCode,
-          match.awayTeamCode,
-          true,
-          match.homeStrengthRating ?? 0
-        );
-        const awayFixture = createFixture(
-          match.year,
-          match.round,
-          match.awayTeamCode,
-          match.homeTeamCode,
-          false,
-          match.awayStrengthRating ?? 0
-        );
-        fixtures.push(homeFixture, awayFixture);
-
-        // Track teams playing this round
-        if (!teamsPlayingByRound.has(match.round)) {
-          teamsPlayingByRound.set(match.round, new Set());
-        }
-        const playing = teamsPlayingByRound.get(match.round)!;
-        playing.add(match.homeTeamCode);
-        playing.add(match.awayTeamCode);
-      }
-    }
-
-    // Infer bye fixtures: teams not playing in a round have a bye
-    for (const [round, playingTeams] of teamsPlayingByRound) {
-      for (const teamCode of VALID_TEAM_CODES) {
-        if (!playingTeams.has(teamCode)) {
-          fixtures.push(createFixture(year, round, teamCode, null, false, 0));
-        }
-      }
-    }
-
-    loadFixtures(year, fixtures);
-  }
-
-  getLoadedYears(): number[] {
+  async getLoadedYears(): Promise<number[]> {
     return Array.from(this.loadedYears).sort((a, b) => a - b);
   }
 
-  isYearLoaded(year: number): boolean {
+  async isYearLoaded(year: number): Promise<boolean> {
     return this.loadedYears.has(year);
   }
 
-  getMatchCount(): number {
+  async getMatchCount(): Promise<number> {
     return this.matches.size;
+  }
+
+  private buildLegacyFixtureBridgeFromMatches(year: number, matches: Match[]): void {
+    buildLegacyFixtureBridge(year, matches);
   }
 
   private removeMatchFromIndexes(match: Match): void {

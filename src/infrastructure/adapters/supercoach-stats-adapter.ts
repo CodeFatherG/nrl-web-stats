@@ -86,6 +86,7 @@ export class SuperCoachStatsAdapter implements DrawDataSource {
               awayTeamCode: awayFixture.teamCode,
               homeStrengthRating: homeFixture.strengthRating,
               awayStrengthRating: awayFixture.strengthRating,
+              stadium: null,
             })
           );
         }

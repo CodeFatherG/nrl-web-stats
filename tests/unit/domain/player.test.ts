@@ -5,6 +5,78 @@ import {
   addPerformance,
   createMatchPerformance,
 } from '../../../src/domain/player.js';
+import type { MatchPerformanceData } from '../../../src/domain/player.js';
+
+/** Default zero-valued performance data for tests */
+const DEFAULT_PERF: MatchPerformanceData = {
+  matchId: '2026-R1-BRO-MNL',
+  year: 2026,
+  round: 1,
+  teamCode: 'MNL',
+  allRunMetres: 0,
+  allRuns: 0,
+  bombKicks: 0,
+  crossFieldKicks: 0,
+  conversions: 0,
+  conversionAttempts: 0,
+  dummyHalfRuns: 0,
+  dummyHalfRunMetres: 0,
+  dummyPasses: 0,
+  errors: 0,
+  fantasyPointsTotal: 0,
+  fieldGoals: 0,
+  forcedDropOutKicks: 0,
+  fortyTwentyKicks: 0,
+  goals: 0,
+  goalConversionRate: 0,
+  grubberKicks: 0,
+  handlingErrors: 0,
+  hitUps: 0,
+  hitUpRunMetres: 0,
+  ineffectiveTackles: 0,
+  intercepts: 0,
+  kicks: 0,
+  kicksDead: 0,
+  kicksDefused: 0,
+  kickMetres: 0,
+  kickReturnMetres: 0,
+  lineBreakAssists: 0,
+  lineBreaks: 0,
+  lineEngagedRuns: 0,
+  minutesPlayed: 0,
+  missedTackles: 0,
+  offloads: 0,
+  offsideWithinTenMetres: 0,
+  oneOnOneLost: 0,
+  oneOnOneSteal: 0,
+  onePointFieldGoals: 0,
+  onReport: 0,
+  passesToRunRatio: 0,
+  passes: 0,
+  playTheBallTotal: 0,
+  playTheBallAverageSpeed: 0,
+  penalties: 0,
+  points: 0,
+  penaltyGoals: 0,
+  postContactMetres: 0,
+  receipts: 0,
+  ruckInfringements: 0,
+  sendOffs: 0,
+  sinBins: 0,
+  stintOne: 0,
+  tackleBreaks: 0,
+  tackleEfficiency: 0,
+  tacklesMade: 0,
+  tries: 0,
+  tryAssists: 0,
+  twentyFortyKicks: 0,
+  twoPointFieldGoals: 0,
+  isComplete: false,
+};
+
+function perf(overrides: Partial<MatchPerformanceData> = {}): MatchPerformanceData {
+  return { ...DEFAULT_PERF, ...overrides };
+}
 
 describe('createPlayerId', () => {
   it('normalises name to lowercase hyphenated', () => {
@@ -52,109 +124,54 @@ describe('createPlayer', () => {
 
 describe('createMatchPerformance', () => {
   it('creates a valid performance record', () => {
-    const perf = createMatchPerformance({
-      matchId: '2026-R1-BRO-MNL',
-      year: 2026,
-      round: 1,
-      teamCode: 'MNL',
+    const result = createMatchPerformance(perf({
       tries: 2,
-      goals: 0,
-      tackles: 15,
-      runMetres: 180,
-      fantasyPoints: 65,
+      tacklesMade: 15,
+      allRunMetres: 180,
+      fantasyPointsTotal: 65,
       isComplete: true,
-    });
+    }));
 
-    expect(perf.matchId).toBe('2026-R1-BRO-MNL');
-    expect(perf.tries).toBe(2);
-    expect(perf.goals).toBe(0);
-    expect(perf.tackles).toBe(15);
-    expect(perf.runMetres).toBe(180);
-    expect(perf.fantasyPoints).toBe(65);
-    expect(perf.isComplete).toBe(true);
+    expect(result.matchId).toBe('2026-R1-BRO-MNL');
+    expect(result.tries).toBe(2);
+    expect(result.goals).toBe(0);
+    expect(result.tacklesMade).toBe(15);
+    expect(result.allRunMetres).toBe(180);
+    expect(result.fantasyPointsTotal).toBe(65);
+    expect(result.isComplete).toBe(true);
   });
 
   it('allows negative fantasy points', () => {
-    const perf = createMatchPerformance({
-      matchId: '2026-R1-BRO-MNL',
-      year: 2026,
-      round: 1,
-      teamCode: 'MNL',
-      tries: 0,
-      goals: 0,
-      tackles: 5,
-      runMetres: 30,
-      fantasyPoints: -10,
+    const result = createMatchPerformance(perf({
+      tacklesMade: 5,
+      allRunMetres: 30,
+      fantasyPointsTotal: -10,
       isComplete: true,
-    });
-    expect(perf.fantasyPoints).toBe(-10);
+    }));
+    expect(result.fantasyPointsTotal).toBe(-10);
   });
 
   it('rejects negative tries', () => {
     expect(() =>
-      createMatchPerformance({
-        matchId: '2026-R1-BRO-MNL',
-        year: 2026,
-        round: 1,
-        teamCode: 'MNL',
-        tries: -1,
-        goals: 0,
-        tackles: 0,
-        runMetres: 0,
-        fantasyPoints: 0,
-        isComplete: false,
-      })
+      createMatchPerformance(perf({ tries: -1 }))
     ).toThrow('non-negative');
   });
 
   it('rejects negative goals', () => {
     expect(() =>
-      createMatchPerformance({
-        matchId: '2026-R1-BRO-MNL',
-        year: 2026,
-        round: 1,
-        teamCode: 'MNL',
-        tries: 0,
-        goals: -1,
-        tackles: 0,
-        runMetres: 0,
-        fantasyPoints: 0,
-        isComplete: false,
-      })
+      createMatchPerformance(perf({ goals: -1 }))
     ).toThrow('non-negative');
   });
 
   it('rejects negative tackles', () => {
     expect(() =>
-      createMatchPerformance({
-        matchId: '2026-R1-BRO-MNL',
-        year: 2026,
-        round: 1,
-        teamCode: 'MNL',
-        tries: 0,
-        goals: 0,
-        tackles: -1,
-        runMetres: 0,
-        fantasyPoints: 0,
-        isComplete: false,
-      })
+      createMatchPerformance(perf({ tacklesMade: -1 }))
     ).toThrow('non-negative');
   });
 
   it('rejects negative run metres', () => {
     expect(() =>
-      createMatchPerformance({
-        matchId: '2026-R1-BRO-MNL',
-        year: 2026,
-        round: 1,
-        teamCode: 'MNL',
-        tries: 0,
-        goals: 0,
-        tackles: 0,
-        runMetres: -1,
-        fantasyPoints: 0,
-        isComplete: false,
-      })
+      createMatchPerformance(perf({ allRunMetres: -1 }))
     ).toThrow('non-negative');
   });
 });
@@ -162,23 +179,18 @@ describe('createMatchPerformance', () => {
 describe('addPerformance', () => {
   it('returns a new Player with the performance added', () => {
     const player = createPlayer('Tom Trbojevic', null, 'MNL', 'Fullback');
-    const perf = createMatchPerformance({
-      matchId: '2026-R1-BRO-MNL',
-      year: 2026,
-      round: 1,
-      teamCode: 'MNL',
+    const p = createMatchPerformance(perf({
       tries: 2,
-      goals: 0,
-      tackles: 15,
-      runMetres: 180,
-      fantasyPoints: 65,
+      tacklesMade: 15,
+      allRunMetres: 180,
+      fantasyPointsTotal: 65,
       isComplete: true,
-    });
+    }));
 
-    const updated = addPerformance(player, perf);
+    const updated = addPerformance(player, p);
 
     expect(updated.performances).toHaveLength(1);
-    expect(updated.performances[0]).toEqual(perf);
+    expect(updated.performances[0]).toEqual(p);
     // Original player not mutated
     expect(player.performances).toHaveLength(0);
   });
@@ -186,31 +198,22 @@ describe('addPerformance', () => {
   it('appends multiple performances', () => {
     let player = createPlayer('Tom Trbojevic', null, 'MNL', 'Fullback');
 
-    const perf1 = createMatchPerformance({
-      matchId: '2026-R1-BRO-MNL',
-      year: 2026,
-      round: 1,
-      teamCode: 'MNL',
+    const perf1 = createMatchPerformance(perf({
       tries: 2,
-      goals: 0,
-      tackles: 15,
-      runMetres: 180,
-      fantasyPoints: 65,
+      tacklesMade: 15,
+      allRunMetres: 180,
+      fantasyPointsTotal: 65,
       isComplete: true,
-    });
+    }));
 
-    const perf2 = createMatchPerformance({
+    const perf2 = createMatchPerformance(perf({
       matchId: '2026-R2-MEL-MNL',
-      year: 2026,
       round: 2,
-      teamCode: 'MNL',
-      tries: 0,
-      goals: 0,
-      tackles: 20,
-      runMetres: 120,
-      fantasyPoints: 35,
+      tacklesMade: 20,
+      allRunMetres: 120,
+      fantasyPointsTotal: 35,
       isComplete: true,
-    });
+    }));
 
     player = addPerformance(player, perf1);
     player = addPerformance(player, perf2);

@@ -33,8 +33,56 @@ export class ScrapeMatchResultsUseCase {
   ) {}
 
   async execute(year: number, round?: number): Promise<ScrapeMatchResultsResult> {
-    // Check result cache if round is specified
-    if (round !== undefined && this.resultCache?.isCached(year, round)) {
+    // When no round specified, discover rounds from the repository and scrape each
+    if (round === undefined) {
+      return this.executeAllRounds(year);
+    }
+    return this.executeSingleRound(year, round);
+  }
+
+  private async executeAllRounds(year: number): Promise<ScrapeMatchResultsResult> {
+    const matches = await this.matchRepository.findByYear(year);
+    const rounds = [...new Set(matches.map(m => m.round))].sort((a, b) => a - b);
+
+    if (rounds.length === 0) {
+      logger.info('No rounds found in repository to scrape results for', { year });
+      return { success: true, year, enrichedCount: 0, createdCount: 0, skippedCount: 0, warnings: [] };
+    }
+
+    let totalEnriched = 0;
+    let totalCreated = 0;
+    let totalSkipped = 0;
+    const allWarnings: Warning[] = [];
+
+    for (const r of rounds) {
+      const result = await this.executeSingleRound(year, r);
+      totalEnriched += result.enrichedCount;
+      totalCreated += result.createdCount;
+      totalSkipped += result.skippedCount;
+      allWarnings.push(...result.warnings);
+    }
+
+    logger.info('All-rounds match results scrape complete', {
+      year,
+      roundsScraped: rounds.length,
+      totalEnriched,
+      totalCreated,
+      totalSkipped,
+    });
+
+    return {
+      success: true,
+      year,
+      enrichedCount: totalEnriched,
+      createdCount: totalCreated,
+      skippedCount: totalSkipped,
+      warnings: allWarnings,
+    };
+  }
+
+  private async executeSingleRound(year: number, round: number): Promise<ScrapeMatchResultsResult> {
+    // Check result cache
+    if (this.resultCache?.isCached(year, round)) {
       logger.debug('Result cache hit, skipping fetch', { year, round });
       return {
         success: true,
@@ -68,18 +116,20 @@ export class ScrapeMatchResultsUseCase {
     let skippedCount = 0;
 
     for (const result of matchResults) {
-      const existingMatch = this.matchRepository.findById(result.matchId);
+      const existingMatch = await this.matchRepository.findById(result.matchId);
 
       const resultData: ResultData = {
         homeScore: result.homeScore,
         awayScore: result.awayScore,
         status: result.status,
         scheduledTime: result.scheduledTime,
+        stadium: result.stadium ?? null,
+        weather: result.weather ?? null,
       };
 
       if (existingMatch) {
         const enrichedMatch = enrichWithResult(existingMatch, resultData);
-        this.matchRepository.save(enrichedMatch);
+        await this.matchRepository.save(enrichedMatch);
         enrichedCount++;
       } else {
         const newMatch = createMatchFromResult({
@@ -89,13 +139,13 @@ export class ScrapeMatchResultsUseCase {
           year: result.year,
           round: result.round,
         });
-        this.matchRepository.save(newMatch);
+        await this.matchRepository.save(newMatch);
         createdCount++;
       }
     }
 
-    // Update result cache if round is specified
-    if (round !== undefined && this.resultCache) {
+    // Update result cache
+    if (this.resultCache) {
       const allCompleted = matchResults.length > 0 &&
         matchResults.every(r => r.status === MatchStatus.Completed);
       this.resultCache.markScraped(year, round, allCompleted);
@@ -128,18 +178,18 @@ export class ScrapeMatchResultsUseCase {
  * AND the match status is still Scheduled (not yet scraped).
  * Skips rounds where all matches are already Completed.
  */
-export function findRoundsNeedingScrape(
+export async function findRoundsNeedingScrape(
   matchRepository: MatchRepository,
   currentTime: Date
-): Array<{ year: number; round: number }> {
-  const loadedYears = matchRepository.getLoadedYears();
+): Promise<Array<{ year: number; round: number }>> {
+  const loadedYears = await matchRepository.getLoadedYears();
   if (loadedYears.length === 0) return [];
 
   const roundsNeeding: Array<{ year: number; round: number }> = [];
   const seen = new Set<string>();
 
   for (const year of loadedYears) {
-    const matches = matchRepository.findByYear(year);
+    const matches = await matchRepository.findByYear(year);
 
     // Group matches by round
     const roundMatches = new Map<number, typeof matches>();

@@ -3,13 +3,13 @@ import { InMemoryMatchRepository } from '../../../src/database/in-memory-match-r
 import { createMatchFromSchedule } from '../../../src/domain/match.js';
 import type { Match } from '../../../src/domain/match.js';
 
-// Mock store.ts to avoid side effects from the legacy bridge
-vi.mock('../../../src/database/store.js', () => ({
-  loadFixtures: vi.fn(),
+// Mock legacy-fixture-bridge to avoid side effects from the legacy bridge
+vi.mock('../../../src/database/legacy-fixture-bridge.js', () => ({
+  buildLegacyFixtureBridge: vi.fn(),
 }));
 
-import { loadFixtures } from '../../../src/database/store.js';
-const mockLoadFixtures = vi.mocked(loadFixtures);
+import { buildLegacyFixtureBridge } from '../../../src/database/legacy-fixture-bridge.js';
+const mockBuildBridge = vi.mocked(buildLegacyFixtureBridge);
 
 function createTestMatch(overrides: Partial<Parameters<typeof createMatchFromSchedule>[0]> = {}): Match {
   return createMatchFromSchedule({
@@ -32,19 +32,19 @@ describe('InMemoryMatchRepository', () => {
   });
 
   describe('save and findById', () => {
-    it('saves and retrieves a match by ID', () => {
+    it('saves and retrieves a match by ID', async () => {
       const match = createTestMatch();
-      repo.save(match);
-      expect(repo.findById(match.id)).toEqual(match);
+      await repo.save(match);
+      expect(await repo.findById(match.id)).toEqual(match);
     });
 
-    it('returns null for non-existent ID', () => {
-      expect(repo.findById('non-existent')).toBeNull();
+    it('returns null for non-existent ID', async () => {
+      expect(await repo.findById('non-existent')).toBeNull();
     });
 
-    it('upserts on duplicate ID', () => {
+    it('upserts on duplicate ID', async () => {
       const match1 = createTestMatch();
-      repo.save(match1);
+      await repo.save(match1);
 
       // Same teams/round/year = same ID, but different strength
       const match2 = createMatchFromSchedule({
@@ -55,215 +55,184 @@ describe('InMemoryMatchRepository', () => {
         homeStrengthRating: 999,
         awayStrengthRating: 999,
       });
-      repo.save(match2);
+      await repo.save(match2);
 
-      expect(repo.getMatchCount()).toBe(1);
-      expect(repo.findById(match1.id)!.homeStrengthRating).toBe(999);
+      expect(await repo.getMatchCount()).toBe(1);
+      expect((await repo.findById(match1.id))!.homeStrengthRating).toBe(999);
     });
   });
 
   describe('findByYear', () => {
-    it('returns matches for a specific year', () => {
+    it('returns matches for a specific year', async () => {
       const m2026 = createTestMatch({ year: 2026 });
       const m2025 = createTestMatch({ year: 2025, homeTeamCode: 'SYD', awayTeamCode: 'PAR' });
-      repo.save(m2026);
-      repo.save(m2025);
+      await repo.save(m2026);
+      await repo.save(m2025);
 
-      const result = repo.findByYear(2026);
+      const result = await repo.findByYear(2026);
       expect(result).toHaveLength(1);
       expect(result[0].year).toBe(2026);
     });
 
-    it('returns empty array for year with no data', () => {
-      expect(repo.findByYear(2030)).toEqual([]);
+    it('returns empty array for year with no data', async () => {
+      expect(await repo.findByYear(2030)).toEqual([]);
     });
   });
 
   describe('findByYearAndRound', () => {
-    it('returns matches for a specific year and round', () => {
+    it('returns matches for a specific year and round', async () => {
       const r1 = createTestMatch({ round: 1 });
       const r2 = createTestMatch({ round: 2, homeTeamCode: 'SYD', awayTeamCode: 'PAR' });
-      repo.save(r1);
-      repo.save(r2);
+      await repo.save(r1);
+      await repo.save(r2);
 
-      const result = repo.findByYearAndRound(2026, 1);
+      const result = await repo.findByYearAndRound(2026, 1);
       expect(result).toHaveLength(1);
       expect(result[0].round).toBe(1);
     });
 
-    it('returns empty for non-existent round', () => {
-      expect(repo.findByYearAndRound(2026, 99)).toEqual([]);
+    it('returns empty for non-existent round', async () => {
+      expect(await repo.findByYearAndRound(2026, 99)).toEqual([]);
     });
   });
 
   describe('findByTeam', () => {
-    it('finds matches where team is home', () => {
+    it('finds matches where team is home', async () => {
       const match = createTestMatch({ homeTeamCode: 'BRO', awayTeamCode: 'MEL' });
-      repo.save(match);
+      await repo.save(match);
 
-      const result = repo.findByTeam('BRO');
+      const result = await repo.findByTeam('BRO');
       expect(result).toHaveLength(1);
     });
 
-    it('finds matches where team is away', () => {
+    it('finds matches where team is away', async () => {
       const match = createTestMatch({ homeTeamCode: 'BRO', awayTeamCode: 'MEL' });
-      repo.save(match);
+      await repo.save(match);
 
-      const result = repo.findByTeam('MEL');
+      const result = await repo.findByTeam('MEL');
       expect(result).toHaveLength(1);
     });
 
-    it('filters by year when provided', () => {
+    it('filters by year when provided', async () => {
       const m2026 = createTestMatch({ year: 2026 });
       const m2025 = createTestMatch({ year: 2025 });
-      repo.save(m2026);
-      repo.save(m2025);
+      await repo.save(m2026);
+      await repo.save(m2025);
 
-      const result = repo.findByTeam('BRO', 2026);
+      const result = await repo.findByTeam('BRO', 2026);
       expect(result).toHaveLength(1);
       expect(result[0].year).toBe(2026);
     });
 
-    it('returns empty for unknown team', () => {
-      expect(repo.findByTeam('ZZZ')).toEqual([]);
+    it('returns empty for unknown team', async () => {
+      expect(await repo.findByTeam('ZZZ')).toEqual([]);
     });
   });
 
-  describe('loadForYear', () => {
-    it('loads matches and enables querying', () => {
+  describe('saveAll', () => {
+    it('saves matches and enables querying', async () => {
       const matches = [
         createTestMatch({ round: 1 }),
         createTestMatch({ round: 2, homeTeamCode: 'SYD', awayTeamCode: 'PAR' }),
       ];
-      repo.loadForYear(2026, matches);
+      await repo.saveAll(matches);
 
-      expect(repo.findByYear(2026)).toHaveLength(2);
-      expect(repo.isYearLoaded(2026)).toBe(true);
+      expect(await repo.findByYear(2026)).toHaveLength(2);
+      expect(await repo.isYearLoaded(2026)).toBe(true);
     });
 
-    it('replaces existing year data atomically', () => {
+    it('upserts existing matches on saveAll', async () => {
       const old = [createTestMatch({ round: 1 })];
-      repo.loadForYear(2026, old);
-      expect(repo.findByYear(2026)).toHaveLength(1);
+      await repo.saveAll(old);
+      expect(await repo.findByYear(2026)).toHaveLength(1);
 
+      // saveAll with same ID upserts, plus adds new
       const replacement = [
-        createTestMatch({ round: 1, homeTeamCode: 'SYD', awayTeamCode: 'PAR' }),
+        createTestMatch({ round: 1, homeStrengthRating: 999, awayStrengthRating: 999 }),
         createTestMatch({ round: 2, homeTeamCode: 'NEW', awayTeamCode: 'SHA' }),
       ];
-      repo.loadForYear(2026, replacement);
+      await repo.saveAll(replacement);
 
-      expect(repo.findByYear(2026)).toHaveLength(2);
-      expect(repo.getMatchCount()).toBe(2);
-      // Old match should be gone
-      expect(repo.findByTeam('BRO', 2026)).toHaveLength(0);
+      expect(await repo.findByYear(2026)).toHaveLength(2);
+      expect(await repo.getMatchCount()).toBe(2);
+      // Strength updated via upsert
+      const updated = await repo.findById(old[0].id);
+      expect(updated!.homeStrengthRating).toBe(999);
     });
 
-    it('does not affect other years', () => {
+    it('does not affect other years', async () => {
       const m2025 = [createTestMatch({ year: 2025 })];
       const m2026 = [createTestMatch({ year: 2026, homeTeamCode: 'SYD', awayTeamCode: 'PAR' })];
-      repo.loadForYear(2025, m2025);
-      repo.loadForYear(2026, m2026);
+      await repo.saveAll(m2025);
+      await repo.saveAll(m2026);
 
-      // Replace 2026
-      repo.loadForYear(2026, []);
-
-      expect(repo.findByYear(2025)).toHaveLength(1);
-      expect(repo.findByYear(2026)).toHaveLength(0);
+      expect(await repo.findByYear(2025)).toHaveLength(1);
+      expect(await repo.findByYear(2026)).toHaveLength(1);
     });
 
-    it('calls legacy store bridge with converted fixtures including byes', () => {
+    it('calls legacy fixture bridge with converted fixtures including byes', async () => {
       const matches = [createTestMatch()];
-      repo.loadForYear(2026, matches);
+      await repo.saveAll(matches);
 
-      expect(mockLoadFixtures).toHaveBeenCalledWith(2026, expect.any(Array));
-      const fixtures = mockLoadFixtures.mock.calls[0][1];
-      const matchFixtures = fixtures.filter((f: { isBye: boolean }) => !f.isBye);
-      const byeFixtures = fixtures.filter((f: { isBye: boolean }) => f.isBye);
-      // Each match produces 2 fixtures (home + away)
-      expect(matchFixtures).toHaveLength(2);
-      expect(matchFixtures[0].teamCode).toBe('BRO');
-      expect(matchFixtures[0].isHome).toBe(true);
-      expect(matchFixtures[1].teamCode).toBe('MEL');
-      expect(matchFixtures[1].isHome).toBe(false);
-      // Teams not in any match get bye fixtures (17 total teams - 2 playing = 15 byes)
-      expect(byeFixtures).toHaveLength(15);
-      expect(byeFixtures.every((f: { isBye: boolean }) => f.isBye)).toBe(true);
-      // BRO and MEL should NOT have byes
-      const byeTeams = byeFixtures.map((f: { teamCode: string }) => f.teamCode);
-      expect(byeTeams).not.toContain('BRO');
-      expect(byeTeams).not.toContain('MEL');
+      expect(mockBuildBridge).toHaveBeenCalledWith(2026, matches);
     });
 
-    it('infers bye fixtures for each round independently', () => {
+    it('infers bye fixtures via bridge for each round independently', async () => {
       const round1Match = createTestMatch({ round: 1, homeTeamCode: 'BRO', awayTeamCode: 'MEL' });
       const round2Match = createTestMatch({ round: 2, homeTeamCode: 'SYD', awayTeamCode: 'PAR' });
-      repo.loadForYear(2026, [round1Match, round2Match]);
+      await repo.saveAll([round1Match, round2Match]);
 
-      const fixtures = mockLoadFixtures.mock.calls[0][1];
-      const r1Byes = fixtures.filter((f: { round: number; isBye: boolean }) => f.round === 1 && f.isBye);
-      const r2Byes = fixtures.filter((f: { round: number; isBye: boolean }) => f.round === 2 && f.isBye);
-      // Round 1: BRO + MEL playing → 15 byes
-      expect(r1Byes).toHaveLength(15);
-      // Round 2: SYD + PAR playing → 15 byes
-      expect(r2Byes).toHaveLength(15);
-      // SYD should have a bye in round 1 but NOT in round 2
-      const r1ByeTeams = r1Byes.map((f: { teamCode: string }) => f.teamCode);
-      const r2ByeTeams = r2Byes.map((f: { teamCode: string }) => f.teamCode);
-      expect(r1ByeTeams).toContain('SYD');
-      expect(r2ByeTeams).not.toContain('SYD');
-      expect(r2ByeTeams).toContain('BRO');
-      expect(r1ByeTeams).not.toContain('BRO');
+      expect(mockBuildBridge).toHaveBeenCalledWith(2026, [round1Match, round2Match]);
     });
 
-    it('does not create bye fixtures for rounds with no matches', () => {
-      repo.loadForYear(2026, []);
+    it('does not call bridge for empty match list', async () => {
+      await repo.saveAll([]);
 
-      const fixtures = mockLoadFixtures.mock.calls[0][1];
-      expect(fixtures).toHaveLength(0);
+      expect(mockBuildBridge).not.toHaveBeenCalled();
     });
   });
 
   describe('metadata methods', () => {
-    it('getLoadedYears returns sorted years', () => {
-      repo.loadForYear(2026, []);
-      repo.loadForYear(2024, []);
-      repo.loadForYear(2025, []);
+    it('getLoadedYears returns sorted years', async () => {
+      await repo.saveAll([createTestMatch({ year: 2026 })]);
+      await repo.saveAll([createTestMatch({ year: 2024, homeTeamCode: 'SYD', awayTeamCode: 'PAR' })]);
+      await repo.saveAll([createTestMatch({ year: 2025, homeTeamCode: 'NEW', awayTeamCode: 'SHA' })]);
 
-      expect(repo.getLoadedYears()).toEqual([2024, 2025, 2026]);
+      expect(await repo.getLoadedYears()).toEqual([2024, 2025, 2026]);
     });
 
-    it('isYearLoaded returns false for unloaded year', () => {
-      expect(repo.isYearLoaded(2026)).toBe(false);
+    it('isYearLoaded returns false for unloaded year', async () => {
+      expect(await repo.isYearLoaded(2026)).toBe(false);
     });
 
-    it('isYearLoaded returns true after loadForYear', () => {
-      repo.loadForYear(2026, []);
-      expect(repo.isYearLoaded(2026)).toBe(true);
+    it('isYearLoaded returns true after saveAll', async () => {
+      await repo.saveAll([createTestMatch({ year: 2026 })]);
+      expect(await repo.isYearLoaded(2026)).toBe(true);
     });
 
-    it('getMatchCount returns 0 for empty repository', () => {
-      expect(repo.getMatchCount()).toBe(0);
+    it('getMatchCount returns 0 for empty repository', async () => {
+      expect(await repo.getMatchCount()).toBe(0);
     });
 
-    it('getMatchCount returns total across all years', () => {
-      repo.loadForYear(2025, [createTestMatch({ year: 2025 })]);
-      repo.loadForYear(2026, [
+    it('getMatchCount returns total across all years', async () => {
+      await repo.saveAll([createTestMatch({ year: 2025 })]);
+      await repo.saveAll([
         createTestMatch({ year: 2026, homeTeamCode: 'SYD', awayTeamCode: 'PAR' }),
         createTestMatch({ year: 2026, round: 2, homeTeamCode: 'NEW', awayTeamCode: 'SHA' }),
       ]);
 
-      expect(repo.getMatchCount()).toBe(3);
+      expect(await repo.getMatchCount()).toBe(3);
     });
   });
 
   describe('empty repository', () => {
-    it('all query methods return empty results', () => {
-      expect(repo.findByYear(2026)).toEqual([]);
-      expect(repo.findByYearAndRound(2026, 1)).toEqual([]);
-      expect(repo.findByTeam('BRO')).toEqual([]);
-      expect(repo.findById('anything')).toBeNull();
-      expect(repo.getLoadedYears()).toEqual([]);
-      expect(repo.getMatchCount()).toBe(0);
+    it('all query methods return empty results', async () => {
+      expect(await repo.findByYear(2026)).toEqual([]);
+      expect(await repo.findByYearAndRound(2026, 1)).toEqual([]);
+      expect(await repo.findByTeam('BRO')).toEqual([]);
+      expect(await repo.findById('anything')).toBeNull();
+      expect(await repo.getLoadedYears()).toEqual([]);
+      expect(await repo.getMatchCount()).toBe(0);
     });
   });
 });

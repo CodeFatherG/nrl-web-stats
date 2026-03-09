@@ -16,14 +16,14 @@ export class GetTeamFormUseCase {
     private readonly cache: AnalyticsCache
   ) {}
 
-  execute(teamCode: string, year: number, windowSize: number = 5): FormTrajectory {
+  async execute(teamCode: string, year: number, windowSize: number = 5): Promise<FormTrajectory> {
     const cacheKey = `form-${teamCode}-${year}-${windowSize}`;
-    const version = String(this.matchRepository.getMatchCount());
+    const version = String(await this.matchRepository.getMatchCount());
 
     const cached = this.cache.get<FormTrajectory>(cacheKey, version);
     if (cached) return cached;
 
-    const matches = this.matchRepository.findByYear(year);
+    const matches = await this.matchRepository.findByYear(year);
     const fixtures = this.fixtureRepository.findByYearAndTeam(year, teamCode);
     const team = resolveTeam(teamCode);
 

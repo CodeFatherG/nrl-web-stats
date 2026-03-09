@@ -10,7 +10,7 @@ export class GetRoundDetailsUseCase {
     private readonly matchRepository?: MatchRepository
   ) {}
 
-  execute(year: number, round: number): RoundDetailsResult {
+  async execute(year: number, round: number): Promise<RoundDetailsResult> {
     const roundFixtures = this.fixtures.findByRound(year, round);
 
     const byeTeams: string[] = [];
@@ -32,7 +32,7 @@ export class GetRoundDetailsUseCase {
 
         if (this.matchRepository) {
           const matchId = createMatchId(fixture.teamCode, fixture.opponentCode, year, round);
-          const match = this.matchRepository.findById(matchId);
+          const match = await this.matchRepository.findById(matchId);
           if (match) {
             homeScore = match.homeScore;
             awayScore = match.awayScore;

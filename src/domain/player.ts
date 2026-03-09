@@ -9,11 +9,64 @@ export interface MatchPerformance {
   readonly year: number;
   readonly round: number;
   readonly teamCode: string;
-  readonly tries: number;
+  readonly allRunMetres: number;
+  readonly allRuns: number;
+  readonly bombKicks: number;
+  readonly crossFieldKicks: number;
+  readonly conversions: number;
+  readonly conversionAttempts: number;
+  readonly dummyHalfRuns: number;
+  readonly dummyHalfRunMetres: number;
+  readonly dummyPasses: number;
+  readonly errors: number;
+  readonly fantasyPointsTotal: number;
+  readonly fieldGoals: number;
+  readonly forcedDropOutKicks: number;
+  readonly fortyTwentyKicks: number;
   readonly goals: number;
-  readonly tackles: number;
-  readonly runMetres: number;
-  readonly fantasyPoints: number;
+  readonly goalConversionRate: number;
+  readonly grubberKicks: number;
+  readonly handlingErrors: number;
+  readonly hitUps: number;
+  readonly hitUpRunMetres: number;
+  readonly ineffectiveTackles: number;
+  readonly intercepts: number;
+  readonly kicks: number;
+  readonly kicksDead: number;
+  readonly kicksDefused: number;
+  readonly kickMetres: number;
+  readonly kickReturnMetres: number;
+  readonly lineBreakAssists: number;
+  readonly lineBreaks: number;
+  readonly lineEngagedRuns: number;
+  readonly minutesPlayed: number;
+  readonly missedTackles: number;
+  readonly offloads: number;
+  readonly offsideWithinTenMetres: number;
+  readonly oneOnOneLost: number;
+  readonly oneOnOneSteal: number;
+  readonly onePointFieldGoals: number;
+  readonly onReport: number;
+  readonly passesToRunRatio: number;
+  readonly passes: number;
+  readonly playTheBallTotal: number;
+  readonly playTheBallAverageSpeed: number;
+  readonly penalties: number;
+  readonly points: number;
+  readonly penaltyGoals: number;
+  readonly postContactMetres: number;
+  readonly receipts: number;
+  readonly ruckInfringements: number;
+  readonly sendOffs: number;
+  readonly sinBins: number;
+  readonly stintOne: number;
+  readonly tackleBreaks: number;
+  readonly tackleEfficiency: number;
+  readonly tacklesMade: number;
+  readonly tries: number;
+  readonly tryAssists: number;
+  readonly twentyFortyKicks: number;
+  readonly twoPointFieldGoals: number;
   readonly isComplete: boolean;
 }
 
@@ -23,19 +76,72 @@ export interface MatchPerformanceData {
   readonly year: number;
   readonly round: number;
   readonly teamCode: string;
-  readonly tries: number;
+  readonly allRunMetres: number;
+  readonly allRuns: number;
+  readonly bombKicks: number;
+  readonly crossFieldKicks: number;
+  readonly conversions: number;
+  readonly conversionAttempts: number;
+  readonly dummyHalfRuns: number;
+  readonly dummyHalfRunMetres: number;
+  readonly dummyPasses: number;
+  readonly errors: number;
+  readonly fantasyPointsTotal: number;
+  readonly fieldGoals: number;
+  readonly forcedDropOutKicks: number;
+  readonly fortyTwentyKicks: number;
   readonly goals: number;
-  readonly tackles: number;
-  readonly runMetres: number;
-  readonly fantasyPoints: number;
+  readonly goalConversionRate: number;
+  readonly grubberKicks: number;
+  readonly handlingErrors: number;
+  readonly hitUps: number;
+  readonly hitUpRunMetres: number;
+  readonly ineffectiveTackles: number;
+  readonly intercepts: number;
+  readonly kicks: number;
+  readonly kicksDead: number;
+  readonly kicksDefused: number;
+  readonly kickMetres: number;
+  readonly kickReturnMetres: number;
+  readonly lineBreakAssists: number;
+  readonly lineBreaks: number;
+  readonly lineEngagedRuns: number;
+  readonly minutesPlayed: number;
+  readonly missedTackles: number;
+  readonly offloads: number;
+  readonly offsideWithinTenMetres: number;
+  readonly oneOnOneLost: number;
+  readonly oneOnOneSteal: number;
+  readonly onePointFieldGoals: number;
+  readonly onReport: number;
+  readonly passesToRunRatio: number;
+  readonly passes: number;
+  readonly playTheBallTotal: number;
+  readonly playTheBallAverageSpeed: number;
+  readonly penalties: number;
+  readonly points: number;
+  readonly penaltyGoals: number;
+  readonly postContactMetres: number;
+  readonly receipts: number;
+  readonly ruckInfringements: number;
+  readonly sendOffs: number;
+  readonly sinBins: number;
+  readonly stintOne: number;
+  readonly tackleBreaks: number;
+  readonly tackleEfficiency: number;
+  readonly tacklesMade: number;
+  readonly tries: number;
+  readonly tryAssists: number;
+  readonly twentyFortyKicks: number;
+  readonly twoPointFieldGoals: number;
   readonly isComplete: boolean;
 }
 
 /** Create a validated MatchPerformance value object */
 export function createMatchPerformance(data: MatchPerformanceData): MatchPerformance {
-  if (data.tries < 0 || data.goals < 0 || data.tackles < 0 || data.runMetres < 0) {
+  if (data.tries < 0 || data.goals < 0 || data.tacklesMade < 0 || data.allRunMetres < 0) {
     throw new Error(
-      `Stats must be non-negative: tries=${data.tries}, goals=${data.goals}, tackles=${data.tackles}, runMetres=${data.runMetres}`
+      `Stats must be non-negative: tries=${data.tries}, goals=${data.goals}, tacklesMade=${data.tacklesMade}, allRunMetres=${data.allRunMetres}`
     );
   }
   return { ...data };

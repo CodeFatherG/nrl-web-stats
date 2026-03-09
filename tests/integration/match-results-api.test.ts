@@ -57,7 +57,7 @@ describe('Match Results API Integration', () => {
         homeStrengthRating: 800, awayStrengthRating: 750,
       }),
     ];
-    matchRepository.loadForYear(2025, scheduleMatches);
+    await matchRepository.saveAll(scheduleMatches);
 
     // 2. Mock nrl.com API response with completed round fixture
     const fixtureData = loadFixture('round-completed.json');
@@ -71,7 +71,7 @@ describe('Match Results API Integration', () => {
     expect(scrapeResult.createdCount).toBe(6);   // Other 6 matches created
 
     // 4. Verify enriched match preserves strength ratings AND has scores
-    const enrichedMatch = matchRepository.findById('2025-R1-CBR-NZL');
+    const enrichedMatch = await matchRepository.findById('2025-R1-CBR-NZL');
     expect(enrichedMatch).not.toBeNull();
     expect(enrichedMatch!.homeScore).toBe(30);
     expect(enrichedMatch!.awayScore).toBe(8);
@@ -81,7 +81,7 @@ describe('Match Results API Integration', () => {
     expect(enrichedMatch!.scheduledTime).toBe('2025-03-02T00:00:00Z');
 
     // 5. Verify created match (no prior schedule) has scores but null strengths
-    const createdMatch = matchRepository.findById('2025-R1-MNL-NQC');
+    const createdMatch = await matchRepository.findById('2025-R1-MNL-NQC');
     expect(createdMatch).not.toBeNull();
     expect(createdMatch!.homeScore).toBe(42);
     expect(createdMatch!.awayScore).toBe(12);
@@ -99,7 +99,7 @@ describe('Match Results API Integration', () => {
         homeStrengthRating: 700, awayStrengthRating: 600,
       }),
     ];
-    matchRepository.loadForYear(2025, scheduleMatches);
+    await matchRepository.saveAll(scheduleMatches);
 
     // 2. Scrape results
     const fixtureData = loadFixture('round-completed.json');
@@ -107,7 +107,7 @@ describe('Match Results API Integration', () => {
     await scrapeUseCase.execute(2025, 1);
 
     // 3. Get season summary with matchRepository
-    const seasonSummary = createGetSeasonSummaryUseCase(matchRepository).execute(2025);
+    const seasonSummary = await createGetSeasonSummaryUseCase(matchRepository).execute(2025);
 
     expect(seasonSummary).not.toBeNull();
     if (!seasonSummary) return;
@@ -128,7 +128,7 @@ describe('Match Results API Integration', () => {
     expect(match!.awayStrength).toBe(600);
   });
 
-  it('cold-start scenario: season summary returns null/false defaults when no results scraped', () => {
+  it('cold-start scenario: season summary returns null/false defaults when no results scraped', async () => {
     // Load schedule data only, no results scrape
     const scheduleMatches = [
       createMatchFromSchedule({
@@ -137,10 +137,10 @@ describe('Match Results API Integration', () => {
         homeStrengthRating: 700, awayStrengthRating: 600,
       }),
     ];
-    matchRepository.loadForYear(2025, scheduleMatches);
+    await matchRepository.saveAll(scheduleMatches);
 
     // Season summary without matchRepository (old behavior)
-    const seasonSummaryOld = createGetSeasonSummaryUseCase().execute(2025);
+    const seasonSummaryOld = await createGetSeasonSummaryUseCase().execute(2025);
     expect(seasonSummaryOld).not.toBeNull();
     const round1Old = seasonSummaryOld!.rounds.find(r => r.round === 1);
     const matchOld = round1Old!.matches.find(m => m.homeTeam === 'CBR');
@@ -150,7 +150,7 @@ describe('Match Results API Integration', () => {
     expect(matchOld!.scheduledTime).toBeNull();
 
     // Season summary WITH matchRepository but no enrichment
-    const seasonSummaryNew = createGetSeasonSummaryUseCase(matchRepository).execute(2025);
+    const seasonSummaryNew = await createGetSeasonSummaryUseCase(matchRepository).execute(2025);
     expect(seasonSummaryNew).not.toBeNull();
     const round1New = seasonSummaryNew!.rounds.find(r => r.round === 1);
     const matchNew = round1New!.matches.find(m => m.homeTeam === 'CBR');

@@ -58,6 +58,8 @@ export interface Match {
   readonly awayScore: number | null;
   readonly status: MatchStatus;
   readonly scheduledTime: string | null;
+  readonly stadium: string | null;
+  readonly weather: string | null;
 }
 
 /** Generate a deterministic Match ID with teams sorted alphabetically */
@@ -79,6 +81,7 @@ export interface ScheduleData {
   readonly awayTeamCode: string;
   readonly homeStrengthRating: number;
   readonly awayStrengthRating: number;
+  readonly stadium: string | null;
 }
 
 /** Result data for creating or enriching a Match */
@@ -87,6 +90,8 @@ export interface ResultData {
   readonly awayScore: number;
   readonly status: MatchStatus;
   readonly scheduledTime: string | null;
+  readonly stadium: string | null;
+  readonly weather: string | null;
 }
 
 /** Create a Match from schedule data only (result fields null, status Scheduled) */
@@ -103,6 +108,8 @@ export function createMatchFromSchedule(data: ScheduleData & { year: number; rou
     awayScore: null,
     status: MatchStatus.Scheduled,
     scheduledTime: null,
+    stadium: data.stadium ?? null,
+    weather: null,
   };
 }
 
@@ -120,6 +127,8 @@ export function createMatchFromResult(data: ResultData & { teamA: string; teamB:
     awayScore: data.awayScore,
     status: data.status,
     scheduledTime: data.scheduledTime,
+    stadium: data.stadium ?? null,
+    weather: data.weather ?? null,
   };
 }
 
@@ -131,17 +140,22 @@ export function enrichWithSchedule(match: Match, data: ScheduleData): Match {
     awayTeamCode: match.awayTeamCode ?? data.awayTeamCode,
     homeStrengthRating: match.homeStrengthRating ?? data.homeStrengthRating,
     awayStrengthRating: match.awayStrengthRating ?? data.awayStrengthRating,
+    stadium: match.stadium ?? data.stadium,
   };
 }
 
 /** Enrich an existing Match with result data. Preserves existing non-null fields. Status only moves forward. */
 export function enrichWithResult(match: Match, data: ResultData): Match {
   const newStatus = STATUS_ORDER[data.status] > STATUS_ORDER[match.status] ? data.status : match.status;
+  // Only apply scores when the incoming data represents a started/completed match
+  const hasScores = STATUS_ORDER[data.status] >= STATUS_ORDER[MatchStatus.InProgress];
   return {
     ...match,
-    homeScore: match.homeScore ?? data.homeScore,
-    awayScore: match.awayScore ?? data.awayScore,
+    homeScore: hasScores ? (match.homeScore ?? data.homeScore) : match.homeScore,
+    awayScore: hasScores ? (match.awayScore ?? data.awayScore) : match.awayScore,
     status: newStatus,
     scheduledTime: match.scheduledTime ?? data.scheduledTime,
+    stadium: match.stadium ?? data.stadium,
+    weather: match.weather ?? data.weather,
   };
 }

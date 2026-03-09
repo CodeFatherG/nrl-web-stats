@@ -73,7 +73,71 @@ describe('NrlComPlayerStatsAdapter', () => {
       // Find a specific player from the fixture to verify mapping
       const match = matchFixture as {
         homeTeam: { players: Array<{ playerId: number; firstName: string; lastName: string; position: string }> };
-        stats: { players: { homeTeam: Array<{ playerId: number; tries: number; conversions: number; penaltyGoals: number; tacklesMade: number; allRunMetres: number; fantasyPointsTotal: number }> } };
+        stats: { 
+          players: { 
+            homeTeam: Array<{ 
+              playerId: number; 
+              allRunMetres: number,
+              allRuns: number,
+              bombKicks: number,
+              crossFieldKicks: number,
+              conversions: number,
+              conversionAttempts: number,
+              dummyHalfRuns: number,
+              dummyHalfRunMetres: number,
+              dummyPasses: number,
+              errors: number,
+              fantasyPointsTotal: number,
+              fieldGoals: number,
+              forcedDropOutKicks: number,
+              fortyTwentyKicks: number,
+              goals: number,
+              goalConversionRate: number,
+              grubberKicks: number,
+              handlingErrors: number,
+              hitUps: number,
+              hitUpRunMetres: number,
+              ineffectiveTackles: number,
+              intercepts: number,
+              kicks: number,
+              kicksDead: number,
+              kicksDefused: number,
+              kickMetres: number,
+              kickReturnMetres: number,
+              lineBreakAssists: number,
+              lineBreaks: number,
+              lineEngagedRuns: number,
+              minutesPlayed: number,
+              missedTackles: number,
+              offloads: number,
+              offsideWithinTenMetres: number,
+              oneOnOneLost: number,
+              oneOnOneSteal: number,
+              onePointFieldGoals: number,
+              onReport: number,
+              passesToRunRatio: number,
+              passes: number,
+              playTheBallTotal: number,
+              playTheBallAverageSpeed: number,
+              penalties: number,
+              points: number,
+              penaltyGoals: number,
+              postContactMetres: number,
+              receipts: number,
+              ruckInfringements: number,
+              sendOffs: number,
+              sinBins: number,
+              stintOne: number,
+              tackleBreaks: number,
+              tackleEfficiency: number,
+              tacklesMade: number,
+              tries: number,
+              tryAssists: number,
+              twentyFortyKicks: number,
+              twoPointFieldGoals: number,
+            }> 
+          } 
+        };
       };
       const rosterPlayer = match.homeTeam.players[0];
       const statsPlayer = match.stats.players.homeTeam.find(
@@ -90,12 +154,64 @@ describe('NrlComPlayerStatsAdapter', () => {
 
       // Stat field mapping: conversions + penaltyGoals → goals
       expect(mapped.goals).toBe(statsPlayer.conversions + statsPlayer.penaltyGoals);
-      // tacklesMade → tackles
-      expect(mapped.tackles).toBe(statsPlayer.tacklesMade);
-      // allRunMetres → runMetres
-      expect(mapped.runMetres).toBe(statsPlayer.allRunMetres);
-      // fantasyPointsTotal → fantasyPoints
-      expect(mapped.fantasyPoints).toBe(statsPlayer.fantasyPointsTotal);
+      expect(mapped.allRunMetres).toBe(statsPlayer.allRunMetres);
+expect(mapped.allRuns).toBe(statsPlayer.allRuns);
+expect(mapped.bombKicks).toBe(statsPlayer.bombKicks);
+expect(mapped.crossFieldKicks).toBe(statsPlayer.crossFieldKicks);
+expect(mapped.conversions).toBe(statsPlayer.conversions);
+expect(mapped.conversionAttempts).toBe(statsPlayer.conversionAttempts);
+expect(mapped.dummyHalfRuns).toBe(statsPlayer.dummyHalfRuns);
+expect(mapped.dummyHalfRunMetres).toBe(statsPlayer.dummyHalfRunMetres);
+expect(mapped.dummyPasses).toBe(statsPlayer.dummyPasses);
+expect(mapped.errors).toBe(statsPlayer.errors);
+expect(mapped.fantasyPointsTotal).toBe(statsPlayer.fantasyPointsTotal);
+expect(mapped.fieldGoals).toBe(statsPlayer.fieldGoals);
+expect(mapped.forcedDropOutKicks).toBe(statsPlayer.forcedDropOutKicks);
+expect(mapped.fortyTwentyKicks).toBe(statsPlayer.fortyTwentyKicks);
+expect(mapped.goals).toBe(statsPlayer.goals);
+expect(mapped.goalConversionRate).toBe(statsPlayer.goalConversionRate);
+expect(mapped.grubberKicks).toBe(statsPlayer.grubberKicks);
+expect(mapped.handlingErrors).toBe(statsPlayer.handlingErrors);
+expect(mapped.hitUps).toBe(statsPlayer.hitUps);
+expect(mapped.hitUpRunMetres).toBe(statsPlayer.hitUpRunMetres);
+expect(mapped.ineffectiveTackles).toBe(statsPlayer.ineffectiveTackles);
+expect(mapped.intercepts).toBe(statsPlayer.intercepts);
+expect(mapped.kicks).toBe(statsPlayer.kicks);
+expect(mapped.kicksDead).toBe(statsPlayer.kicksDead);
+expect(mapped.kicksDefused).toBe(statsPlayer.kicksDefused);
+expect(mapped.kickMetres).toBe(statsPlayer.kickMetres);
+expect(mapped.kickReturnMetres).toBe(statsPlayer.kickReturnMetres);
+expect(mapped.lineBreakAssists).toBe(statsPlayer.lineBreakAssists);
+expect(mapped.lineBreaks).toBe(statsPlayer.lineBreaks);
+expect(mapped.lineEngagedRuns).toBe(statsPlayer.lineEngagedRuns);
+expect(mapped.minutesPlayed).toBe(statsPlayer.minutesPlayed);
+expect(mapped.missedTackles).toBe(statsPlayer.missedTackles);
+expect(mapped.offloads).toBe(statsPlayer.offloads);
+expect(mapped.offsideWithinTenMetres).toBe(statsPlayer.offsideWithinTenMetres);
+expect(mapped.oneOnOneLost).toBe(statsPlayer.oneOnOneLost);
+expect(mapped.oneOnOneSteal).toBe(statsPlayer.oneOnOneSteal);
+expect(mapped.onePointFieldGoals).toBe(statsPlayer.onePointFieldGoals);
+expect(mapped.onReport).toBe(statsPlayer.onReport);
+expect(mapped.passesToRunRatio).toBe(statsPlayer.passesToRunRatio);
+expect(mapped.passes).toBe(statsPlayer.passes);
+expect(mapped.playTheBallTotal).toBe(statsPlayer.playTheBallTotal);
+expect(mapped.playTheBallAverageSpeed).toBe(statsPlayer.playTheBallAverageSpeed);
+expect(mapped.penalties).toBe(statsPlayer.penalties);
+expect(mapped.points).toBe(statsPlayer.points);
+expect(mapped.penaltyGoals).toBe(statsPlayer.penaltyGoals);
+expect(mapped.postContactMetres).toBe(statsPlayer.postContactMetres);
+expect(mapped.receipts).toBe(statsPlayer.receipts);
+expect(mapped.ruckInfringements).toBe(statsPlayer.ruckInfringements);
+expect(mapped.sendOffs).toBe(statsPlayer.sendOffs);
+expect(mapped.sinBins).toBe(statsPlayer.sinBins);
+expect(mapped.stintOne).toBe(statsPlayer.stintOne);
+expect(mapped.tackleBreaks).toBe(statsPlayer.tackleBreaks);
+expect(mapped.tackleEfficiency).toBe(statsPlayer.tackleEfficiency);
+expect(mapped.tacklesMade).toBe(statsPlayer.tacklesMade);
+expect(mapped.tries).toBe(statsPlayer.tries);
+expect(mapped.tryAssists).toBe(statsPlayer.tryAssists);
+expect(mapped.twentyFortyKicks).toBe(statsPlayer.twentyFortyKicks);
+expect(mapped.twoPointFieldGoals).toBe(statsPlayer.twoPointFieldGoals);
       // tries → tries (direct)
       expect(mapped.tries).toBe(statsPlayer.tries);
     });

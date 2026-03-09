@@ -40,6 +40,13 @@ const NrlComMatchFixtureSchema = z.object({
   homeTeam: NrlComTeamSchema,
   awayTeam: NrlComTeamSchema,
   clock: NrlComClockSchema,
+  venue: z.string().optional(),
+  matchCentreUrl: z.string().optional(),
+});
+
+/** Minimal schema for match centre response (weather extraction only) */
+const MatchCentreWeatherSchema = z.object({
+  weather: z.string().optional(),
 });
 
 const NrlComByeFixtureSchema = z.object({
@@ -77,9 +84,26 @@ function parseRoundNumber(roundTitle: string): number | null {
 // T007: NrlComMatchResultAdapter class
 // ---------------------------------------------------------------------------
 
+const NRL_COM_BASE = 'https://www.nrl.com';
 const NRL_COM_DRAW_API = 'https://www.nrl.com/draw/data';
 
 export class NrlComMatchResultAdapter implements MatchResultSource {
+  /** Fetch weather from match centre page for a completed match */
+  private async fetchWeather(matchCentreUrl: string): Promise<string | null> {
+    try {
+      const dataUrl = `${NRL_COM_BASE}${matchCentreUrl}data`;
+      const response = await fetch(dataUrl, {
+        headers: { 'User-Agent': 'NRL-Schedule-Scraper/1.0' },
+      });
+      if (!response.ok) return null;
+      const json = await response.json();
+      const parse = MatchCentreWeatherSchema.safeParse(json);
+      return parse.success ? (parse.data.weather ?? null) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async fetchResults(year: number, round?: number): Promise<Result<MatchResult[]>> {
     try {
       const url = new URL(NRL_COM_DRAW_API);
@@ -118,6 +142,18 @@ export class NrlComMatchResultAdapter implements MatchResultSource {
         (f): f is NrlComMatchFixture => f.type === 'Match'
       );
 
+      // Pre-process fixtures: validate teams/rounds, separate completed vs scheduled
+      interface ParsedFixture {
+        fixture: NrlComMatchFixture;
+        homeCode: string;
+        awayCode: string;
+        matchRound: number;
+        matchId: string;
+        isCompleted: boolean;
+        stadium: string | null;
+      }
+      const parsed: ParsedFixture[] = [];
+
       for (const fixture of matchFixtures) {
         const homeCode = resolveNrlComTeamId(fixture.homeTeam.teamId);
         const awayCode = resolveNrlComTeamId(fixture.awayTeam.teamId);
@@ -139,7 +175,6 @@ export class NrlComMatchResultAdapter implements MatchResultSource {
           continue;
         }
 
-        // Parse round from roundTitle if not provided as parameter
         const matchRound = round ?? parseRoundNumber(fixture.roundTitle);
         if (matchRound === null) {
           warnings.push({
@@ -150,33 +185,58 @@ export class NrlComMatchResultAdapter implements MatchResultSource {
           continue;
         }
 
-        const matchId = createMatchId(homeCode, awayCode, year, matchRound);
-        const isCompleted = fixture.matchState === 'FullTime';
+        parsed.push({
+          fixture,
+          homeCode,
+          awayCode,
+          matchRound,
+          matchId: createMatchId(homeCode, awayCode, year, matchRound),
+          isCompleted: fixture.matchState === 'FullTime' &&
+            fixture.homeTeam.score !== undefined && fixture.awayTeam.score !== undefined,
+          stadium: fixture.venue ?? null,
+        });
+      }
 
-        if (isCompleted && fixture.homeTeam.score !== undefined && fixture.awayTeam.score !== undefined) {
+      // Fetch weather in parallel for completed matches that have match centre URLs
+      const completedWithUrls = parsed.filter(p => p.isCompleted && p.fixture.matchCentreUrl);
+      const weatherResults = await Promise.allSettled(
+        completedWithUrls.map(p => this.fetchWeather(p.fixture.matchCentreUrl!))
+      );
+      const weatherByMatchId = new Map<string, string | null>();
+      for (let i = 0; i < completedWithUrls.length; i++) {
+        const weather = weatherResults[i].status === 'fulfilled' ? weatherResults[i].value : null;
+        weatherByMatchId.set(completedWithUrls[i].matchId, weather);
+      }
+
+      // Build results
+      for (const p of parsed) {
+        if (p.isCompleted) {
           results.push({
-            matchId,
-            homeTeamCode: homeCode,
-            awayTeamCode: awayCode,
+            matchId: p.matchId,
+            homeTeamCode: p.homeCode,
+            awayTeamCode: p.awayCode,
             year,
-            round: matchRound,
-            homeScore: fixture.homeTeam.score,
-            awayScore: fixture.awayTeam.score,
+            round: p.matchRound,
+            homeScore: p.fixture.homeTeam.score!,
+            awayScore: p.fixture.awayTeam.score!,
             status: MatchStatus.Completed,
-            scheduledTime: fixture.clock.kickOffTimeLong,
+            scheduledTime: p.fixture.clock.kickOffTimeLong,
+            stadium: p.stadium,
+            weather: weatherByMatchId.get(p.matchId) ?? null,
           });
         } else {
-          // Upcoming/non-completed — include scheduledTime but no scores
           results.push({
-            matchId,
-            homeTeamCode: homeCode,
-            awayTeamCode: awayCode,
+            matchId: p.matchId,
+            homeTeamCode: p.homeCode,
+            awayTeamCode: p.awayCode,
             year,
-            round: matchRound,
+            round: p.matchRound,
             homeScore: 0,
             awayScore: 0,
             status: MatchStatus.Scheduled,
-            scheduledTime: fixture.clock.kickOffTimeLong,
+            scheduledTime: p.fixture.clock.kickOffTimeLong,
+            stadium: p.stadium,
+            weather: null,
           });
         }
       }

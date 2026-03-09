@@ -17,6 +17,8 @@ export interface MatchResult {
   readonly awayScore: number;
   readonly status: MatchStatus;
   readonly scheduledTime: string | null;
+  readonly stadium: string | null;
+  readonly weather: string | null;
 }
 
 /** Port for fetching match results */
