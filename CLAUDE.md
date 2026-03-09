@@ -19,6 +19,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - Computed on-demand from existing repositories (MatchRepository in-memory, PlayerRepository on D1, FixtureRepository in-memory). Analytics results cached in-memory. (012-analytics-engine)
 - TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) (013-match-persistence)
 - Cloudflare D1 (SQLite-based, native Workers binding) — same DB as player stats (013-match-persistence)
+- TypeScript 5.x with strict mode + Hono (HTTP), Wrangler (deployment), GitHub Actions (CI/CD) (014-staging-environment)
+- Cloudflare D1 (two databases: staging + production) (014-staging-environment)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -71,9 +73,8 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 014-staging-environment: Added staging/production environment config with separate D1 databases
 - 013-match-persistence: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing)
-- 012-analytics-engine: Added TypeScript 5.x with strict mode + Hono (HTTP framework), Zod (validation), React 18, MUI 5.x (frontend)
-- 011-player-stats-persistence: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), D1 (database)
 
 
 <!-- MANUAL ADDITIONS START -->
