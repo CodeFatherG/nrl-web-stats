@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "npm run build && wrangler dev",
     "build": "npm run build:frontend && npm run build:worker",
-    "build:frontend": "cd client && npm run build && rm -rf ../dist/frontend && mkdir -p ../dist/frontend && cp -r dist/* ../dist/frontend/",
+    "build:frontend": "cd client && npm install && npm run build && rm -rf ../dist/frontend && mkdir -p ../dist/frontend && cp -r dist/* ../dist/frontend/",
     "build:worker": "esbuild src/worker.ts --bundle --outfile=dist/worker.js --format=esm --platform=browser --target=es2022",
     "start": "wrangler dev",
     "deploy": "npm run build && wrangler deploy",
