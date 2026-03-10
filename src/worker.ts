@@ -7,7 +7,7 @@ import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-matc
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape } from './application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats } from './application/use-cases/scrape-match-results.js';
 import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
@@ -158,11 +158,8 @@ app.get('*', async (c) => {
   return c.text('Static file serving requires ASSETS binding', 404);
 });
 
-// Export for Cloudflare Workers
-export default app;
-
 // Scheduled handler for cache invalidation and post-game result scraping
-export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) => {
+const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) => {
   logger.info('Scheduled trigger fired', {
     timestamp: new Date().toISOString(),
     scheduledTime: new Date(event.scheduledTime).toISOString(),
@@ -184,8 +181,12 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
   const currentTime = new Date(event.scheduledTime);
   const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
 
-  if (roundsToScrape.length === 0) {
-    logger.debug('No rounds need result scraping');
+  // Also find completed rounds missing player stats
+  const playerRepo = new D1PlayerRepository(env.DB);
+  const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
+
+  if (roundsToScrape.length === 0 && roundsNeedingPlayerStats.length === 0) {
+    logger.debug('No rounds need scraping');
     return;
   }
 
@@ -200,33 +201,69 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env
   );
 
   for (const { year, round } of roundsToScrape) {
-    ctx.waitUntil(
-      deps.scrapeMatchResultsUseCase.execute(year, round).then(result => {
-        logger.info('Scheduled result scrape complete', {
+    try {
+      const result = await deps.scrapeMatchResultsUseCase.execute(year, round);
+      logger.info('Scheduled result scrape complete', {
+        year,
+        round,
+        success: result.success,
+        enriched: result.enrichedCount,
+        created: result.createdCount,
+      });
+
+      // After match results are scraped, also scrape player stats
+      const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
+      logger.info('Scheduled player stats scrape complete', {
+        year,
+        round,
+        playersProcessed: playerResult.playersProcessed,
+        created: playerResult.created,
+        updated: playerResult.updated,
+      });
+    } catch (error) {
+      logger.error('Scheduled scrape failed', {
+        year,
+        round,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Scrape player stats for completed rounds that were missed (e.g. match results
+  // were scraped via the UI before the cron had a chance to trigger player stats)
+  const alreadyQueued = new Set(roundsToScrape.map(r => `${r.year}-${r.round}`));
+  const playerStatsOnly = roundsNeedingPlayerStats.filter(
+    r => !alreadyQueued.has(`${r.year}-${r.round}`)
+  );
+
+  if (playerStatsOnly.length > 0) {
+    logger.info('Scraping player stats for completed rounds missing stats', {
+      rounds: playerStatsOnly,
+    });
+
+    for (const { year, round } of playerStatsOnly) {
+      try {
+        const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
+        logger.info('Backfill player stats scrape complete', {
           year,
           round,
-          success: result.success,
-          enriched: result.enrichedCount,
-          created: result.createdCount,
+          playersProcessed: playerResult.playersProcessed,
+          created: playerResult.created,
+          updated: playerResult.updated,
         });
-
-        // After match results are scraped, also scrape player stats
-        return scrapePlayerStatsUseCase.execute(year, round).then(playerResult => {
-          logger.info('Scheduled player stats scrape complete', {
-            year,
-            round,
-            playersProcessed: playerResult.playersProcessed,
-            created: playerResult.created,
-            updated: playerResult.updated,
-          });
-        });
-      }).catch(error => {
-        logger.error('Scheduled scrape failed', {
+      } catch (error) {
+        logger.error('Backfill player stats scrape failed', {
           year,
           round,
           error: error instanceof Error ? error.message : 'Unknown error',
         });
-      })
-    );
+      }
+    }
   }
+};
+
+// Export for Cloudflare Workers — combine Hono fetch handler with scheduled handler
+export default {
+  fetch: app.fetch,
+  scheduled,
 };

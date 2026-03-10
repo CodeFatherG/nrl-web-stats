@@ -7,6 +7,8 @@ export interface RoundMatch {
   awayScore: number | null;
   scheduledTime: string | null;
   isComplete: boolean;
+  stadium: string | null;
+  weather: string | null;
 }
 
 export interface RoundDetailsResult {

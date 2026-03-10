@@ -34,7 +34,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
 
   // Teams
   api.get('/teams', handlers.getTeams);
-  api.get('/teams/:code/schedule', handlers.getTeamSchedule);
+  api.get('/teams/:code/schedule', handlers.getTeamSchedule(deps));
 
   // Fixtures
   api.get('/fixtures', handlers.getFixtures);

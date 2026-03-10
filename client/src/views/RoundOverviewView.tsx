@@ -84,6 +84,12 @@ export function RoundOverviewView({
                     strengthThresholds={strengthThresholds}
                     outlookLabel={outlook?.label}
                     outlookTooltip={outlook ? `Composite: ${outlook.compositeScore.toFixed(2)} (${outlook.factorsAvailable} factors)` : undefined}
+                    scheduledTime={match.scheduledTime}
+                    stadium={match.stadium}
+                    weather={match.weather}
+                    homeScore={match.homeScore}
+                    awayScore={match.awayScore}
+                    isComplete={match.isComplete}
                   />
                 </Grid>
               );

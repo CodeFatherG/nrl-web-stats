@@ -135,25 +135,27 @@ export async function getTeams(c: ApiContext) {
 /**
  * GET /api/teams/:code/schedule - Get team schedule
  */
-export async function getTeamSchedule(c: ApiContext) {
-  const code = c.req.param('code')?.toUpperCase();
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
-  const yearParam = c.req.query('year');
-  const year = yearParam ? YearSchema.safeParse(yearParam).data : undefined;
-  const result = createGetTeamScheduleUseCase().execute(code, year);
-  return c.json({
-    team,
-    schedule: result.schedule,
-    totalStrength: result.totalStrength,
-    byeRounds: result.byeRounds,
-    ...(result.thresholds && { thresholds: result.thresholds }),
-  });
+export function getTeamSchedule(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const code = c.req.param('code')?.toUpperCase();
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
+    const yearParam = c.req.query('year');
+    const year = yearParam ? YearSchema.safeParse(yearParam).data : undefined;
+    const result = await createGetTeamScheduleUseCase(deps.matchRepository).execute(code, year);
+    return c.json({
+      team,
+      schedule: result.schedule,
+      totalStrength: result.totalStrength,
+      byeRounds: result.byeRounds,
+      ...(result.thresholds && { thresholds: result.thresholds }),
+    });
+  };
 }
 
 // ============================================

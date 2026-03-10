@@ -5,6 +5,7 @@
 
 import type { MatchResultSource, MatchResult } from '../../domain/ports/match-result-source.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import { enrichWithResult, createMatchFromResult, MatchStatus } from '../../domain/match.js';
 import type { ResultData } from '../../domain/match.js';
 import type { Warning } from '../../models/types.js';
@@ -217,6 +218,48 @@ export async function findRoundsNeedingScrape(
 
       if (hasCompletableMatch) {
         seen.add(key);
+        roundsNeeding.push({ year, round });
+      }
+    }
+  }
+
+  return roundsNeeding.sort((a, b) => a.year - b.year || a.round - b.round);
+}
+
+/**
+ * Find completed rounds that have no player stats data yet.
+ * This catches rounds where match results were scraped (e.g. via UI)
+ * but the cron never triggered player stats scraping.
+ */
+export async function findRoundsNeedingPlayerStats(
+  matchRepository: MatchRepository,
+  playerRepository: PlayerRepository
+): Promise<Array<{ year: number; round: number }>> {
+  const loadedYears = await matchRepository.getLoadedYears();
+  if (loadedYears.length === 0) return [];
+
+  const roundsNeeding: Array<{ year: number; round: number }> = [];
+
+  for (const year of loadedYears) {
+    const matches = await matchRepository.findByYear(year);
+
+    // Group matches by round
+    const roundMatches = new Map<number, typeof matches>();
+    for (const match of matches) {
+      if (!roundMatches.has(match.round)) {
+        roundMatches.set(match.round, []);
+      }
+      roundMatches.get(match.round)!.push(match);
+    }
+
+    for (const [round, roundMatchList] of roundMatches) {
+      // Only consider rounds where all matches are completed
+      const allCompleted = roundMatchList.every(m => m.status === MatchStatus.Completed);
+      if (!allCompleted) continue;
+
+      // Check if player stats already exist for this round
+      const hasPlayerStats = await playerRepository.isRoundComplete(year, round);
+      if (!hasPlayerStats) {
         roundsNeeding.push({ year, round });
       }
     }

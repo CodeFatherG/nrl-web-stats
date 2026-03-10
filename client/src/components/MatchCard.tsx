@@ -2,6 +2,7 @@ import { Card, CardContent, Typography, Box, Divider } from '@mui/material';
 import { StrengthBadge } from './StrengthBadge';
 import { OutlookBadge } from './OutlookBadge';
 import type { StrengthThresholds } from '../types';
+import { formatMatchDate } from '../utils/formatMatchDate';
 
 type OutlookLabel = 'Easy' | 'Competitive' | 'Tough' | 'Upset Alert';
 
@@ -13,6 +14,12 @@ interface MatchCardProps {
   strengthThresholds: StrengthThresholds;
   outlookLabel?: OutlookLabel;
   outlookTooltip?: string;
+  scheduledTime?: string | null;
+  stadium?: string | null;
+  weather?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  isComplete?: boolean;
 }
 
 export function MatchCard({
@@ -23,10 +30,34 @@ export function MatchCard({
   strengthThresholds,
   outlookLabel,
   outlookTooltip,
+  scheduledTime,
+  stadium,
+  weather,
+  homeScore,
+  awayScore,
+  isComplete,
 }: MatchCardProps) {
+  const hasResult = isComplete && homeScore != null && awayScore != null;
+
   return (
     <Card sx={{ height: '100%' }}>
       <CardContent>
+        {/* Match Info: Date & Venue */}
+        {(scheduledTime || stadium) && (
+          <Box mb={1}>
+            {scheduledTime && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {formatMatchDate(scheduledTime)}
+              </Typography>
+            )}
+            {stadium && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {stadium}
+              </Typography>
+            )}
+          </Box>
+        )}
+
         {/* Home Team */}
         <Box
           display="flex"
@@ -68,6 +99,34 @@ export function MatchCard({
           </Box>
           <StrengthBadge rating={awayStrength} thresholds={strengthThresholds} />
         </Box>
+
+        {/* Match Result */}
+        {hasResult && (
+          <Box
+            display="flex"
+            justifyContent="center"
+            mt={1.5}
+            sx={{
+              bgcolor: 'grey.100',
+              borderRadius: 1,
+              py: 0.75,
+              px: 1,
+            }}
+          >
+            <Typography variant="subtitle2" fontWeight={700}>
+              {homeScore} - {awayScore}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Weather */}
+        {weather && (
+          <Box display="flex" justifyContent="center" mt={1}>
+            <Typography variant="caption" color="text.secondary">
+              {weather}
+            </Typography>
+          </Box>
+        )}
 
         {outlookLabel && (
           <Box display="flex" justifyContent="center" mt={1.5}>

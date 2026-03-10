@@ -21,6 +21,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - Cloudflare D1 (SQLite-based, native Workers binding) — same DB as player stats (013-match-persistence)
 - TypeScript 5.x with strict mode + Hono (HTTP), Wrangler (deployment), GitHub Actions (CI/CD) (014-staging-environment)
 - Cloudflare D1 (two databases: staging + production) (014-staging-environment)
+- TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x (frontend), Zod (validation), Vitest (testing) (015-match-view-details)
+- Cloudflare D1 (matches, player stats) + in-memory cache (fixtures, rankings) (015-match-view-details)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -73,6 +75,7 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
 ## Recent Changes
+- 015-match-view-details: Added TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x (frontend), Zod (validation), Vitest (testing)
 - 014-staging-environment: Added staging/production environment config with separate D1 databases
 - 013-match-persistence: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing)
 

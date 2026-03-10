@@ -8,6 +8,12 @@ export interface ScheduleFixture {
   isBye: boolean;
   strengthRating: number;
   category: StrengthCategory;
+  scheduledTime: string | null;
+  stadium: string | null;
+  weather: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  isComplete: boolean;
 }
 
 export interface TeamScheduleResult {

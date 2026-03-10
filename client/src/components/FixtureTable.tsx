@@ -11,6 +11,7 @@ import {
 import { StrengthBadge } from './StrengthBadge';
 import { VenueBadge } from './VenueBadge';
 import { ByeIndicator } from './ByeIndicator';
+import { formatMatchDate } from '../utils/formatMatchDate';
 import type { ScheduleFixture, Team, Streak } from '../types';
 
 interface FixtureTableProps {
@@ -53,6 +54,31 @@ const STREAK_LABEL_COLORS = {
   rough_patch: '#C62828',
 } as const;
 
+const RESULT_COLORS = {
+  win: '#2E7D32',
+  loss: '#C62828',
+  draw: '#757575',
+} as const;
+
+function getResultDisplay(
+  fixture: ScheduleFixture
+): { label: string; color: string } | null {
+  if (!fixture.isComplete || fixture.homeScore == null || fixture.awayScore == null) {
+    return null;
+  }
+
+  const teamScore = fixture.isHome ? fixture.homeScore : fixture.awayScore;
+  const opponentScore = fixture.isHome ? fixture.awayScore : fixture.homeScore;
+
+  if (teamScore > opponentScore) {
+    return { label: `W ${teamScore}-${opponentScore}`, color: RESULT_COLORS.win };
+  } else if (teamScore < opponentScore) {
+    return { label: `L ${teamScore}-${opponentScore}`, color: RESULT_COLORS.loss };
+  } else {
+    return { label: `D ${teamScore}-${opponentScore}`, color: RESULT_COLORS.draw };
+  }
+}
+
 export function FixtureTable({
   fixtures,
   teams,
@@ -84,11 +110,17 @@ export function FixtureTable({
               <TableCell sx={{ color: 'white', fontWeight: 600, width: 100 }}>Streak</TableCell>
             )}
             <TableCell sx={{ color: 'white', fontWeight: 600 }}>Round</TableCell>
+            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Date</TableCell>
             <TableCell sx={{ color: 'white', fontWeight: 600 }}>Opponent</TableCell>
             <TableCell sx={{ color: 'white', fontWeight: 600 }}>Venue</TableCell>
+            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Stadium</TableCell>
             <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">
               Strength
             </TableCell>
+            <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">
+              Result
+            </TableCell>
+            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Weather</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -96,6 +128,7 @@ export function FixtureTable({
             const streak = hasStreaks ? getStreakForRound(fixture.round, streaks) : null;
             const showLabel = streak && isFirstRoundOfStreak(fixture.round, streak, fixtures);
             const rowSpan = showLabel ? getStreakRowCount(streak, fixtures) : undefined;
+            const result = !fixture.isBye ? getResultDisplay(fixture) : null;
 
             return (
               <TableRow
@@ -131,6 +164,15 @@ export function FixtureTable({
                   <Typography fontWeight={500}>R{fixture.round}</Typography>
                 </TableCell>
                 <TableCell>
+                  {fixture.scheduledTime ? (
+                    <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>
+                      {formatMatchDate(fixture.scheduledTime)}
+                    </Typography>
+                  ) : (
+                    <Typography color="text.secondary">-</Typography>
+                  )}
+                </TableCell>
+                <TableCell>
                   {fixture.isBye ? (
                     <ByeIndicator />
                   ) : (
@@ -144,6 +186,15 @@ export function FixtureTable({
                     <VenueBadge isHome={fixture.isHome} />
                   )}
                 </TableCell>
+                <TableCell>
+                  {fixture.stadium ? (
+                    <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>
+                      {fixture.stadium}
+                    </Typography>
+                  ) : (
+                    <Typography color="text.secondary">-</Typography>
+                  )}
+                </TableCell>
                 <TableCell align="center">
                   {fixture.isBye ? (
                     <Typography color="text.secondary">-</Typography>
@@ -152,6 +203,28 @@ export function FixtureTable({
                       rating={fixture.strengthRating}
                       category={fixture.category}
                     />
+                  )}
+                </TableCell>
+                <TableCell align="center">
+                  {result ? (
+                    <Typography
+                      variant="body2"
+                      fontWeight={600}
+                      sx={{ color: result.color, whiteSpace: 'nowrap' }}
+                    >
+                      {result.label}
+                    </Typography>
+                  ) : (
+                    <Typography color="text.secondary">-</Typography>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {fixture.weather ? (
+                    <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>
+                      {fixture.weather}
+                    </Typography>
+                  ) : (
+                    <Typography color="text.secondary">-</Typography>
                   )}
                 </TableCell>
               </TableRow>

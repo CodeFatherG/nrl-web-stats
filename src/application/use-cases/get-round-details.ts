@@ -29,6 +29,8 @@ export class GetRoundDetailsUseCase {
         let awayScore: number | null = null;
         let scheduledTime: string | null = null;
         let isComplete = false;
+        let stadium: string | null = null;
+        let weather: string | null = null;
 
         if (this.matchRepository) {
           const matchId = createMatchId(fixture.teamCode, fixture.opponentCode, year, round);
@@ -38,6 +40,8 @@ export class GetRoundDetailsUseCase {
             awayScore = match.awayScore;
             scheduledTime = match.scheduledTime;
             isComplete = match.status === MatchStatus.Completed;
+            stadium = match.stadium;
+            weather = match.weather;
           }
         }
 
@@ -50,16 +54,20 @@ export class GetRoundDetailsUseCase {
           awayScore,
           scheduledTime,
           isComplete,
+          stadium,
+          weather,
         });
       }
     }
 
-    return {
-      year,
-      round,
-      matches: Array.from(matchMap.values()),
-      byeTeams,
-    };
+    const matches = Array.from(matchMap.values()).sort((a, b) => {
+      if (a.scheduledTime && b.scheduledTime) return a.scheduledTime.localeCompare(b.scheduledTime);
+      if (a.scheduledTime) return -1;
+      if (b.scheduledTime) return 1;
+      return 0;
+    });
+
+    return { year, round, matches, byeTeams };
   }
 }
 

@@ -48,6 +48,12 @@ export interface ScheduleFixture {
   isBye: boolean;
   strengthRating: number;
   category: StrengthCategory;
+  scheduledTime?: string | null;
+  stadium?: string | null;
+  weather?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  isComplete?: boolean;
 }
 
 export interface TeamScheduleResponse {
@@ -69,6 +75,12 @@ export interface RoundMatch {
   awayTeam: string;
   homeStrength: number;
   awayStrength: number;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  scheduledTime?: string | null;
+  isComplete?: boolean;
+  stadium?: string | null;
+  weather?: string | null;
 }
 
 export interface RoundResponse {

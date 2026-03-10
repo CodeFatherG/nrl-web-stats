@@ -52,6 +52,8 @@ describe('GetRoundDetailsUseCase', () => {
       awayScore: null,
       scheduledTime: null,
       isComplete: false,
+      stadium: null,
+      weather: null,
     });
     expect(result.byeTeams).toHaveLength(0);
   });

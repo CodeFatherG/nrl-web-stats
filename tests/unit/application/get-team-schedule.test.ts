@@ -62,7 +62,7 @@ function createMockRankingService(rankings: Map<string, TeamRoundRanking> = new 
 }
 
 describe('GetTeamScheduleUseCase', () => {
-  it('returns enriched schedule with categories, totalStrength, byeRounds, and thresholds', () => {
+  it('returns enriched schedule with categories, totalStrength, byeRounds, and thresholds', async () => {
     const fixtures = [
       makeFixture({ round: 1, strengthRating: 120 }),
       makeFixture({ round: 2, opponentCode: 'BRO', strengthRating: 80, id: '2025-MNL-2' }),
@@ -78,7 +78,7 @@ describe('GetTeamScheduleUseCase', () => {
       createMockRankingService(rankings)
     );
 
-    const result = useCase.execute('MNL', 2025);
+    const result = await useCase.execute('MNL', 2025);
 
     expect(result.teamCode).toBe('MNL');
     expect(result.teamName).toBe('Manly Sea Eagles');
@@ -91,7 +91,7 @@ describe('GetTeamScheduleUseCase', () => {
     expect(result.thresholds).toEqual(defaultThresholds);
   });
 
-  it('returns all fixtures when no year is specified', () => {
+  it('returns all fixtures when no year is specified', async () => {
     const fixtures = [
       makeFixture({ year: 2024, round: 1, id: '2024-MNL-1' }),
       makeFixture({ year: 2025, round: 1, id: '2025-MNL-1' }),
@@ -102,19 +102,19 @@ describe('GetTeamScheduleUseCase', () => {
       createMockRankingService()
     );
 
-    const result = useCase.execute('MNL');
+    const result = await useCase.execute('MNL');
     expect(result.schedule).toHaveLength(2);
     expect(result.schedule[0].year).toBe(2024);
     expect(result.schedule[1].year).toBe(2025);
   });
 
-  it('returns empty schedule with zero totalStrength when no fixtures exist', () => {
+  it('returns empty schedule with zero totalStrength when no fixtures exist', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
       createMockRankingService()
     );
 
-    const result = useCase.execute('MNL', 2025);
+    const result = await useCase.execute('MNL', 2025);
 
     expect(result.schedule).toHaveLength(0);
     expect(result.totalStrength).toBe(0);
@@ -122,13 +122,13 @@ describe('GetTeamScheduleUseCase', () => {
     expect(result.thresholds).toEqual(defaultThresholds); // thresholds still returned when year is given
   });
 
-  it('returns teamCode as teamName when team not found in repository', () => {
+  it('returns teamCode as teamName when team not found in repository', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
       createMockRankingService()
     );
 
-    const result = useCase.execute('XYZ', 2025);
+    const result = await useCase.execute('XYZ', 2025);
     expect(result.teamName).toBe('XYZ');
   });
 });
