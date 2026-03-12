@@ -8,6 +8,7 @@ import type {
   TeamSeasonRankingResponse,
   AllTeamsRankingResponse,
   SeasonSummaryResponse,
+  MatchDetailResponse,
   ApiError,
 } from '../types';
 
@@ -213,4 +214,10 @@ export async function getCompositionImpact(
   teamCode: string
 ): Promise<CompositionImpactResponse> {
   return fetchApi<CompositionImpactResponse>(`/analytics/composition/${year}/${teamCode}`);
+}
+
+export async function getMatchDetail(
+  matchId: string
+): Promise<MatchDetailResponse> {
+  return fetchApi<MatchDetailResponse>(`/matches/${encodeURIComponent(matchId)}`);
 }

@@ -328,3 +328,90 @@ export interface TeamChipProps {
   /** Callback when chip is clicked */
   onClick: (teamCode: string) => void;
 }
+
+// Match Detail View Types
+
+/** Player performance stats for a single match (all available fields) */
+export interface PlayerMatchStats {
+  playerName: string;
+  position: string;
+  minutesPlayed: number;
+  tries: number;
+  tryAssists: number;
+  goals: number;
+  goalConversionRate: number;
+  fieldGoals: number;
+  onePointFieldGoals: number;
+  twoPointFieldGoals: number;
+  conversions: number;
+  conversionAttempts: number;
+  penaltyGoals: number;
+  points: number;
+  allRuns: number;
+  allRunMetres: number;
+  hitUps: number;
+  hitUpRunMetres: number;
+  lineEngagedRuns: number;
+  postContactMetres: number;
+  lineBreaks: number;
+  lineBreakAssists: number;
+  tackleBreaks: number;
+  offloads: number;
+  receipts: number;
+  passes: number;
+  passesToRunRatio: number;
+  dummyHalfRuns: number;
+  dummyHalfRunMetres: number;
+  dummyPasses: number;
+  tacklesMade: number;
+  missedTackles: number;
+  ineffectiveTackles: number;
+  tackleEfficiency: number;
+  intercepts: number;
+  oneOnOneSteal: number;
+  oneOnOneLost: number;
+  kicks: number;
+  kickMetres: number;
+  kickReturnMetres: number;
+  kicksDefused: number;
+  kicksDead: number;
+  bombKicks: number;
+  grubberKicks: number;
+  crossFieldKicks: number;
+  forcedDropOutKicks: number;
+  fortyTwentyKicks: number;
+  twentyFortyKicks: number;
+  errors: number;
+  handlingErrors: number;
+  penalties: number;
+  ruckInfringements: number;
+  offsideWithinTenMetres: number;
+  onReport: number;
+  sinBins: number;
+  sendOffs: number;
+  playTheBallTotal: number;
+  playTheBallAverageSpeed: number;
+  stintOne: number;
+  fantasyPointsTotal: number;
+}
+
+/** Response from GET /api/matches/:matchId */
+export interface MatchDetailResponse {
+  matchId: string;
+  year: number;
+  round: number;
+  homeTeamCode: string;
+  awayTeamCode: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  status: 'Scheduled' | 'InProgress' | 'Completed';
+  homeStrengthRating: number | null;
+  awayStrengthRating: number | null;
+  scheduledTime: string | null;
+  stadium: string | null;
+  weather: string | null;
+  homePlayerStats: PlayerMatchStats[];
+  awayPlayerStats: PlayerMatchStats[];
+}

@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { Box, CircularProgress, Alert } from '@mui/material';
 import { TeamSelector } from '../components/TeamSelector';
 import { TeamScheduleSummary } from '../components/TeamScheduleSummary';
@@ -12,6 +13,7 @@ import type {
   Streak,
 } from '../types';
 import type { FormTrajectoryResponse } from '../services/api';
+import { createMatchId } from '../utils/matchId';
 
 interface TeamScheduleViewProps {
   teams: Team[];
@@ -28,6 +30,8 @@ interface TeamScheduleViewProps {
   streaks?: Streak[];
   /** Form trajectory data for selected team */
   formData?: FormTrajectoryResponse | null;
+  /** Callback when a match fixture is clicked */
+  onMatchClick?: (matchId: string) => void;
 }
 
 function applyFilters(
@@ -68,6 +72,7 @@ export function TeamScheduleView({
   rankings,
   streaks,
   formData,
+  onMatchClick,
 }: TeamScheduleViewProps) {
   const filteredFixtures = schedule
     ? applyFilters(schedule.schedule, filters)
@@ -76,6 +81,17 @@ export function TeamScheduleView({
   // Find the current team's ranking
   const teamRanking = rankings?.rankings.find(
     (r) => r.team.code === selectedTeamCode
+  );
+
+  const handleFixtureClick = useCallback(
+    (fixture: ScheduleFixture) => {
+      if (!onMatchClick || !selectedTeamCode || !fixture.opponent) return;
+      const teamA = selectedTeamCode;
+      const teamB = fixture.opponent;
+      const matchId = createMatchId(fixture.year, fixture.round, teamA, teamB);
+      onMatchClick(matchId);
+    },
+    [onMatchClick, selectedTeamCode]
   );
 
   return (
@@ -125,6 +141,7 @@ export function TeamScheduleView({
             fixtures={filteredFixtures}
             teams={teams}
             streaks={streaks}
+            onFixtureClick={onMatchClick ? handleFixtureClick : undefined}
           />
         </>
       )}

@@ -4,6 +4,7 @@ import { MatchCard } from '../components/MatchCard';
 import { ByeTeamsList } from '../components/ByeTeamsList';
 import type { Team, RoundResponse, StrengthThresholds } from '../types';
 import type { MatchOutlookResponse } from '../services/api';
+import { createMatchId } from '../utils/matchId';
 
 interface RoundOverviewViewProps {
   year: number;
@@ -15,6 +16,7 @@ interface RoundOverviewViewProps {
   loading: boolean;
   error: string | null;
   outlookData?: MatchOutlookResponse | null;
+  onMatchClick?: (matchId: string) => void;
 }
 
 export function RoundOverviewView({
@@ -27,6 +29,7 @@ export function RoundOverviewView({
   loading,
   error,
   outlookData,
+  onMatchClick,
 }: RoundOverviewViewProps) {
   const getTeamName = (code: string): string => {
     const team = teams.find((t) => t.code === code);
@@ -74,6 +77,7 @@ export function RoundOverviewView({
           <Grid container spacing={2}>
             {roundData.matches.map((match, index) => {
               const outlook = getOutlookForMatch(match.homeTeam, match.awayTeam);
+              const matchId = createMatchId(year, roundData.round, match.homeTeam, match.awayTeam);
               return (
                 <Grid item xs={12} sm={6} md={4} key={index}>
                   <MatchCard
@@ -90,6 +94,7 @@ export function RoundOverviewView({
                     homeScore={match.homeScore}
                     awayScore={match.awayScore}
                     isComplete={match.isComplete}
+                    onClick={onMatchClick ? () => onMatchClick(matchId) : undefined}
                   />
                 </Grid>
               );

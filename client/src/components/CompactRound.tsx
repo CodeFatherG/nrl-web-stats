@@ -1,14 +1,17 @@
 import { Box, Typography, Paper, Chip } from '@mui/material';
 import type { CompactRound as CompactRoundType, StrengthThresholds } from '../types';
 import { getStrengthCategory, getStrengthColor, getStrengthTextColor } from '../utils/strengthColors';
+import { createMatchId } from '../utils/matchId';
 
 interface CompactRoundProps {
   round: CompactRoundType;
+  year: number;
   onClick?: () => void;
+  onMatchClick?: (matchId: string) => void;
   strengthThresholds?: StrengthThresholds;
 }
 
-export function CompactRound({ round, onClick, strengthThresholds }: CompactRoundProps) {
+export function CompactRound({ round, year, onClick, onMatchClick, strengthThresholds }: CompactRoundProps) {
   // Default thresholds if not provided
   const thresholds = strengthThresholds ?? { p33: 300, p67: 400 };
 
@@ -72,6 +75,15 @@ export function CompactRound({ round, onClick, strengthThresholds }: CompactRoun
             return (
               <Box
                 key={index}
+                onClick={
+                  onMatchClick
+                    ? (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        const matchId = createMatchId(year, round.round, match.homeTeam, match.awayTeam);
+                        onMatchClick(matchId);
+                      }
+                    : undefined
+                }
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -79,6 +91,11 @@ export function CompactRound({ round, onClick, strengthThresholds }: CompactRoun
                   gap: 0.5,
                   mb: 0.25,
                   whiteSpace: 'nowrap',
+                  ...(onMatchClick && {
+                    cursor: 'pointer',
+                    borderRadius: 0.5,
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }),
                 }}
               >
                 {/* Home Strength Badge */}

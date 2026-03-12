@@ -783,3 +783,83 @@ export function getCompositionImpact(deps: HandlerDeps) {
     return c.json(result);
   };
 }
+
+// ============================================
+// Match Detail
+// ============================================
+
+/** Zod schema for match ID: {year}-R{round}-{teamA}-{teamB} */
+const MatchIdSchema = z.string().regex(
+  /^\d{4}-R\d{1,2}-[A-Z]{3}-[A-Z]{3}$/,
+  'Invalid match ID format. Expected: {year}-R{round}-{teamA}-{teamB}'
+);
+
+/**
+ * GET /api/matches/:matchId - Get match detail with player stats
+ */
+export function getMatchDetail(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const matchIdParam = c.req.param('matchId');
+    const parseResult = MatchIdSchema.safeParse(matchIdParam);
+
+    if (!parseResult.success) {
+      return errorResponse(
+        c,
+        'Bad Request',
+        'Invalid match ID format. Expected: {year}-R{round}-{teamA}-{teamB}',
+        400
+      );
+    }
+
+    const matchId = parseResult.data;
+    const match = await deps.matchRepository.findById(matchId);
+
+    if (!match) {
+      return errorResponse(c, 'Not Found', `Match not found: ${matchId}`, 404);
+    }
+
+    // Resolve team names
+    const homeTeam = match.homeTeamCode ? getTeamByCode(match.homeTeamCode) : null;
+    const awayTeam = match.awayTeamCode ? getTeamByCode(match.awayTeamCode) : null;
+
+    // Fetch player performances for both teams
+    const repo = deps.createPlayerRepository(c.env.DB);
+    const mapPerformance = (p: { playerName: string; position: string; performance: import('../domain/player').MatchPerformance }) => {
+      const { matchId: _mid, year: _y, round: _r, teamCode: _tc, isComplete: _ic, ...stats } = p.performance;
+      return { playerName: p.playerName, position: p.position, ...stats };
+    };
+
+    let homePlayerStats: ReturnType<typeof mapPerformance>[] = [];
+    let awayPlayerStats: ReturnType<typeof mapPerformance>[] = [];
+
+    if (match.homeTeamCode) {
+      const homePerfs = await repo.findPerformancesByMatch(match.year, match.round, match.homeTeamCode);
+      homePlayerStats = homePerfs.map(mapPerformance);
+    }
+
+    if (match.awayTeamCode) {
+      const awayPerfs = await repo.findPerformancesByMatch(match.year, match.round, match.awayTeamCode);
+      awayPlayerStats = awayPerfs.map(mapPerformance);
+    }
+
+    return c.json({
+      matchId: match.id,
+      year: match.year,
+      round: match.round,
+      homeTeamCode: match.homeTeamCode ?? '',
+      awayTeamCode: match.awayTeamCode ?? '',
+      homeTeamName: homeTeam?.name ?? match.homeTeamCode ?? 'Unknown',
+      awayTeamName: awayTeam?.name ?? match.awayTeamCode ?? 'Unknown',
+      homeScore: match.homeScore,
+      awayScore: match.awayScore,
+      status: match.status,
+      homeStrengthRating: match.homeStrengthRating,
+      awayStrengthRating: match.awayStrengthRating,
+      scheduledTime: match.scheduledTime,
+      stadium: match.stadium,
+      weather: match.weather,
+      homePlayerStats,
+      awayPlayerStats,
+    });
+  };
+}

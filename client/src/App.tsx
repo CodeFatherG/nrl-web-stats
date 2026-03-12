@@ -8,6 +8,7 @@ import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
 import { ByeOverviewView } from './views/ByeOverviewView';
+import { MatchDetailView } from './views/MatchDetailView';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak } from './types';
@@ -29,6 +30,9 @@ function App() {
 
   // Tab navigation state
   const [activeTab, setActiveTab] = useState<ActiveTab>('round');
+
+  // Match detail view state
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
 
   // Team schedule state
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>(null);
@@ -61,11 +65,22 @@ function App() {
 
   // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
-    if (!teamSchedule?.thresholds) {
-      return { p33: 300, p67: 400 }; // Default values before data loads
+    if (rankings?.thresholds) {
+      return rankings.thresholds;
     }
-    return teamSchedule.thresholds;
-  }, [teamSchedule]);
+    if (teamSchedule?.thresholds) {
+      return teamSchedule.thresholds;
+    }
+    return { p33: 300, p67: 400 };
+  }, [rankings, teamSchedule]);
+
+  const handleMatchClick = useCallback((matchId: string) => {
+    setSelectedMatchId(matchId);
+  }, []);
+
+  const handleMatchDetailBack = useCallback(() => {
+    setSelectedMatchId(null);
+  }, []);
 
   const checkServerHealth = useCallback(async () => {
     setStatus('loading');
@@ -270,62 +285,76 @@ function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
-        <TabNavigation
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          roundViewMode={roundViewMode}
-          onRoundViewModeChange={setRoundViewMode}
-        />
-
-        {activeTab === 'team' && (
-          <TeamScheduleView
-            teams={teams}
-            selectedTeamCode={selectedTeamCode}
-            onTeamSelect={handleTeamSelect}
-            schedule={teamSchedule}
-            loading={scheduleLoading}
-            error={scheduleError}
-            filters={filters}
-            onFiltersChange={setFilters}
-            rankings={rankings}
-            streaks={teamStreaks}
-            formData={teamFormData}
-          />
-        )}
-
-        {activeTab === 'round' && roundViewMode === 'detailed' && (
-          <RoundOverviewView
-            year={currentYear}
-            selectedRound={selectedRound}
-            onRoundSelect={handleRoundSelect}
-            roundData={roundData}
-            teams={teams}
+        {/* Match Detail View — replaces tab content when a match is selected */}
+        {selectedMatchId ? (
+          <MatchDetailView
+            matchId={selectedMatchId}
+            onBack={handleMatchDetailBack}
             strengthThresholds={strengthThresholds}
-            loading={roundLoading}
-            error={roundError}
-            outlookData={matchOutlookData}
           />
-        )}
+        ) : (
+          <>
+            <TabNavigation
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              roundViewMode={roundViewMode}
+              onRoundViewModeChange={setRoundViewMode}
+            />
 
-        {activeTab === 'round' && roundViewMode === 'compact' && (
-          <CompactSeasonView
-            year={currentYear}
-            seasonData={seasonSummary}
-            loading={seasonSummaryLoading}
-            error={seasonSummaryError}
-            onRetry={fetchSeasonSummary}
-            onRoundClick={handleRoundClickFromCompact}
-          />
-        )}
+            {activeTab === 'team' && (
+              <TeamScheduleView
+                teams={teams}
+                selectedTeamCode={selectedTeamCode}
+                onTeamSelect={handleTeamSelect}
+                schedule={teamSchedule}
+                loading={scheduleLoading}
+                error={scheduleError}
+                filters={filters}
+                onFiltersChange={setFilters}
+                rankings={rankings}
+                streaks={teamStreaks}
+                formData={teamFormData}
+                onMatchClick={handleMatchClick}
+              />
+            )}
 
-        {activeTab === 'bye' && (
-          <ByeOverviewView
-            teams={teams}
-            seasonSummary={seasonSummary}
-            loading={seasonSummaryLoading}
-            error={seasonSummaryError}
-            onRetry={fetchSeasonSummary}
-          />
+            {activeTab === 'round' && roundViewMode === 'detailed' && (
+              <RoundOverviewView
+                year={currentYear}
+                selectedRound={selectedRound}
+                onRoundSelect={handleRoundSelect}
+                roundData={roundData}
+                teams={teams}
+                strengthThresholds={strengthThresholds}
+                loading={roundLoading}
+                error={roundError}
+                outlookData={matchOutlookData}
+                onMatchClick={handleMatchClick}
+              />
+            )}
+
+            {activeTab === 'round' && roundViewMode === 'compact' && (
+              <CompactSeasonView
+                year={currentYear}
+                seasonData={seasonSummary}
+                loading={seasonSummaryLoading}
+                error={seasonSummaryError}
+                onRetry={fetchSeasonSummary}
+                onRoundClick={handleRoundClickFromCompact}
+                onMatchClick={handleMatchClick}
+              />
+            )}
+
+            {activeTab === 'bye' && (
+              <ByeOverviewView
+                teams={teams}
+                seasonSummary={seasonSummary}
+                loading={seasonSummaryLoading}
+                error={seasonSummaryError}
+                onRetry={fetchSeasonSummary}
+              />
+            )}
+          </>
         )}
       </Container>
     </Box>

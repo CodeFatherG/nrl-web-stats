@@ -35,4 +35,11 @@ export interface PlayerRepository {
 
   /** Check if a round has been fully scraped (all performances are complete) */
   isRoundComplete(season: number, round: number): Promise<boolean>;
+
+  /** Find all player performances for a specific team in a specific match (by year and round) */
+  findPerformancesByMatch(
+    year: number,
+    round: number,
+    teamCode: string
+  ): Promise<Array<{ playerName: string; position: string; performance: MatchPerformance }>>;
 }

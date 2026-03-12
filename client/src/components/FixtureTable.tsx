@@ -19,6 +19,7 @@ interface FixtureTableProps {
   teams: Team[];
   emptyMessage?: string;
   streaks?: Streak[];
+  onFixtureClick?: (fixture: ScheduleFixture) => void;
 }
 
 function getStreakForRound(round: number, streaks: Streak[]): Streak | null {
@@ -84,6 +85,7 @@ export function FixtureTable({
   teams,
   emptyMessage = 'No fixtures match your filters',
   streaks = [],
+  onFixtureClick,
 }: FixtureTableProps) {
   const getTeamName = (code: string | null): string => {
     if (!code) return '-';
@@ -133,10 +135,15 @@ export function FixtureTable({
             return (
               <TableRow
                 key={fixture.round}
+                onClick={!fixture.isBye && onFixtureClick ? () => onFixtureClick(fixture) : undefined}
                 sx={{
                   bgcolor: streak ? STREAK_COLORS[streak.type] : undefined,
                   '&:nth-of-type(odd)': !streak ? { bgcolor: 'action.hover' } : undefined,
                   opacity: fixture.isBye ? 0.7 : 1,
+                  ...(!fixture.isBye && onFixtureClick && {
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.selected' },
+                  }),
                 }}
               >
                 {hasStreaks && showLabel && (

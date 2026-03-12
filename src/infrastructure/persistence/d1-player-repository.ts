@@ -761,6 +761,130 @@ export class D1PlayerRepository implements PlayerRepository {
     };
   }
 
+  async findPerformancesByMatch(
+    year: number,
+    round: number,
+    teamCode: string
+  ): Promise<Array<{ playerName: string; position: string; performance: MatchPerformance }>> {
+    const result = await this.db
+      .prepare(
+        `SELECT p.name, p.position,
+          mp.match_id, mp.season, mp.round, mp.team_code,
+          mp.all_run_metres, mp.all_runs, mp.bomb_kicks, mp.cross_field_kicks,
+          mp.conversions, mp.conversion_attempts, mp.dummy_half_runs, mp.dummy_half_run_metres,
+          mp.dummy_passes, mp.errors, mp.fantasy_points_total, mp.field_goals,
+          mp.forced_drop_out_kicks, mp.forty_twenty_kicks, mp.goals, mp.goal_conversion_rate,
+          mp.grubber_kicks, mp.handling_errors, mp.hit_ups, mp.hit_up_run_metres,
+          mp.ineffective_tackles, mp.intercepts, mp.kicks, mp.kicks_dead, mp.kicks_defused,
+          mp.kick_metres, mp.kick_return_metres, mp.line_break_assists, mp.line_breaks,
+          mp.line_engaged_runs, mp.minutes_played, mp.missed_tackles, mp.offloads,
+          mp.offside_within_ten_metres, mp.one_on_one_lost, mp.one_on_one_steal,
+          mp.one_point_field_goals, mp.on_report, mp.passes_to_run_ratio, mp.passes,
+          mp.play_the_ball_total, mp.play_the_ball_average_speed, mp.penalties, mp.points,
+          mp.penalty_goals, mp.post_contact_metres, mp.receipts, mp.ruck_infringements,
+          mp.send_offs, mp.sin_bins, mp.stint_one, mp.tackle_breaks, mp.tackle_efficiency,
+          mp.tackles_made, mp.tries, mp.try_assists, mp.twenty_forty_kicks,
+          mp.two_point_field_goals, mp.is_complete
+         FROM match_performances mp
+         JOIN players p ON p.id = mp.player_id
+         WHERE mp.season = ? AND mp.round = ? AND mp.team_code = ?
+         ORDER BY mp.minutes_played DESC`
+      )
+      .bind(year, round, teamCode)
+      .all<{
+        name: string; position: string;
+        match_id: string; season: number; round: number; team_code: string;
+        all_run_metres: number; all_runs: number; bomb_kicks: number; cross_field_kicks: number;
+        conversions: number; conversion_attempts: number; dummy_half_runs: number;
+        dummy_half_run_metres: number; dummy_passes: number; errors: number;
+        fantasy_points_total: number; field_goals: number; forced_drop_out_kicks: number;
+        forty_twenty_kicks: number; goals: number; goal_conversion_rate: number;
+        grubber_kicks: number; handling_errors: number; hit_ups: number; hit_up_run_metres: number;
+        ineffective_tackles: number; intercepts: number; kicks: number; kicks_dead: number;
+        kicks_defused: number; kick_metres: number; kick_return_metres: number;
+        line_break_assists: number; line_breaks: number; line_engaged_runs: number;
+        minutes_played: number; missed_tackles: number; offloads: number;
+        offside_within_ten_metres: number; one_on_one_lost: number; one_on_one_steal: number;
+        one_point_field_goals: number; on_report: number; passes_to_run_ratio: number;
+        passes: number; play_the_ball_total: number; play_the_ball_average_speed: number;
+        penalties: number; points: number; penalty_goals: number; post_contact_metres: number;
+        receipts: number; ruck_infringements: number; send_offs: number; sin_bins: number;
+        stint_one: number; tackle_breaks: number; tackle_efficiency: number;
+        tackles_made: number; tries: number; try_assists: number; twenty_forty_kicks: number;
+        two_point_field_goals: number; is_complete: number;
+      }>();
+
+    return (result.results ?? []).map(row => ({
+      playerName: row.name,
+      position: row.position,
+      performance: {
+        matchId: row.match_id,
+        year: row.season,
+        round: row.round,
+        teamCode: row.team_code,
+        allRunMetres: row.all_run_metres,
+        allRuns: row.all_runs,
+        bombKicks: row.bomb_kicks,
+        crossFieldKicks: row.cross_field_kicks,
+        conversions: row.conversions,
+        conversionAttempts: row.conversion_attempts,
+        dummyHalfRuns: row.dummy_half_runs,
+        dummyHalfRunMetres: row.dummy_half_run_metres,
+        dummyPasses: row.dummy_passes,
+        errors: row.errors,
+        fantasyPointsTotal: row.fantasy_points_total,
+        fieldGoals: row.field_goals,
+        forcedDropOutKicks: row.forced_drop_out_kicks,
+        fortyTwentyKicks: row.forty_twenty_kicks,
+        goals: row.goals,
+        goalConversionRate: row.goal_conversion_rate,
+        grubberKicks: row.grubber_kicks,
+        handlingErrors: row.handling_errors,
+        hitUps: row.hit_ups,
+        hitUpRunMetres: row.hit_up_run_metres,
+        ineffectiveTackles: row.ineffective_tackles,
+        intercepts: row.intercepts,
+        kicks: row.kicks,
+        kicksDead: row.kicks_dead,
+        kicksDefused: row.kicks_defused,
+        kickMetres: row.kick_metres,
+        kickReturnMetres: row.kick_return_metres,
+        lineBreakAssists: row.line_break_assists,
+        lineBreaks: row.line_breaks,
+        lineEngagedRuns: row.line_engaged_runs,
+        minutesPlayed: row.minutes_played,
+        missedTackles: row.missed_tackles,
+        offloads: row.offloads,
+        offsideWithinTenMetres: row.offside_within_ten_metres,
+        oneOnOneLost: row.one_on_one_lost,
+        oneOnOneSteal: row.one_on_one_steal,
+        onePointFieldGoals: row.one_point_field_goals,
+        onReport: row.on_report,
+        passesToRunRatio: row.passes_to_run_ratio,
+        passes: row.passes,
+        playTheBallTotal: row.play_the_ball_total,
+        playTheBallAverageSpeed: row.play_the_ball_average_speed,
+        penalties: row.penalties,
+        points: row.points,
+        penaltyGoals: row.penalty_goals,
+        postContactMetres: row.post_contact_metres,
+        receipts: row.receipts,
+        ruckInfringements: row.ruck_infringements,
+        sendOffs: row.send_offs,
+        sinBins: row.sin_bins,
+        stintOne: row.stint_one,
+        tackleBreaks: row.tackle_breaks,
+        tackleEfficiency: row.tackle_efficiency,
+        tacklesMade: row.tackles_made,
+        tries: row.tries,
+        tryAssists: row.try_assists,
+        twentyFortyKicks: row.twenty_forty_kicks,
+        twoPointFieldGoals: row.two_point_field_goals,
+        isComplete: row.is_complete === 1,
+      },
+    }));
+  }
+
   async isRoundComplete(season: number, round: number): Promise<boolean> {
     const row = await this.db
       .prepare(

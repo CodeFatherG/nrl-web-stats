@@ -10,6 +10,7 @@ interface CompactSeasonViewProps {
   error: string | null;
   onRetry?: () => void;
   onRoundClick?: (round: number) => void;
+  onMatchClick?: (matchId: string) => void;
 }
 
 export function CompactSeasonView({
@@ -19,6 +20,7 @@ export function CompactSeasonView({
   error,
   onRetry,
   onRoundClick,
+  onMatchClick,
 }: CompactSeasonViewProps) {
   // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
@@ -96,7 +98,9 @@ export function CompactSeasonView({
           <CompactRound
             key={round.round}
             round={round}
+            year={year}
             onClick={onRoundClick ? () => onRoundClick(round.round) : undefined}
+            onMatchClick={onMatchClick}
             strengthThresholds={strengthThresholds}
           />
         ))}

@@ -20,6 +20,7 @@ interface MatchCardProps {
   homeScore?: number | null;
   awayScore?: number | null;
   isComplete?: boolean;
+  onClick?: () => void;
 }
 
 export function MatchCard({
@@ -36,11 +37,22 @@ export function MatchCard({
   homeScore,
   awayScore,
   isComplete,
+  onClick,
 }: MatchCardProps) {
   const hasResult = isComplete && homeScore != null && awayScore != null;
 
   return (
-    <Card sx={{ height: '100%' }}>
+    <Card
+      sx={{
+        height: '100%',
+        ...(onClick && {
+          cursor: 'pointer',
+          '&:hover': { boxShadow: 4 },
+          transition: 'box-shadow 0.2s',
+        }),
+      }}
+      onClick={onClick}
+    >
       <CardContent>
         {/* Match Info: Date & Venue */}
         {(scheduledTime || stadium) && (
