@@ -210,7 +210,11 @@ export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTab
                   <TableCell
                     key={col.key}
                     align={col.align ?? 'right'}
-                    sx={{ ...headerCellSx, bgcolor: 'primary.main' }}
+                    sx={{
+                      ...headerCellSx,
+                      bgcolor: 'primary.main',
+                      ...(col.key === 'playerName' && { position: 'sticky', left: 0, zIndex: 3 }),
+                    }}
                   >
                     <TableSortLabel
                       active={sortKey === col.key}
@@ -232,13 +236,13 @@ export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTab
             {sorted.map((player, idx) => (
               <TableRow
                 key={`${player.playerName}-${idx}`}
-                sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}
+                sx={{ '&:nth-of-type(odd)': { bgcolor: '#f5f5f5' } }}
               >
                 {COLUMNS.map((col) => {
                   const val = player[col.key];
                   if (col.key === 'playerName') {
                     return (
-                      <TableCell key={col.key} sx={{ ...cellSx, position: 'sticky', left: 0, bgcolor: 'inherit', zIndex: 1 }}>
+                      <TableCell key={col.key} sx={{ ...cellSx, position: 'sticky', left: 0, bgcolor: idx % 2 === 0 ? '#f5f5f5' : '#fff', zIndex: 1 }}>
                         <Typography variant="body2" fontWeight={500} fontSize="0.75rem" noWrap>
                           {val}
                         </Typography>

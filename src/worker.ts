@@ -181,15 +181,6 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   const currentTime = new Date(event.scheduledTime);
   const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
 
-  // Also find completed rounds missing player stats
-  const playerRepo = new D1PlayerRepository(env.DB);
-  const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
-
-  if (roundsToScrape.length === 0 && roundsNeedingPlayerStats.length === 0) {
-    logger.debug('No rounds need scraping');
-    return;
-  }
-
   logger.info('Scraping results for completed rounds', {
     rounds: roundsToScrape,
   });
@@ -228,6 +219,14 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       });
     }
   }
+
+  // Also find completed rounds missing player stats
+  const playerRepo = new D1PlayerRepository(env.DB);
+  const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
+
+  logger.info('Scraping player stats for rounds', {
+    rounds: roundsNeedingPlayerStats,
+  });
 
   // Scrape player stats for completed rounds that were missed (e.g. match results
   // were scraped via the UI before the cron had a chance to trigger player stats)
