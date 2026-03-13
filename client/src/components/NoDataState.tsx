@@ -19,7 +19,7 @@ interface NoDataStateProps {
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
-const AVAILABLE_YEARS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - 5 + i);
+const AVAILABLE_YEARS = [2026];
 
 export function NoDataState({ onLoadData, loading = false }: NoDataStateProps) {
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
