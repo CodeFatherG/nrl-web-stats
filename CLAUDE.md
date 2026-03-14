@@ -25,6 +25,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - Cloudflare D1 (matches, player stats) + in-memory cache (fixtures, rankings) (015-match-view-details)
 - TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x, Zod (validation) (016-match-detail-view)
 - Cloudflare D1 (matches + player stats), in-memory cache (fixtures, rankings, teams) (016-match-detail-view)
+- Markdown (documentation only — no application code changes) + N/A (no runtime dependencies) (017-project-documentation)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -76,10 +77,24 @@ TypeScript 5.x strict mode: Follow standard conventions
 - **Static Files**: Served via Cloudflare Workers Sites (ASSETS binding)
 - **Scheduled Tasks**: Cron trigger for cache invalidation (Monday 6am UTC)
 
+## Documentation Maintenance
+
+When modifying the codebase, update the relevant file in `docs/` to keep documentation in sync:
+
+| If you change... | Update this file |
+|------------------|-----------------|
+| API routes (add/modify/remove endpoints) | `docs/API.md` — document method, path, all parameters, response shape, errors |
+| Scraping logic or data sources | `docs/SCRAPING.md` — document URLs, extracted fields, schedule |
+| Analytics services (add/modify algorithms) | `docs/ANALYTICS.md` — document inputs, computation, outputs |
+| Frontend views or components | `docs/UI.md` — document purpose, interactions, navigation |
+| Caching, storage, middleware, or cron | `docs/ARCHITECTURE.md` — document the change |
+
+Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
+
 ## Recent Changes
+- 017-project-documentation: Added Markdown (documentation only — no application code changes) + N/A (no runtime dependencies)
 - 016-match-detail-view: Added TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x, Zod (validation)
 - 015-match-view-details: Added TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x (frontend), Zod (validation), Vitest (testing)
-- 014-staging-environment: Added staging/production environment config with separate D1 databases
 
 
 <!-- MANUAL ADDITIONS START -->
