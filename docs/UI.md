@@ -14,14 +14,31 @@ When in the Round Overview tab, toggle buttons switch between **Detailed** (sing
 
 Clicking any match from any view opens the **Match Detail View**, which replaces the tab content with a back button to return.
 
+## URL Routes
+
+Every view has a shareable, bookmarkable URL. Navigating directly to any URL loads the correct view with all data.
+
+| URL | View | Parameters |
+|-----|------|------------|
+| `/` | Season Overview (compact round grid) | None |
+| `/round/{N}` | Round Overview (detailed mode) | `N`: round number, integer 1–27 |
+| `/team/{CODE}` | Team Schedule | `CODE`: 3-letter team code (case-insensitive), e.g., `BRO`, `MEL`, `SYD` |
+| `/bye` | Bye Overview | None |
+| `/match/{ID}` | Match Detail | `ID`: match identifier string |
+
+**URL synchronisation**: All navigation actions (clicking tabs, selecting a team or round, opening a match) update the browser URL. Browser back/forward buttons navigate through view history correctly.
+
+**Invalid URLs**: Unrecognised paths show an inline error with a link to the Season Overview. Specific errors are shown for invalid team codes (with a list of valid codes) and out-of-range round numbers.
+
 ## Team Schedule View
 
 **Purpose**: View a single team's complete season schedule with difficulty ratings and streak analysis.
 
+**How to access**: Select the **Team Schedule** tab, or navigate directly to `/team/{CODE}` (e.g., `/team/BRO` for Brisbane Broncos).
+
 **How to use**:
-1. Select the **Team Schedule** tab
-2. Choose a team from the dropdown selector
-3. The view loads the team's schedule, streak analysis, and form trajectory
+1. Select a team from the dropdown selector (or use a direct URL)
+2. The view loads the team's schedule, streak analysis, and form trajectory
 
 **What you see**:
 - **Summary card**: Team name with inline form sparkline (trend line), total fixtures, bye count, total schedule strength, average strength per match, rank among all teams (e.g., "Rank: 5/16"), strength category badge, and bye round chips
@@ -37,10 +54,11 @@ Clicking any match from any view opens the **Match Detail View**, which replaces
 
 **Purpose**: View all matches in a single round with outlook predictions.
 
+**How to access**: Select the **Round Overview** tab in Detailed mode, or navigate directly to `/round/{N}` (e.g., `/round/5`).
+
 **How to use**:
-1. Select the **Round Overview** tab
+1. Choose a round from the dropdown (1–27), or use a direct URL
 2. Ensure **Detailed** mode is selected (list icon)
-3. Choose a round from the dropdown (1–27)
 
 **What you see**:
 - **Round header**: "Round X — YYYY Season" with match count
@@ -55,9 +73,7 @@ Clicking any match from any view opens the **Match Detail View**, which replaces
 
 **Purpose**: See the entire season at a glance in a 9×3 grid (27 rounds).
 
-**How to use**:
-1. Select the **Round Overview** tab
-2. Switch to **Compact** mode (grid icon)
+**How to access**: Navigate to `/` (home), or select the **Round Overview** tab and switch to **Compact** mode (grid icon).
 
 **What you see**:
 - **9×3 grid**: Each cell represents one round (R1–R27)
@@ -72,9 +88,10 @@ Clicking any match from any view opens the **Match Detail View**, which replaces
 
 **Purpose**: Visualise bye distribution across all teams and rounds to identify scheduling patterns.
 
+**How to access**: Select the **Bye Overview** tab, or navigate directly to `/bye`.
+
 **How to use**:
-1. Select the **Bye Overview** tab
-2. Optionally adjust the round range slider to focus on a specific part of the season
+1. Optionally adjust the round range slider to focus on a specific part of the season
 
 **What you see**:
 - **Round range filter**: Slider with markers at rounds 1, 14, 27
@@ -92,7 +109,7 @@ Clicking any match from any view opens the **Match Detail View**, which replaces
 
 **Purpose**: View full match information including player statistics for both teams.
 
-**How to access**: Click any match from Team Schedule View, Round Overview, or Compact Season View.
+**How to access**: Click any match from Team Schedule View, Round Overview, or Compact Season View. Or navigate directly to `/match/{ID}`.
 
 **What you see**:
 - **Back button**: Returns to the previous view

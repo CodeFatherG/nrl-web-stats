@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Container, AppBar, Toolbar, Typography, Box } from '@mui/material';
 import { LoadingState } from './components/LoadingState';
 import { ErrorState } from './components/ErrorState';
 import { NoDataState } from './components/NoDataState';
 import { TabNavigation } from './components/TabNavigation';
+import { RouteError } from './components/RouteError';
 import { TeamScheduleView } from './views/TeamScheduleView';
 import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
 import { ByeOverviewView } from './views/ByeOverviewView';
 import { MatchDetailView } from './views/MatchDetailView';
+import { useRouter } from './hooks/useRouter';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, getValidTeamCodes } from './utils/routes';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak } from './types';
@@ -22,33 +25,47 @@ const defaultFilters: FilterState = {
 };
 
 function App() {
+  const { route, navigate, isPopState } = useRouter();
+
   const [status, setStatus] = useState<AppStatus>('loading');
   const [error, setError] = useState<string | null>(null);
   const [loadedYears, setLoadedYears] = useState<number[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [scraping, setScraping] = useState(false);
 
-  // Tab navigation state
-  const [activeTab, setActiveTab] = useState<ActiveTab>('round');
+  // Tab navigation state — initialised from route
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (route.type === 'team') return 'team';
+    if (route.type === 'bye') return 'bye';
+    return 'round';
+  });
 
-  // Match detail view state
-  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  // Match detail view state — initialised from route
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(() =>
+    route.type === 'match' ? route.matchId : null
+  );
 
-  // Team schedule state
-  const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>(null);
+  // Team schedule state — initialised from route
+  const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>(() =>
+    route.type === 'team' ? route.teamCode : null
+  );
   const [teamSchedule, setTeamSchedule] = useState<TeamScheduleResponse | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
 
-  // Round overview state
-  const [selectedRound, setSelectedRound] = useState(1);
+  // Round overview state — initialised from route
+  const [selectedRound, setSelectedRound] = useState(() =>
+    route.type === 'round' ? route.roundNumber : 1
+  );
   const [roundData, setRoundData] = useState<RoundResponse | null>(null);
   const [roundLoading, setRoundLoading] = useState(false);
   const [roundError, setRoundError] = useState<string | null>(null);
 
-  // Season summary state (compact view)
-  const [roundViewMode, setRoundViewMode] = useState<RoundViewMode>('compact');
+  // Season summary state (compact view) — initialised from route
+  const [roundViewMode, setRoundViewMode] = useState<RoundViewMode>(() =>
+    route.type === 'round' ? 'detailed' : 'compact'
+  );
   const [seasonSummary, setSeasonSummary] = useState<SeasonSummaryResponse | null>(null);
   const [seasonSummaryLoading, setSeasonSummaryLoading] = useState(false);
   const [seasonSummaryError, setSeasonSummaryError] = useState<string | null>(null);
@@ -63,6 +80,40 @@ function App() {
   const [teamFormData, setTeamFormData] = useState<FormTrajectoryResponse | null>(null);
   const [matchOutlookData, setMatchOutlookData] = useState<MatchOutlookResponse | null>(null);
 
+  // Track initial mount to skip first route effect
+  const isInitialMount = useRef(true);
+
+  // Apply route state on popstate (back/forward navigation)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (!isPopState) return;
+
+    if (route.type === 'home') {
+      setActiveTab('round');
+      setRoundViewMode('compact');
+      setSelectedMatchId(null);
+    } else if (route.type === 'round') {
+      setActiveTab('round');
+      setRoundViewMode('detailed');
+      setSelectedRound(route.roundNumber);
+      setRoundData(null);
+      setSelectedMatchId(null);
+    } else if (route.type === 'team') {
+      setActiveTab('team');
+      setSelectedTeamCode(route.teamCode);
+      setTeamSchedule(null);
+      setSelectedMatchId(null);
+    } else if (route.type === 'bye') {
+      setActiveTab('bye');
+      setSelectedMatchId(null);
+    } else if (route.type === 'match') {
+      setSelectedMatchId(route.matchId);
+    }
+  }, [route, isPopState]);
+
   // Use server-provided season-wide thresholds
   const strengthThresholds: StrengthThresholds = useMemo(() => {
     if (rankings?.thresholds) {
@@ -75,12 +126,20 @@ function App() {
   }, [rankings, teamSchedule]);
 
   const handleMatchClick = useCallback((matchId: string) => {
+    navigate(buildMatchUrl(matchId));
     setSelectedMatchId(matchId);
-  }, []);
+  }, [navigate]);
 
   const handleMatchDetailBack = useCallback(() => {
-    setSelectedMatchId(null);
-  }, []);
+    if (window.history.length <= 1) {
+      navigate(buildHomeUrl());
+      setSelectedMatchId(null);
+      setActiveTab('round');
+      setRoundViewMode('compact');
+    } else {
+      window.history.back();
+    }
+  }, [navigate]);
 
   const checkServerHealth = useCallback(async () => {
     setStatus('loading');
@@ -138,6 +197,10 @@ function App() {
 
   const handleTeamSelect = useCallback(
     async (code: string) => {
+      const targetUrl = buildTeamUrl(code);
+      if (window.location.pathname !== targetUrl) {
+        navigate(targetUrl);
+      }
       setSelectedTeamCode(code);
       setScheduleLoading(true);
       setScheduleError(null);
@@ -172,11 +235,15 @@ function App() {
         setScheduleLoading(false);
       }
     },
-    [loadedYears]
+    [loadedYears, navigate]
   );
 
   const handleRoundSelect = useCallback(
     async (round: number) => {
+      const targetUrl = buildRoundUrl(round);
+      if (window.location.pathname !== targetUrl) {
+        navigate(targetUrl);
+      }
       setSelectedRound(round);
       setRoundLoading(true);
       setRoundError(null);
@@ -202,7 +269,7 @@ function App() {
         setRoundLoading(false);
       }
     },
-    [loadedYears]
+    [loadedYears, navigate]
   );
 
   const fetchSeasonSummary = useCallback(async () => {
@@ -226,10 +293,48 @@ function App() {
 
   const handleRoundClickFromCompact = useCallback(
     (round: number) => {
+      navigate(buildRoundUrl(round));
       setRoundViewMode('detailed');
       void handleRoundSelect(round);
     },
-    [handleRoundSelect]
+    [navigate, handleRoundSelect]
+  );
+
+  // Tab change handler — pushes URL for each tab
+  const handleTabChange = useCallback(
+    (tab: ActiveTab) => {
+      setActiveTab(tab);
+      setSelectedMatchId(null);
+      if (tab === 'team') {
+        const code = selectedTeamCode ?? teams[0]?.code ?? 'BRO';
+        navigate(buildTeamUrl(code));
+        if (!selectedTeamCode) {
+          setSelectedTeamCode(code);
+        }
+      } else if (tab === 'round') {
+        if (roundViewMode === 'detailed') {
+          navigate(buildRoundUrl(selectedRound));
+        } else {
+          navigate(buildHomeUrl());
+        }
+      } else if (tab === 'bye') {
+        navigate(buildByeUrl());
+      }
+    },
+    [navigate, selectedTeamCode, roundViewMode, selectedRound, teams]
+  );
+
+  // Round view mode change handler — pushes URL
+  const handleRoundViewModeChange = useCallback(
+    (mode: RoundViewMode) => {
+      setRoundViewMode(mode);
+      if (mode === 'detailed') {
+        navigate(buildRoundUrl(selectedRound));
+      } else {
+        navigate(buildHomeUrl());
+      }
+    },
+    [navigate, selectedRound]
   );
 
   // Load round data when switching to round tab in detailed mode
@@ -238,6 +343,14 @@ function App() {
       void handleRoundSelect(selectedRound);
     }
   }, [activeTab, roundViewMode, roundData, loadedYears, selectedRound, handleRoundSelect]);
+
+  // Load team data when team tab is active with a selected team but no schedule data
+  useEffect(() => {
+    if (activeTab === 'team' && selectedTeamCode && loadedYears.length > 0 && !scheduleLoading &&
+        (!teamSchedule || teamSchedule.team.code !== selectedTeamCode)) {
+      void handleTeamSelect(selectedTeamCode);
+    }
+  }, [activeTab, selectedTeamCode, loadedYears.length, scheduleLoading, teamSchedule, handleTeamSelect]);
 
   // Load season summary when switching to compact view or bye overview
   useEffect(() => {
@@ -270,6 +383,20 @@ function App() {
 
   const currentYear = loadedYears[0] ?? new Date().getFullYear();
 
+  // Route error rendering for invalid URLs
+  const renderRouteError = () => {
+    if (route.type !== 'notFound') return null;
+    const path = route.path;
+    if (path.startsWith('/team/')) {
+      const code = path.split('/')[2] ?? '';
+      return <RouteError message={`Team not found: ${code.toUpperCase()}`} validOptions={getValidTeamCodes()} />;
+    }
+    if (path.startsWith('/round/')) {
+      return <RouteError message="Round must be between 1 and 27" />;
+    }
+    return <RouteError message="Page not found" />;
+  };
+
   // Status === 'ready' - show dashboard
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -292,13 +419,23 @@ function App() {
             onBack={handleMatchDetailBack}
             strengthThresholds={strengthThresholds}
           />
+        ) : route.type === 'notFound' ? (
+          <>
+            <TabNavigation
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+              roundViewMode={roundViewMode}
+              onRoundViewModeChange={handleRoundViewModeChange}
+            />
+            {renderRouteError()}
+          </>
         ) : (
           <>
             <TabNavigation
               activeTab={activeTab}
-              onTabChange={setActiveTab}
+              onTabChange={handleTabChange}
               roundViewMode={roundViewMode}
-              onRoundViewModeChange={setRoundViewMode}
+              onRoundViewModeChange={handleRoundViewModeChange}
             />
 
             {activeTab === 'team' && (

@@ -26,6 +26,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x, Zod (validation) (016-match-detail-view)
 - Cloudflare D1 (matches + player stats), in-memory cache (fixtures, rankings, teams) (016-match-detail-view)
 - Markdown (documentation only — no application code changes) + N/A (no runtime dependencies) (017-project-documentation)
+- TypeScript 5.x with strict mode + React 18, MUI 5.x (existing — no new dependencies added) (018-url-routing)
+- N/A (client-side routing only) (018-url-routing)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -92,9 +94,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 018-url-routing: Added TypeScript 5.x with strict mode + React 18, MUI 5.x (existing — no new dependencies added)
 - 017-project-documentation: Added Markdown (documentation only — no application code changes) + N/A (no runtime dependencies)
 - 016-match-detail-view: Added TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x, Zod (validation)
-- 015-match-view-details: Added TypeScript 5.x with strict mode + Hono (HTTP), React 18, MUI 5.x (frontend), Zod (validation), Vitest (testing)
 
 
 <!-- MANUAL ADDITIONS START -->
