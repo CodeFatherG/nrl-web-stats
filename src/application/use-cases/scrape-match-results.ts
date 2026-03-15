@@ -227,6 +227,49 @@ export async function findRoundsNeedingScrape(
 }
 
 /**
+ * Find completed rounds that have no supplementary stats data yet.
+ * This catches rounds where match results and player stats were already scraped
+ * but supplementary stats were never fetched (e.g. source was lagging,
+ * or supplementary scrape was only triggered as a side effect of other loops).
+ */
+export async function findRoundsNeedingSupplementaryStats(
+  matchRepository: MatchRepository,
+  supplementaryRepo: { isRoundCached(season: number, round: number): Promise<boolean> }
+): Promise<Array<{ year: number; round: number }>> {
+  const loadedYears = await matchRepository.getLoadedYears();
+  if (loadedYears.length === 0) return [];
+
+  const roundsNeeding: Array<{ year: number; round: number }> = [];
+
+  for (const year of loadedYears) {
+    const matches = await matchRepository.findByYear(year);
+
+    // Group matches by round
+    const roundMatches = new Map<number, typeof matches>();
+    for (const match of matches) {
+      if (!roundMatches.has(match.round)) {
+        roundMatches.set(match.round, []);
+      }
+      roundMatches.get(match.round)!.push(match);
+    }
+
+    for (const [round, roundMatchList] of roundMatches) {
+      // Only consider rounds where all matches are completed
+      const allCompleted = roundMatchList.every(m => m.status === MatchStatus.Completed);
+      if (!allCompleted) continue;
+
+      // Check if supplementary stats already exist for this round
+      const hasSuppStats = await supplementaryRepo.isRoundCached(year, round);
+      if (!hasSuppStats) {
+        roundsNeeding.push({ year, round });
+      }
+    }
+  }
+
+  return roundsNeeding.sort((a, b) => a.year - b.year || a.round - b.round);
+}
+
+/**
  * Find completed rounds that have no player stats data yet.
  * This catches rounds where match results were scraped (e.g. via UI)
  * but the cron never triggered player stats scraping.

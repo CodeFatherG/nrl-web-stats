@@ -110,6 +110,17 @@ const COLUMNS: ColumnDef[] = [
   { key: 'onReport', label: 'Rep', group: 'Discipline', tip: 'On Report' },
   { key: 'sinBins', label: 'SB', group: 'Discipline', tip: 'Sin Bins' },
   { key: 'sendOffs', label: 'SO', group: 'Discipline', tip: 'Send Offs' },
+
+  // Supercoach supplementary stats
+  { key: 'lastTouch', label: 'LT', group: 'Supercoach', tip: 'Last Touch' },
+  { key: 'missedGoals', label: 'MG', group: 'Supercoach', tip: 'Missed Goals' },
+  { key: 'missedFieldGoals', label: 'MF', group: 'Supercoach', tip: 'Missed Field Goals' },
+  { key: 'effectiveOffloads', label: 'eOL', group: 'Supercoach', tip: 'Effective Offloads' },
+  { key: 'ineffectiveOffloads', label: 'iOL', group: 'Supercoach', tip: 'Ineffective Offloads' },
+  { key: 'runsOver8m', label: 'R8+', group: 'Supercoach', tip: 'Runs Over 8m' },
+  { key: 'runsUnder8m', label: 'R8-', group: 'Supercoach', tip: 'Runs Under 8m' },
+  { key: 'kickRegatherBreak', label: 'KB', group: 'Supercoach', tip: 'Kick Regather Break' },
+  { key: 'heldUpInGoal', label: 'HG', group: 'Supercoach', tip: 'Held Up In Goal' },
 ];
 
 // Compute group header spans
@@ -131,7 +142,11 @@ function getGroupHeaders(): Array<{ label: string; span: number }> {
 
 const GROUP_HEADERS = getGroupHeaders();
 
-function compareValues(a: string | number, b: string | number, direction: SortDirection): number {
+function compareValues(a: string | number | null, b: string | number | null, direction: SortDirection): number {
+  // Nulls always sort last
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
   if (typeof a === 'string' && typeof b === 'string') {
     return direction === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
   }
@@ -255,6 +270,13 @@ export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTab
                         <Typography variant="body2" color="text.secondary" fontSize="0.75rem" noWrap>
                           {val}
                         </Typography>
+                      </TableCell>
+                    );
+                  }
+                  if (val === null || val === undefined) {
+                    return (
+                      <TableCell key={col.key} align="right" sx={{ ...cellSx, color: 'text.disabled' }}>
+                        —
                       </TableCell>
                     );
                   }

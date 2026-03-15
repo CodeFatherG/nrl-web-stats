@@ -1,0 +1,39 @@
+{
+  "season": 2026,
+  "stats": [
+    { "statName": "tries", "displayName": "Tries", "points": 17, "category": "scoring", "source": "primary" },
+    { "statName": "goals", "displayName": "Goals", "points": 4, "category": "scoring", "source": "primary" },
+    { "statName": "missedGoals", "displayName": "Missed Goals", "points": -2, "category": "scoring", "source": "supplementary" },
+    { "statName": "onePointFieldGoals", "displayName": "Field Goals (1pt)", "points": 5, "category": "scoring", "source": "primary" },
+    { "statName": "twoPointFieldGoals", "displayName": "2pt Field Goals", "points": 10, "category": "scoring", "source": "primary" },
+    { "statName": "missedFieldGoals", "displayName": "Missed Field Goals", "points": -1, "category": "scoring", "source": "supplementary" },
+
+    { "statName": "tryAssists", "displayName": "Try Assists", "points": 12, "category": "create", "source": "primary" },
+    { "statName": "lastTouch", "displayName": "Last Touch Assists", "points": 4, "category": "create", "source": "supplementary" },
+    { "statName": "lineBreakAssists", "displayName": "Line Break Assists", "points": 8, "category": "create", "source": "primary" },
+    { "statName": "forcedDropOutKicks", "displayName": "Forced Drop Outs", "points": 6, "category": "create", "source": "primary" },
+    { "statName": "fortyTwentyKicks", "displayName": "40/20", "points": 10, "category": "create", "source": "primary" },
+    { "statName": "twentyFortyKicks", "displayName": "20/40", "points": 10, "category": "create", "source": "primary" },
+    { "statName": "kicksDead", "displayName": "Kicks Dead", "points": -3, "category": "create", "source": "primary" },
+
+    { "statName": "effectiveOffloads", "displayName": "Offloads (to hand)", "points": 4, "category": "evade", "source": "supplementary" },
+    { "statName": "ineffectiveOffloads", "displayName": "Offloads (to ground)", "points": 2, "category": "evade", "source": "supplementary" },
+    { "statName": "tackleBreaks", "displayName": "Tackle Breaks", "points": 2, "category": "evade", "source": "primary" },
+    { "statName": "lineBreaks", "displayName": "Line Breaks", "points": 10, "category": "evade", "source": "primary" },
+    { "statName": "intercepts", "displayName": "Intercepts", "points": 5, "category": "evade", "source": "primary" },
+    { "statName": "kickRegatherBreak", "displayName": "Kick & Regather Break", "points": 8, "category": "evade", "source": "supplementary" },
+
+    { "statName": "tacklesMade", "displayName": "Tackles", "points": 1, "category": "base", "source": "primary" },
+    { "statName": "missedTackles", "displayName": "Missed Tackles", "points": -1, "category": "base", "source": "primary" },
+    { "statName": "runsOver8m", "displayName": "Runs 8m+", "points": 2, "category": "base", "source": "supplementary" },
+    { "statName": "runsUnder8m", "displayName": "Runs <8m", "points": 1, "category": "base", "source": "supplementary" },
+
+    { "statName": "trySaves", "displayName": "Try Saves", "points": 3, "category": "defence", "source": "supplementary" },
+    { "statName": "heldUpInGoal", "displayName": "Held Up in Goal", "points": 3, "category": "defence", "source": "supplementary" },
+
+    { "statName": "penalties", "displayName": "Penalties Conceded", "points": -2, "category": "negative", "source": "primary" },
+    { "statName": "errors", "displayName": "Errors", "points": -2, "category": "negative", "source": "primary" },
+    { "statName": "sinBins", "displayName": "Sin Bin", "points": -8, "category": "negative", "source": "primary" },
+    { "statName": "sendOffs", "displayName": "Send Off", "points": -16, "category": "negative", "source": "primary" }
+  ]
+}

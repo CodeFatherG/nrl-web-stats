@@ -221,3 +221,106 @@ export async function getMatchDetail(
 ): Promise<MatchDetailResponse> {
   return fetchApi<MatchDetailResponse>(`/matches/${encodeURIComponent(matchId)}`);
 }
+
+// Supercoach API
+
+export interface SupercoachScoreResponse {
+  year: number;
+  round: number;
+  isComplete: boolean;
+  playersScored: number;
+  validationSummary: {
+    totalDiscrepancies: number;
+    unmatchedPlayers: number;
+  };
+  scores: Array<{
+    playerId: string;
+    playerName: string;
+    teamCode: string;
+    matchId: string;
+    isComplete: boolean;
+    matchConfidence: string;
+    totalScore: number;
+    categoryTotals: {
+      scoring: number;
+      create: number;
+      evade: number;
+      base: number;
+      defence: number;
+      negative: number;
+    };
+    categories: Record<string, Array<{
+      statName: string;
+      displayName: string;
+      rawValue: number;
+      pointsPerUnit: number;
+      contribution: number;
+    }>>;
+    validationWarnings: Array<{
+      type: string;
+      message: string;
+      primaryValue: number | null;
+      supplementaryValue: number | null;
+    }>;
+  }>;
+}
+
+export async function getSupercoachScores(
+  year: number,
+  round: number,
+  teamCode?: string
+): Promise<SupercoachScoreResponse> {
+  const params = teamCode ? `?teamCode=${teamCode}` : '';
+  return fetchApi<SupercoachScoreResponse>(`/supercoach/${year}/${round}${params}`);
+}
+
+export interface ScrapeSupplementaryResult {
+  year: number;
+  round: number;
+  playersScraped: number;
+  matched: number;
+  unmatched: number;
+  cached: boolean;
+  warnings: Array<{ type: string; message: string }>;
+}
+
+export async function scrapeSupercoachStats(
+  year: number,
+  round: number,
+  force = false
+): Promise<ScrapeSupplementaryResult> {
+  return fetchApi<ScrapeSupplementaryResult>('/scrape/supercoach', {
+    method: 'POST',
+    body: JSON.stringify({ year, round, force }),
+  });
+}
+
+export interface PlayerSeasonSupercoachResponse {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  year: number;
+  rounds: Array<{
+    round: number;
+    totalScore: number;
+    isComplete: boolean;
+    categoryTotals: {
+      scoring: number;
+      create: number;
+      evade: number;
+      base: number;
+      defence: number;
+      negative: number;
+    };
+  }>;
+  seasonTotal: number;
+  seasonAverage: number;
+  roundsPlayed: number;
+}
+
+export async function getPlayerSupercoachSeason(
+  year: number,
+  playerId: string
+): Promise<PlayerSeasonSupercoachResponse> {
+  return fetchApi<PlayerSeasonSupercoachResponse>(`/supercoach/${year}/player/${encodeURIComponent(playerId)}`);
+}

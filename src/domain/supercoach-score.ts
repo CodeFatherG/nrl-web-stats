@@ -1,0 +1,87 @@
+/**
+ * Domain types for Supercoach score reconstruction.
+ * All score types are computed — never persisted to storage.
+ */
+
+/** Six scoring categories in the Supercoach system */
+export type ScoringCategory = 'scoring' | 'create' | 'evade' | 'base' | 'defence' | 'negative';
+
+/** All valid scoring categories */
+export const SCORING_CATEGORIES: readonly ScoringCategory[] = [
+  'scoring', 'create', 'evade', 'base', 'defence', 'negative',
+] as const;
+
+/** A single stat's contribution to the total score */
+export interface StatContribution {
+  readonly statName: string;
+  readonly displayName: string;
+  readonly rawValue: number;
+  readonly pointsPerUnit: number;
+  readonly contribution: number;
+}
+
+/** Cross-reference discrepancy between primary and supplementary data */
+export interface ValidationWarning {
+  readonly type: 'offload_mismatch' | 'run_count_mismatch' | 'unmatched_player';
+  readonly message: string;
+  readonly primaryValue: number | null;
+  readonly supplementaryValue: number | null;
+}
+
+/** Identity match confidence level */
+export type MatchConfidence = 'exact' | 'normalized' | 'override' | 'unmatched';
+
+/** Score contributions grouped by category */
+export type CategoryBreakdown = Record<ScoringCategory, StatContribution[]>;
+
+/** Category subtotals */
+export type CategoryTotals = Record<ScoringCategory, number>;
+
+/** Computed Supercoach score for a single player in a single round */
+export interface SupercoachScore {
+  readonly playerId: string;
+  readonly playerName: string;
+  readonly teamCode: string;
+  readonly matchId: string;
+  readonly year: number;
+  readonly round: number;
+  readonly isComplete: boolean;
+  readonly matchConfidence: MatchConfidence;
+  readonly categories: CategoryBreakdown;
+  readonly categoryTotals: CategoryTotals;
+  readonly totalScore: number;
+  readonly validationWarnings: ValidationWarning[];
+}
+
+/** Summary of Supercoach scores for an entire round */
+export interface RoundSupercoachSummary {
+  readonly year: number;
+  readonly round: number;
+  readonly isComplete: boolean;
+  readonly playersScored: number;
+  readonly validationSummary: {
+    readonly totalDiscrepancies: number;
+    readonly unmatchedPlayers: number;
+  };
+  readonly scores: SupercoachScore[];
+}
+
+/** A single round's score in a season trend */
+export interface RoundScore {
+  readonly round: number;
+  readonly totalScore: number;
+  readonly isComplete: boolean;
+  readonly categoryTotals: CategoryTotals;
+}
+
+/** Aggregated Supercoach data for a single player across a season */
+export interface PlayerSeasonSupercoach {
+  readonly playerId: string;
+  readonly playerName: string;
+  readonly teamCode: string;
+  readonly year: number;
+  readonly rounds: RoundScore[];
+  readonly seasonTotal: number;
+  readonly seasonAverage: number;
+  readonly roundsPlayed: number;
+}

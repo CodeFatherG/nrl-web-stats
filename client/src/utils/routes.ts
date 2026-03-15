@@ -17,6 +17,8 @@ export type RouteMatch =
   | { type: 'team'; teamCode: string }
   | { type: 'bye' }
   | { type: 'match'; matchId: string }
+  | { type: 'supercoach' }
+  | { type: 'supercoachRound'; roundNumber: number }
   | { type: 'notFound'; path: string };
 
 /** Check if a team code is valid (case-insensitive) */
@@ -71,6 +73,20 @@ export function parseUrl(pathname: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
+  // /supercoach
+  if (segments.length === 1 && segments[0] === 'supercoach') {
+    return { type: 'supercoach' };
+  }
+
+  // /supercoach/:round
+  if (segments.length === 2 && segments[0] === 'supercoach') {
+    const num = Number(segments[1]);
+    if (isValidRound(num)) {
+      return { type: 'supercoachRound', roundNumber: num };
+    }
+    return { type: 'notFound', path };
+  }
+
   // /match/:id
   if (segments.length === 2 && segments[0] === 'match') {
     const id = segments[1]!;
@@ -106,4 +122,14 @@ export function buildByeUrl(): string {
 /** Build URL for match detail */
 export function buildMatchUrl(matchId: string): string {
   return `/match/${matchId}`;
+}
+
+/** Build URL for supercoach overview */
+export function buildSupercoachUrl(): string {
+  return '/supercoach';
+}
+
+/** Build URL for a specific supercoach round */
+export function buildSupercoachRoundUrl(roundNumber: number): string {
+  return `/supercoach/${roundNumber}`;
 }

@@ -31,6 +31,8 @@ import type { PlayerRepository } from '../domain/repositories/player-repository.
 import type { ScrapeDrawUseCase } from '../application/use-cases/scrape-draw.js';
 import type { ScrapeMatchResultsUseCase } from '../application/use-cases/scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from '../application/use-cases/scrape-player-stats.js';
+import type { ScrapeSupplementaryStatsUseCase } from '../application/use-cases/scrape-supplementary-stats.js';
+import type { GetSupercoachScoresUseCase } from '../application/use-cases/get-supercoach-scores.js';
 import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
@@ -40,6 +42,8 @@ import {
   getAllTeamsFromDb,
   getTeamByCode,
 } from '../database/store.js';
+import { D1SupplementaryStatsRepository } from '../infrastructure/persistence/d1-supplementary-stats-repo.js';
+import { normalizeName } from '../config/player-name-matcher.js';
 import { fixtures } from '../database/query.js';
 import {
   getTeamRoundRanking,
@@ -68,6 +72,10 @@ export interface HandlerDeps {
   getMatchOutlookUseCase: GetMatchOutlookUseCase;
   getPlayerTrendsUseCase: GetPlayerTrendsUseCase;
   getCompositionImpactUseCase: GetCompositionImpactUseCase;
+  /** Factory to create a per-request ScrapeSupplementaryStatsUseCase from the DB binding */
+  createScrapeSupplementaryStatsUseCase: (db: D1Database) => ScrapeSupplementaryStatsUseCase;
+  /** Factory to create a per-request GetSupercoachScoresUseCase from the DB binding */
+  createGetSupercoachScoresUseCase: (db: D1Database) => GetSupercoachScoresUseCase;
 }
 
 // Environment bindings type
@@ -785,6 +793,98 @@ export function getCompositionImpact(deps: HandlerDeps) {
 }
 
 // ============================================
+// Supercoach
+// ============================================
+
+const SupercoachScrapeRequestSchema = z.object({
+  year: z.number().int().min(2020).max(2030),
+  round: z.number().int().min(1).max(27),
+  force: z.boolean().optional().default(false),
+});
+
+/**
+ * POST /api/scrape/supercoach - Trigger supplementary stats scrape
+ */
+export function triggerSupercoachScrape(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const body = await c.req.json();
+      const parseResult = SupercoachScrapeRequestSchema.safeParse(body);
+
+      if (!parseResult.success) {
+        const issue = parseResult.error.issues[0];
+        return errorResponse(c, 'VALIDATION_ERROR', `Invalid request body: ${issue.path.join('.')} ${issue.message}`, 400);
+      }
+
+      const { year, round, force } = parseResult.data;
+      const useCase = deps.createScrapeSupplementaryStatsUseCase(c.env.DB);
+      const result = await useCase.execute(year, round, force);
+
+      return c.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'UPSTREAM_ERROR', `Failed to fetch supplementary stats: ${message}`, 502 as unknown as 500);
+    }
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/:round - Get computed Supercoach scores for a round
+ */
+export function getSupercoachScores(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400, Array.from({ length: 27 }, (_, i) => i + 1));
+    }
+
+    const year = yearResult.data;
+    const round = roundResult.data;
+    const teamCode = c.req.query('teamCode')?.toUpperCase();
+
+    if (teamCode && !VALID_TEAM_CODES.includes(teamCode)) {
+      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${teamCode}`, 400, VALID_TEAM_CODES);
+    }
+
+    const useCase = deps.createGetSupercoachScoresUseCase(c.env.DB);
+    const result = await useCase.execute(year, round, teamCode);
+
+    return c.json(result);
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/player/:playerId — Player season Supercoach trend
+ */
+export function getPlayerSupercoachSeason(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const playerId = c.req.param('playerId');
+    if (!playerId) {
+      return errorResponse(c, 'MISSING_PLAYER_ID', 'Player ID is required', 400);
+    }
+
+    const useCase = deps.createGetSupercoachScoresUseCase(c.env.DB);
+    const result = await useCase.executeForPlayer(yearResult.data, playerId);
+
+    if (!result) {
+      return errorResponse(c, 'PLAYER_NOT_FOUND', `Player not found: ${playerId}`, 404);
+    }
+
+    return c.json(result);
+  };
+}
+
+// ============================================
 // Match Detail
 // ============================================
 
@@ -842,6 +942,39 @@ export function getMatchDetail(deps: HandlerDeps) {
       awayPlayerStats = awayPerfs.map(mapPerformance);
     }
 
+    // Join supplementary stats (from nrlsupercoachstats.com) by player name
+    const suppRepo = new D1SupplementaryStatsRepository(c.env.DB);
+    const suppStats = await suppRepo.findByRound(match.year, match.round);
+
+    // Build normalized lookup: "cleary, nathan" → supplementary stats
+    const suppLookup = new Map(
+      suppStats.map(s => [normalizeName(s.playerName), s])
+    );
+
+    // Merge supplementary fields into player stats
+    const mergeSupp = (player: ReturnType<typeof mapPerformance>) => {
+      // Convert "Nathan Cleary" → "cleary, nathan" for lookup
+      const parts = player.playerName.trim().split(/\s+/);
+      const lastName = parts.length > 1 ? parts.slice(-1).join(' ') : parts[0];
+      const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+      const key = normalizeName(`${lastName}, ${firstName}`);
+      const supp = suppLookup.get(key) ?? null;
+
+      return {
+        ...player,
+        lastTouch: supp?.lastTouch ?? null,
+        missedGoals: supp?.missedGoals ?? null,
+        missedFieldGoals: supp?.missedFieldGoals ?? null,
+        effectiveOffloads: supp?.effectiveOffloads ?? null,
+        ineffectiveOffloads: supp?.ineffectiveOffloads ?? null,
+        runsOver8m: supp?.runsOver8m ?? null,
+        runsUnder8m: supp?.runsUnder8m ?? null,
+        trySaves: supp?.trySaves ?? null,
+        kickRegatherBreak: supp?.kickRegatherBreak ?? null,
+        heldUpInGoal: supp?.heldUpInGoal ?? null,
+      };
+    };
+
     return c.json({
       matchId: match.id,
       year: match.year,
@@ -858,8 +991,8 @@ export function getMatchDetail(deps: HandlerDeps) {
       scheduledTime: match.scheduledTime,
       stadium: match.stadium,
       weather: match.weather,
-      homePlayerStats,
-      awayPlayerStats,
+      homePlayerStats: homePlayerStats.map(mergeSupp),
+      awayPlayerStats: awayPlayerStats.map(mergeSupp),
     });
   };
 }

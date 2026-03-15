@@ -58,6 +58,7 @@ function App() {
   const [selectedRound, setSelectedRound] = useState(() =>
     route.type === 'round' ? route.roundNumber : 1
   );
+
   const [roundData, setRoundData] = useState<RoundResponse | null>(null);
   const [roundLoading, setRoundLoading] = useState(false);
   const [roundError, setRoundError] = useState<string | null>(null);

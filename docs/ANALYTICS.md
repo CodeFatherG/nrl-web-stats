@@ -90,3 +90,35 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 2. **Soft Draws**: In gaps between rough patches, look for 3+ consecutive easy games. A single non-easy game does not break a soft draw; 2+ consecutive non-easy games end it. Bye rounds are excluded from analysis.
 
 **Output**: Array of streaks (type, start/end rounds, favourable/unfavourable counts) plus summary (counts and longest streaks)
+
+## Supercoach Scoring Engine
+
+**Endpoint**: `GET /api/supercoach/:year/:round`
+
+**Service**: `computePlayerScore()` in `src/analytics/supercoach-scoring-service.ts`
+
+**Inputs**:
+- Primary stats (17 fields from NRL.com Match Centre — tries, goals, tackles, run metres, etc.)
+- Supplementary stats (8 fields from nrlsupercoachstats.com — line_engaged_runs, missed_goals, forced_drop_outs, effective_offloads, ineffective_offloads, runs_over_8m, runs_under_8m, try_saves)
+- Scoring configuration (JSON per season, loaded from `src/config/scoring-tables/{year}.json`)
+
+**Computation**:
+1. Load the season's scoring configuration, which maps each stat to a points-per-unit value and a category
+2. For each stat entry in the config, multiply the player's raw stat value by the configured points-per-unit
+3. Group calculated points into 6 categories:
+   - **Scoring**: Points from tries, goals, field goals, conversions
+   - **Create**: Points from try assists, line breaks, line break assists, offloads
+   - **Evade**: Points from tackle breaks, run metres thresholds, post-contact metres
+   - **Base**: Points from base runs, receipts, tackles, minutes played
+   - **Defence**: Points from forced drop-outs, intercepts, try saves, one-on-one steals
+   - **Negative**: Penalty points from errors, missed tackles, penalties, ineffective offloads
+4. Sum all category totals for the player's overall Supercoach score
+
+**Configurable Point Values**: Each season has its own scoring table at `src/config/scoring-tables/{year}.json`. Point values can change between seasons without code changes. The config maps stat names to `{ pointsPerUnit: number, category: string }`.
+
+**Validation** (post-computation checks):
+- **Offload mismatch**: Compares effective offloads (OL) + ineffective offloads (IO) from supplementary data against total offloads from primary stats. Flags a warning if they diverge.
+- **Run count mismatch**: Compares runs_over_8m (H8) + runs_under_8m (HU) against total runs from primary stats. Flags a warning if the difference exceeds a threshold of 5.
+- **Score difference**: Compares the computed Supercoach score against the published `fantasyPointsTotal` from NRL.com. Flags a warning if the difference exceeds 3 points.
+
+**Output**: `RoundSupercoachSummary` with per-player scores (total + 6 category breakdowns), validation summary (total players, players with warnings, warning details), and `isComplete` flag indicating whether all matches in the round have been processed

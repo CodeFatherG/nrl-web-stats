@@ -360,6 +360,35 @@ Trigger player statistics scrape for a specific round.
 
 **Errors**: 400 (invalid parameters or round already complete without force), 502 (scrape failed)
 
+### POST /api/scrape/supercoach
+
+Trigger supplementary stats scraping from nrlsupercoachstats.com for Supercoach scoring.
+
+**Request Body**:
+```json
+{ "year": 2026, "round": 1, "force": false }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `year` | number | Yes | Season year (2020–2030) |
+| `round` | number | Yes | Round number (1–27) |
+| `force` | boolean | No | Force re-scrape even if data exists. Default: false |
+
+**Response** (200):
+```json
+{
+  "success": true, "year": 2026, "round": 1,
+  "matchedPlayers": 210, "unmatchedPlayers": 5,
+  "warnings": [
+    { "type": "UNMATCHED_PLAYER", "message": "Could not match player to primary stats", "context": { "playerName": "..." } }
+  ],
+  "timestamp": "2026-03-15T10:30:00Z"
+}
+```
+
+**Errors**: 400 (invalid parameters), 502 (scrape failed)
+
 ## Matches
 
 ### GET /api/matches/:matchId
@@ -459,6 +488,80 @@ Get a single player's profile with season-by-season breakdown.
 ```
 
 **Errors**: 400 (missing playerId), 404 (player not found)
+
+## Supercoach
+
+### GET /api/supercoach/:year/:round
+
+Get computed Supercoach scores for all players in a round.
+
+**Path Parameters**:
+- `year` (number, required): Season year
+- `round` (number, required): Round number (1–27)
+
+**Query Parameters**:
+- `teamCode` (string, optional): Filter to a specific team (3 uppercase letters)
+
+**Response** (200):
+```json
+{
+  "year": 2026, "round": 1,
+  "isComplete": true,
+  "scores": [
+    {
+      "playerId": "cameron-munster-1995-02-11",
+      "playerName": "Cameron Munster",
+      "teamCode": "MEL",
+      "totalScore": 85,
+      "categories": {
+        "Scoring": 20, "Create": 15, "Evade": 12,
+        "Base": 25, "Defence": 18, "Negative": -5
+      }
+    }
+  ],
+  "validationSummary": {
+    "totalPlayers": 234,
+    "playersWithWarnings": 3,
+    "warnings": [
+      { "playerId": "...", "type": "score_difference", "detail": "Computed 85 vs published 82 (diff: 3)" }
+    ]
+  }
+}
+```
+
+**Errors**: 400 (invalid year/round or team code), 404 (no data for year/round)
+
+### GET /api/supercoach/:year/player/:playerId
+
+Get a player's Supercoach scoring trend across the season.
+
+**Path Parameters**:
+- `year` (number, required): Season year
+- `playerId` (string, required): Player ID
+
+**Response** (200):
+```json
+{
+  "playerId": "cameron-munster-1995-02-11",
+  "playerName": "Cameron Munster",
+  "teamCode": "MEL",
+  "year": 2026,
+  "rounds": [
+    {
+      "round": 1,
+      "totalScore": 85,
+      "categories": {
+        "Scoring": 20, "Create": 15, "Evade": 12,
+        "Base": 25, "Defence": 18, "Negative": -5
+      }
+    }
+  ],
+  "seasonTotal": 850,
+  "seasonAverage": 85.0
+}
+```
+
+**Errors**: 400 (invalid year or playerId), 404 (player not found)
 
 ## Analytics
 

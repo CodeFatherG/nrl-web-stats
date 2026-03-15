@@ -7,12 +7,17 @@ import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-matc
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats } from './application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsNeedingSupplementaryStats } from './application/use-cases/scrape-match-results.js';
 import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
 import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
 import { ScrapePlayerStatsUseCase } from './application/use-cases/scrape-player-stats.js';
+import { NrlSupercoachStatsAdapter } from './infrastructure/adapters/nrl-supercoach-stats-adapter.js';
+import { D1SupplementaryStatsRepository } from './infrastructure/persistence/d1-supplementary-stats-repo.js';
+import { ScrapeSupplementaryStatsUseCase } from './application/use-cases/scrape-supplementary-stats.js';
+import { GetSupercoachScoresUseCase } from './application/use-cases/get-supercoach-scores.js';
+import { loadScoringConfig } from './config/supercoach-scoring-config.js';
 import { AnalyticsCache } from './analytics/analytics-cache.js';
 import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
 import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outlook.js';
@@ -33,6 +38,7 @@ export interface Env {
 const dataSource = new SuperCoachStatsAdapter();
 const matchResultSource = new NrlComMatchResultAdapter();
 const playerStatsSource = new NrlComPlayerStatsAdapter();
+const supplementaryStatsSource = new NrlSupercoachStatsAdapter();
 const analyticsCache = new AnalyticsCache();
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
 
@@ -58,6 +64,14 @@ function initializeDeps(db?: D1Database): void {
     getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
     getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache),
     getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache),
+    createScrapeSupplementaryStatsUseCase: (reqDb: D1Database) =>
+      new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, new D1SupplementaryStatsRepository(reqDb)),
+    createGetSupercoachScoresUseCase: (reqDb: D1Database) =>
+      new GetSupercoachScoresUseCase(
+        new D1PlayerRepository(reqDb),
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear())
+      ),
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -185,10 +199,14 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     rounds: roundsToScrape,
   });
 
-  // Create per-request player stats use case with D1 binding
+  // Create per-request use cases with D1 binding
   const scrapePlayerStatsUseCase = new ScrapePlayerStatsUseCase(
     playerStatsSource,
     new D1PlayerRepository(env.DB)
+  );
+  const scrapeSupplementaryUseCase = new ScrapeSupplementaryStatsUseCase(
+    supplementaryStatsSource,
+    new D1SupplementaryStatsRepository(env.DB)
   );
 
   for (const { year, round } of roundsToScrape) {
@@ -211,6 +229,23 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
         created: playerResult.created,
         updated: playerResult.updated,
       });
+
+      // Also scrape supplementary stats (may fail if source lags 24-48h — non-fatal)
+      try {
+        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
+        logger.info('Scheduled supplementary stats scrape complete', {
+          year,
+          round,
+          playersScraped: suppResult.playersScraped,
+          cached: suppResult.cached,
+        });
+      } catch (suppError) {
+        logger.error('Supplementary stats scrape failed (will retry next cycle)', {
+          year,
+          round,
+          error: suppError instanceof Error ? suppError.message : 'Unknown error',
+        });
+      }
     } catch (error) {
       logger.error('Scheduled scrape failed', {
         year,
@@ -250,11 +285,67 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
           created: playerResult.created,
           updated: playerResult.updated,
         });
+
+        // Also backfill supplementary stats (non-fatal)
+        try {
+          const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
+          logger.info('Backfill supplementary stats scrape complete', {
+            year,
+            round,
+            playersScraped: suppResult.playersScraped,
+            cached: suppResult.cached,
+          });
+        } catch (suppError) {
+          logger.error('Backfill supplementary stats scrape failed (will retry next cycle)', {
+            year,
+            round,
+            error: suppError instanceof Error ? suppError.message : 'Unknown error',
+          });
+        }
       } catch (error) {
         logger.error('Backfill player stats scrape failed', {
           year,
           round,
           error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  }
+
+  // Independent supplementary stats discovery — catches completed rounds that have
+  // match results and player stats but were never supplementary-scraped (e.g. source
+  // was lagging 24-48h, or prior scrape failed with a schema mismatch)
+  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
+  const roundsNeedingSuppStats = await findRoundsNeedingSupplementaryStats(matchRepository, suppRepo);
+
+  // Exclude rounds already handled above
+  const allHandled = new Set([
+    ...roundsToScrape.map(r => `${r.year}-${r.round}`),
+    ...playerStatsOnly.map(r => `${r.year}-${r.round}`),
+  ]);
+  const suppStatsOnly = roundsNeedingSuppStats.filter(
+    r => !allHandled.has(`${r.year}-${r.round}`)
+  );
+
+  if (suppStatsOnly.length > 0) {
+    logger.info('Scraping supplementary stats for completed rounds missing supplementary data', {
+      rounds: suppStatsOnly,
+    });
+
+    for (const { year, round } of suppStatsOnly) {
+      try {
+        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
+        logger.info('Independent supplementary stats scrape complete', {
+          year,
+          round,
+          playersScraped: suppResult.playersScraped,
+          cached: suppResult.cached,
+        });
+      } catch (suppError) {
+        logger.error('Independent supplementary stats scrape failed (will retry next cycle)', {
+          year,
+          round,
+          error: suppError instanceof Error ? suppError.message : 'Unknown error',
         });
       }
     }

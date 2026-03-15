@@ -4,11 +4,12 @@ The frontend is a React 18 + Material-UI 5.x single-page application served via 
 
 ## Navigation
 
-The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Three main tabs control the primary view:
+The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Four main tabs control the primary view:
 
 - **Round Overview** — view matches by round (detailed or compact mode)
 - **Team Schedule** — view a single team's full season
 - **Bye Overview** — grid of bye schedules across all teams
+- **Supercoach** — view computed Supercoach scores per round
 
 When in the Round Overview tab, toggle buttons switch between **Detailed** (single round list) and **Compact** (9×3 season grid) modes.
 
@@ -25,6 +26,8 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 | `/team/{CODE}` | Team Schedule | `CODE`: 3-letter team code (case-insensitive), e.g., `BRO`, `MEL`, `SYD` |
 | `/bye` | Bye Overview | None |
 | `/match/{ID}` | Match Detail | `ID`: match identifier string |
+| `/supercoach` | Supercoach Scores (latest round) | None |
+| `/supercoach/{N}` | Supercoach Scores for round N | `N`: round number, integer 1–27 |
 
 **URL synchronisation**: All navigation actions (clicking tabs, selecting a team or round, opening a match) update the browser URL. Browser back/forward buttons navigate through view history correctly.
 
@@ -129,6 +132,46 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - Click any column header to sort the table ascending/descending (default: sorted by minutes played)
 - Scroll horizontally to see all stat columns (player name column stays sticky on the left)
 - Click "Back to overview" to return to the previous view
+
+## Supercoach View
+
+**Purpose**: Display computed Supercoach scores per round, showing category breakdowns and player trends.
+
+**How to access**: Select the **Supercoach** tab in the main navigation bar, or navigate directly to `/supercoach` or `/supercoach/:round`.
+
+**URL Routes**:
+
+| URL | View | Parameters |
+|-----|------|------------|
+| `/supercoach` | Supercoach round scores (defaults to latest round) | None |
+| `/supercoach/{N}` | Supercoach scores for round N | `N`: round number, integer 1–27 |
+
+**Components**:
+- `SupercoachScoreTable` in `client/src/components/`
+- `CategoryBreakdown` in `client/src/components/`
+- `ScoreTrendChart` in `client/src/components/`
+- `SupercoachView` in `client/src/views/SupercoachView.tsx`
+
+**How to use**:
+1. Select a round from the round selector (1–27)
+2. Optionally filter by team using the team filter dropdown
+3. Click any player row to open the detail panel
+
+**What you see**:
+- **Round selector**: Dropdown or stepper to navigate between rounds 1–27
+- **Team filter**: Dropdown to filter the score table to a single team
+- **Score table** (`SupercoachScoreTable`): All players for the selected round with columns for player name, team, total Supercoach score, and per-category scores (Scoring, Create, Evade, Base, Defence, Negative). Validation warnings shown as icons next to affected player rows.
+
+**Detail panel** (opens on player click):
+- **Category breakdown** (`CategoryBreakdown`): 6 accordion sections (one per scoring category) showing individual stat contributions within each category — stat name, raw value, points-per-unit, and calculated points
+- **Season trend chart** (`ScoreTrendChart`): Bar chart showing the player's total Supercoach score per round across the season, with season average line overlay
+- **Validation warnings**: Any data quality warnings for this player (offload mismatch, run count mismatch, score difference vs published)
+
+**Interactions**:
+- Change round via round selector
+- Filter by team via dropdown
+- Click a player row to open/close the detail panel
+- Expand/collapse individual category accordions in the detail panel
 
 ## Visual Language
 

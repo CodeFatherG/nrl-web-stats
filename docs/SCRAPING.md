@@ -84,6 +84,54 @@ The primary value of this source is the **strength ratings**, which are not avai
 
 **Player Identity**: Joined from roster data (firstName, lastName, position) matched by `playerId`. Players in stats but not in roster generate a `PLAYER_NOT_IN_ROSTER` warning and are skipped.
 
+## Data Source 4: NRL SuperCoach Stats (Supplementary Player Statistics)
+
+**URL**: `https://www.nrlsupercoachstats.com/stats.php?year={year}&grid_id=list1`
+
+**Format**: jqGrid JSON (paginated)
+
+**Request Parameters**:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `_search` | `false` | Disables server-side search |
+| `nd` | Unix timestamp (ms) | Cache-buster |
+| `rows` | `500` | Rows per page |
+| `page` | `N` | Page number (1-based) |
+| `sidx` | (empty) | Sort index (unused) |
+| `sord` | `asc` | Sort order |
+| `Rnd` | round number | Round filter |
+
+**Required Headers**:
+- `X-Requested-With: XMLHttpRequest`
+- `User-Agent: Mozilla/5.0`
+
+**Response Structure**: jqGrid format with `colModel` array providing dynamic column definitions and `rows[].cell` array containing stat values positionally mapped to those columns.
+
+**Column Abbreviations** (supplementary stats not available from NRL.com Match Centre):
+
+| Abbreviation | Mapped Field | Description |
+|--------------|-------------|-------------|
+| `LT` | `line_engaged_runs` | Line-engaged runs |
+| `MG` | `missed_goals` | Missed goals |
+| `MF` | `forced_drop_outs` | Forced drop-outs |
+| `OL` | `effective_offloads` | Effective offloads |
+| `IO` | `ineffective_offloads` | Ineffective offloads |
+| `H8` | `runs_over_8m` | Runs over 8 metres |
+| `HU` | `runs_under_8m` | Runs under 8 metres |
+| `TS` | `try_saves` | Try saves |
+
+**Rate Limiting**: 2-second delay between page requests to avoid overloading the source.
+
+**Adapter**: `NrlSupercoachStatsAdapter` in `src/infrastructure/adapters/nrl-supercoach-stats-adapter.ts`
+
+**Data NOT Extracted from This Source**:
+- Fixture schedule or match results
+- Stadium/venue information
+- Match dates or times
+- Weather conditions
+- Primary player statistics (available from NRL.com Match Centre)
+
 ## Data NOT Scraped (Any Source)
 
 - Historical player data (pre-match career stats)

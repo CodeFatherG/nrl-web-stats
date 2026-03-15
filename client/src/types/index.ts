@@ -393,6 +393,17 @@ export interface PlayerMatchStats {
   playTheBallAverageSpeed: number;
   stintOne: number;
   fantasyPointsTotal: number;
+  // Supplementary stats from nrlsupercoachstats.com (null when unavailable)
+  lastTouch: number | null;
+  missedGoals: number | null;
+  missedFieldGoals: number | null;
+  effectiveOffloads: number | null;
+  ineffectiveOffloads: number | null;
+  runsOver8m: number | null;
+  runsUnder8m: number | null;
+  trySaves: number | null;
+  kickRegatherBreak: number | null;
+  heldUpInGoal: number | null;
 }
 
 /** Response from GET /api/matches/:matchId */
