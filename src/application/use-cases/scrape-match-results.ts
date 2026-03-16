@@ -254,9 +254,10 @@ export async function findRoundsNeedingSupplementaryStats(
     }
 
     for (const [round, roundMatchList] of roundMatches) {
-      // Only consider rounds where all matches are completed
-      const allCompleted = roundMatchList.every(m => m.status === MatchStatus.Completed);
-      if (!allCompleted) continue;
+      // Include rounds where ANY match is completed (not just when all are)
+      // so that supplementary stats for finished games aren't blocked by later games
+      const hasCompletedMatch = roundMatchList.some(m => m.status === MatchStatus.Completed);
+      if (!hasCompletedMatch) continue;
 
       // Check if supplementary stats already exist for this round
       const hasSuppStats = await supplementaryRepo.isRoundCached(year, round);
@@ -296,9 +297,10 @@ export async function findRoundsNeedingPlayerStats(
     }
 
     for (const [round, roundMatchList] of roundMatches) {
-      // Only consider rounds where all matches are completed
-      const allCompleted = roundMatchList.every(m => m.status === MatchStatus.Completed);
-      if (!allCompleted) continue;
+      // Include rounds where ANY match is completed (not just when all are)
+      // so that player stats for finished games aren't blocked by later games
+      const hasCompletedMatch = roundMatchList.some(m => m.status === MatchStatus.Completed);
+      if (!hasCompletedMatch) continue;
 
       // Check if player stats already exist for this round
       const hasPlayerStats = await playerRepository.isRoundComplete(year, round);

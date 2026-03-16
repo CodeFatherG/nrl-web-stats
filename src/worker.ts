@@ -181,7 +181,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   });
 
   // Monday cache invalidation (existing behavior)
-  if (event.cron === '0 6 * * 1') {
+  if (event.cron === '0 6 * * MON') {
     cacheStore.invalidateAll();
     logger.info('Cache invalidated by Monday scheduled trigger');
     return;

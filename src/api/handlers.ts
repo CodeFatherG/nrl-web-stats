@@ -106,11 +106,25 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
 export function getHealth(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const cacheStatus = cacheStore.getStatus();
-    const response: HealthResponse & { cache: typeof cacheStatus } = {
+
+    // Diagnostic: query the actual D1 database name to verify which DB is bound
+    let databaseName: string | null = null;
+    try {
+      const dbResult = await c.env.DB.prepare(
+        "SELECT name FROM pragma_database_list WHERE seq = 0"
+      ).first<{ name: string }>();
+      databaseName = dbResult?.name ?? null;
+    } catch {
+      // Ignore — pragma may not be available
+    }
+
+    const response: HealthResponse & { cache: typeof cacheStatus; environment: string; databaseName: string | null } = {
       status: 'ok',
       loadedYears: await deps.matchRepository.getLoadedYears(),
       totalFixtures: await deps.matchRepository.getMatchCount(),
       cache: cacheStatus,
+      environment: c.env.ENVIRONMENT ?? 'unknown',
+      databaseName,
     };
     return c.json(response);
   };
