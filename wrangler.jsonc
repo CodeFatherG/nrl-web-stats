@@ -48,6 +48,12 @@
       "vars": {
         "ENVIRONMENT": "production"
       },
+      "triggers": {
+        "crons": [
+          "0 6 * * MON",
+          "*/10 * * * *"
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
