@@ -106,32 +106,11 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
 export function getHealth(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const cacheStatus = cacheStore.getStatus();
-
-    // Diagnostic: check player stats counts to verify which DB is bound
-    let playerStatsCount: number | null = null;
-    let r2PlayerStatsCount: number | null = null;
-    try {
-      const totalResult = await c.env.DB.prepare(
-        "SELECT COUNT(*) as cnt FROM match_performances"
-      ).first<{ cnt: number }>();
-      playerStatsCount = totalResult?.cnt ?? null;
-
-      const r2Result = await c.env.DB.prepare(
-        "SELECT COUNT(*) as cnt FROM match_performances WHERE year = 2026 AND round = 2"
-      ).first<{ cnt: number }>();
-      r2PlayerStatsCount = r2Result?.cnt ?? null;
-    } catch {
-      // Table may not exist or different schema
-    }
-
-    const response: HealthResponse & { cache: typeof cacheStatus; environment: string; playerStatsCount: number | null; r2PlayerStatsCount: number | null } = {
+    const response: HealthResponse & { cache: typeof cacheStatus } = {
       status: 'ok',
       loadedYears: await deps.matchRepository.getLoadedYears(),
       totalFixtures: await deps.matchRepository.getMatchCount(),
       cache: cacheStatus,
-      environment: c.env.ENVIRONMENT ?? 'unknown',
-      playerStatsCount,
-      r2PlayerStatsCount,
     };
     return c.json(response);
   };

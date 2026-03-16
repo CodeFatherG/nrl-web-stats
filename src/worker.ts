@@ -174,29 +174,39 @@ app.get('*', async (c) => {
 
 // Scheduled handler for cache invalidation and post-game result scraping
 const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) => {
-  logger.info('Scheduled trigger fired', {
+  logger.info('[CRON] Scheduled trigger fired', {
     timestamp: new Date().toISOString(),
     scheduledTime: new Date(event.scheduledTime).toISOString(),
     cron: event.cron,
+    environment: env.ENVIRONMENT,
+    hasDB: !!env.DB,
   });
 
   // Monday cache invalidation (existing behavior)
   if (event.cron === '0 6 * * MON') {
     cacheStore.invalidateAll();
-    logger.info('Cache invalidated by Monday scheduled trigger');
+    logger.info('[CRON] Cache invalidated by Monday scheduled trigger');
     return;
   }
 
   // Ensure deps are initialized for scheduled handler
+  logger.info('[CRON] Initializing deps', { depsAlreadyInitialized: depsInitialized });
   initializeDeps(env.DB);
   const matchRepository = deps.matchRepository;
+
+  // Log loaded years to verify D1 connectivity
+  const loadedYears = await matchRepository.getLoadedYears();
+  const matchCount = await matchRepository.getMatchCount();
+  logger.info('[CRON] D1 state', { loadedYears, matchCount });
 
   // Post-game result scraping: find rounds with completed games needing scrape
   const currentTime = new Date(event.scheduledTime);
   const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
 
-  logger.info('Scraping results for completed rounds', {
-    rounds: roundsToScrape,
+  logger.info('[CRON] findRoundsNeedingScrape result', {
+    currentTime: currentTime.toISOString(),
+    roundsToScrape,
+    count: roundsToScrape.length,
   });
 
   // Create per-request use cases with D1 binding
@@ -211,46 +221,56 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
 
   for (const { year, round } of roundsToScrape) {
     try {
+      logger.info('[CRON] Starting match results scrape', { year, round });
       const result = await deps.scrapeMatchResultsUseCase.execute(year, round);
-      logger.info('Scheduled result scrape complete', {
+      logger.info('[CRON] Match results scrape complete', {
         year,
         round,
         success: result.success,
         enriched: result.enrichedCount,
         created: result.createdCount,
+        skipped: result.skippedCount,
+        warnings: result.warnings.length,
       });
 
       // After match results are scraped, also scrape player stats
+      logger.info('[CRON] Starting player stats scrape', { year, round });
       const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
-      logger.info('Scheduled player stats scrape complete', {
+      logger.info('[CRON] Player stats scrape complete', {
         year,
         round,
         playersProcessed: playerResult.playersProcessed,
+        matchesScraped: playerResult.matchesScraped,
         created: playerResult.created,
         updated: playerResult.updated,
+        skipped: playerResult.skipped,
+        warnings: playerResult.warnings.length,
       });
 
       // Also scrape supplementary stats (may fail if source lags 24-48h — non-fatal)
       try {
+        logger.info('[CRON] Starting supplementary stats scrape', { year, round });
         const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('Scheduled supplementary stats scrape complete', {
+        logger.info('[CRON] Supplementary stats scrape complete', {
           year,
           round,
           playersScraped: suppResult.playersScraped,
           cached: suppResult.cached,
         });
       } catch (suppError) {
-        logger.error('Supplementary stats scrape failed (will retry next cycle)', {
+        logger.error('[CRON] Supplementary stats scrape failed (will retry next cycle)', {
           year,
           round,
           error: suppError instanceof Error ? suppError.message : 'Unknown error',
+          stack: suppError instanceof Error ? suppError.stack : undefined,
         });
       }
     } catch (error) {
-      logger.error('Scheduled scrape failed', {
+      logger.error('[CRON] Scheduled scrape failed', {
         year,
         round,
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       });
     }
   }
@@ -259,8 +279,9 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   const playerRepo = new D1PlayerRepository(env.DB);
   const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
 
-  logger.info('Scraping player stats for rounds', {
+  logger.info('[CRON] findRoundsNeedingPlayerStats result', {
     rounds: roundsNeedingPlayerStats,
+    count: roundsNeedingPlayerStats.length,
   });
 
   // Scrape player stats for completed rounds that were missed (e.g. match results
@@ -270,51 +291,58 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     r => !alreadyQueued.has(`${r.year}-${r.round}`)
   );
 
-  if (playerStatsOnly.length > 0) {
-    logger.info('Scraping player stats for completed rounds missing stats', {
-      rounds: playerStatsOnly,
-    });
+  logger.info('[CRON] Player stats backfill candidates', {
+    total: roundsNeedingPlayerStats.length,
+    alreadyQueued: alreadyQueued.size,
+    backfillCount: playerStatsOnly.length,
+    rounds: playerStatsOnly,
+  });
 
+  if (playerStatsOnly.length > 0) {
     for (const { year, round } of playerStatsOnly) {
       try {
+        logger.info('[CRON] Starting backfill player stats scrape', { year, round });
         const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
-        logger.info('Backfill player stats scrape complete', {
+        logger.info('[CRON] Backfill player stats scrape complete', {
           year,
           round,
           playersProcessed: playerResult.playersProcessed,
+          matchesScraped: playerResult.matchesScraped,
           created: playerResult.created,
           updated: playerResult.updated,
+          skipped: playerResult.skipped,
+          warnings: playerResult.warnings.length,
         });
 
         // Also backfill supplementary stats (non-fatal)
         try {
           const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-          logger.info('Backfill supplementary stats scrape complete', {
+          logger.info('[CRON] Backfill supplementary stats scrape complete', {
             year,
             round,
             playersScraped: suppResult.playersScraped,
             cached: suppResult.cached,
           });
         } catch (suppError) {
-          logger.error('Backfill supplementary stats scrape failed (will retry next cycle)', {
+          logger.error('[CRON] Backfill supplementary stats scrape failed (will retry next cycle)', {
             year,
             round,
             error: suppError instanceof Error ? suppError.message : 'Unknown error',
+            stack: suppError instanceof Error ? suppError.stack : undefined,
           });
         }
       } catch (error) {
-        logger.error('Backfill player stats scrape failed', {
+        logger.error('[CRON] Backfill player stats scrape failed', {
           year,
           round,
           error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
         });
       }
     }
   }
 
-  // Independent supplementary stats discovery — catches completed rounds that have
-  // match results and player stats but were never supplementary-scraped (e.g. source
-  // was lagging 24-48h, or prior scrape failed with a schema mismatch)
+  // Independent supplementary stats discovery
   const suppRepo = new D1SupplementaryStatsRepository(env.DB);
   const roundsNeedingSuppStats = await findRoundsNeedingSupplementaryStats(matchRepository, suppRepo);
 
@@ -327,29 +355,35 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     r => !allHandled.has(`${r.year}-${r.round}`)
   );
 
-  if (suppStatsOnly.length > 0) {
-    logger.info('Scraping supplementary stats for completed rounds missing supplementary data', {
-      rounds: suppStatsOnly,
-    });
+  logger.info('[CRON] Supplementary stats backfill candidates', {
+    total: roundsNeedingSuppStats.length,
+    backfillCount: suppStatsOnly.length,
+    rounds: suppStatsOnly,
+  });
 
+  if (suppStatsOnly.length > 0) {
     for (const { year, round } of suppStatsOnly) {
       try {
+        logger.info('[CRON] Starting independent supplementary stats scrape', { year, round });
         const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('Independent supplementary stats scrape complete', {
+        logger.info('[CRON] Independent supplementary stats scrape complete', {
           year,
           round,
           playersScraped: suppResult.playersScraped,
           cached: suppResult.cached,
         });
       } catch (suppError) {
-        logger.error('Independent supplementary stats scrape failed (will retry next cycle)', {
+        logger.error('[CRON] Independent supplementary stats scrape failed (will retry next cycle)', {
           year,
           round,
           error: suppError instanceof Error ? suppError.message : 'Unknown error',
+          stack: suppError instanceof Error ? suppError.stack : undefined,
         });
       }
     }
   }
+
+  logger.info('[CRON] Scheduled handler complete');
 };
 
 // Export for Cloudflare Workers — combine Hono fetch handler with scheduled handler
