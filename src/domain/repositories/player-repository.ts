@@ -36,6 +36,9 @@ export interface PlayerRepository {
   /** Check if a round has been fully scraped (all performances are complete) */
   isRoundComplete(season: number, round: number): Promise<boolean>;
 
+  /** Count distinct matches that have player stats in a round */
+  countDistinctMatchesInRound(season: number, round: number): Promise<number>;
+
   /** Find all player performances for a specific team in a specific match (by year and round) */
   findPerformancesByMatch(
     year: number,

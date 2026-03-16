@@ -897,4 +897,16 @@ export class D1PlayerRepository implements PlayerRepository {
     if (!row || row.total === 0) return false;
     return row.total === row.complete;
   }
+
+  async countDistinctMatchesInRound(season: number, round: number): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT match_id) as match_count
+         FROM match_performances WHERE season = ? AND round = ?`
+      )
+      .bind(season, round)
+      .first<{ match_count: number }>();
+
+    return row?.match_count ?? 0;
+  }
 }

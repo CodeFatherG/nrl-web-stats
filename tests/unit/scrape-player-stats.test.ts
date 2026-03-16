@@ -47,6 +47,8 @@ function createMockRepository(): PlayerRepository & {
     findMatchPerformances: vi.fn().mockResolvedValue([]),
     findSeasonAggregates: vi.fn().mockResolvedValue(null),
     isRoundComplete: vi.fn().mockResolvedValue(false),
+    countDistinctMatchesInRound: vi.fn().mockResolvedValue(0),
+    findPerformancesByMatch: vi.fn().mockResolvedValue([]),
   };
 }
 

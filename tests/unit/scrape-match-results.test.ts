@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape } from '../../src/application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats } from '../../src/application/use-cases/scrape-match-results.js';
 import type { MatchResultSource, MatchResult } from '../../src/domain/ports/match-result-source.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
+import type { PlayerRepository } from '../../src/domain/repositories/player-repository.js';
 import type { Match } from '../../src/domain/match.js';
 import { MatchStatus, createMatchFromSchedule, enrichWithResult, createMatchId } from '../../src/domain/match.js';
 import { success, failure } from '../../src/domain/result.js';
@@ -447,5 +448,136 @@ describe('findRoundsNeedingScrape', () => {
     const roundsNeeded = await findRoundsNeedingScrape(repo, currentTime);
 
     expect(roundsNeeded).toEqual([{ year: 2025, round: 1 }]);
+  });
+});
+
+// =============================================
+// findRoundsNeedingPlayerStats tests
+// =============================================
+describe('findRoundsNeedingPlayerStats', () => {
+  function createCompletedMatch(
+    year: number, round: number,
+    homeCode: string, awayCode: string
+  ): Match {
+    return {
+      id: createMatchId(homeCode, awayCode, year, round),
+      year,
+      round,
+      homeTeamCode: homeCode,
+      awayTeamCode: awayCode,
+      homeStrengthRating: 700,
+      awayStrengthRating: 600,
+      homeScore: 20,
+      awayScore: 10,
+      status: MatchStatus.Completed,
+      scheduledTime: '2025-03-06T09:00:00Z',
+      stadium: null,
+      weather: null,
+    };
+  }
+
+  function createMockPlayerRepo(overrides: {
+    countDistinctMatchesInRound?: number;
+    isRoundComplete?: boolean;
+  } = {}) {
+    return {
+      save: vi.fn(),
+      findById: vi.fn().mockResolvedValue(null),
+      findByTeam: vi.fn().mockResolvedValue([]),
+      findMatchPerformances: vi.fn().mockResolvedValue([]),
+      findSeasonAggregates: vi.fn().mockResolvedValue(null),
+      isRoundComplete: vi.fn().mockResolvedValue(overrides.isRoundComplete ?? false),
+      countDistinctMatchesInRound: vi.fn().mockResolvedValue(overrides.countDistinctMatchesInRound ?? 0),
+      findPerformancesByMatch: vi.fn().mockResolvedValue([]),
+    };
+  }
+
+  it('detects round where only some completed matches have player stats', async () => {
+    const matchRepo = createMockMatchRepository();
+    // 8 completed matches in round 2
+    const matches = [
+      createCompletedMatch(2025, 2, 'SYD', 'BRO'),
+      createCompletedMatch(2025, 2, 'MEL', 'PTH'),
+      createCompletedMatch(2025, 2, 'CBR', 'NZL'),
+      createCompletedMatch(2025, 2, 'GLD', 'NEW'),
+      createCompletedMatch(2025, 2, 'MNL', 'PEN'),
+      createCompletedMatch(2025, 2, 'CRO', 'STI'),
+      createCompletedMatch(2025, 2, 'PAR', 'DOL'),
+      createCompletedMatch(2025, 2, 'NQL', 'WTG'),
+    ];
+    matchRepo.findByYear.mockResolvedValue(matches);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+
+    // Only 2 of 8 matches have player stats, all marked complete
+    const playerRepo = createMockPlayerRepo({
+      countDistinctMatchesInRound: 2,
+      isRoundComplete: true,  // existing 2 games' records are all is_complete=1
+    });
+
+    const rounds = await findRoundsNeedingPlayerStats(matchRepo, playerRepo);
+
+    expect(rounds).toEqual([{ year: 2025, round: 2 }]);
+  });
+
+  it('detects round where all matches have stats but some are incomplete', async () => {
+    const matchRepo = createMockMatchRepository();
+    const matches = [
+      createCompletedMatch(2025, 2, 'SYD', 'BRO'),
+      createCompletedMatch(2025, 2, 'MEL', 'PTH'),
+    ];
+    matchRepo.findByYear.mockResolvedValue(matches);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+
+    // All matches have stats, but not all records are complete
+    const playerRepo = createMockPlayerRepo({
+      countDistinctMatchesInRound: 2,
+      isRoundComplete: false,
+    });
+
+    const rounds = await findRoundsNeedingPlayerStats(matchRepo, playerRepo);
+
+    expect(rounds).toEqual([{ year: 2025, round: 2 }]);
+  });
+
+  it('skips round where all matches have complete player stats', async () => {
+    const matchRepo = createMockMatchRepository();
+    const matches = [
+      createCompletedMatch(2025, 2, 'SYD', 'BRO'),
+      createCompletedMatch(2025, 2, 'MEL', 'PTH'),
+    ];
+    matchRepo.findByYear.mockResolvedValue(matches);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+
+    // All matches covered and complete
+    const playerRepo = createMockPlayerRepo({
+      countDistinctMatchesInRound: 2,
+      isRoundComplete: true,
+    });
+
+    const rounds = await findRoundsNeedingPlayerStats(matchRepo, playerRepo);
+
+    expect(rounds).toEqual([]);
+  });
+
+  it('skips rounds with no completed matches', async () => {
+    const matchRepo = createMockMatchRepository();
+    const matches = [{
+      id: createMatchId('SYD', 'BRO', 2025, 3),
+      year: 2025, round: 3,
+      homeTeamCode: 'SYD', awayTeamCode: 'BRO',
+      homeStrengthRating: 700, awayStrengthRating: 600,
+      homeScore: null, awayScore: null,
+      status: MatchStatus.Scheduled,
+      scheduledTime: '2025-03-20T09:00:00Z',
+      stadium: null, weather: null,
+    }];
+    matchRepo.findByYear.mockResolvedValue(matches);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 0 });
+
+    const rounds = await findRoundsNeedingPlayerStats(matchRepo, playerRepo);
+
+    expect(rounds).toEqual([]);
   });
 });

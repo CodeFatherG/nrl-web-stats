@@ -299,12 +299,22 @@ export async function findRoundsNeedingPlayerStats(
     for (const [round, roundMatchList] of roundMatches) {
       // Include rounds where ANY match is completed (not just when all are)
       // so that player stats for finished games aren't blocked by later games
-      const hasCompletedMatch = roundMatchList.some(m => m.status === MatchStatus.Completed);
-      if (!hasCompletedMatch) continue;
+      const completedMatchCount = roundMatchList.filter(m => m.status === MatchStatus.Completed).length;
+      if (completedMatchCount === 0) continue;
 
-      // Check if player stats already exist for this round
-      const hasPlayerStats = await playerRepository.isRoundComplete(year, round);
-      if (!hasPlayerStats) {
+      // Check if player stats cover all completed matches in the round.
+      // isRoundComplete only checks if existing records are marked complete,
+      // but doesn't verify coverage — a round with 2/8 games scraped would
+      // still return true if those 2 games' records are all is_complete=1.
+      const scrapedMatchCount = await playerRepository.countDistinctMatchesInRound(year, round);
+      if (scrapedMatchCount < completedMatchCount) {
+        roundsNeeding.push({ year, round });
+        continue;
+      }
+
+      // Also check if any existing records are still incomplete
+      const allRecordsComplete = await playerRepository.isRoundComplete(year, round);
+      if (!allRecordsComplete) {
         roundsNeeding.push({ year, round });
       }
     }

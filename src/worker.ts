@@ -235,7 +235,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
 
       // After match results are scraped, also scrape player stats
       logger.info('[CRON] Starting player stats scrape', { year, round });
-      const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
+      const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
       logger.info('[CRON] Player stats scrape complete', {
         year,
         round,
@@ -302,7 +302,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     for (const { year, round } of playerStatsOnly) {
       try {
         logger.info('[CRON] Starting backfill player stats scrape', { year, round });
-        const playerResult = await scrapePlayerStatsUseCase.execute(year, round);
+        const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
         logger.info('[CRON] Backfill player stats scrape complete', {
           year,
           round,
