@@ -107,24 +107,31 @@ export function getHealth(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const cacheStatus = cacheStore.getStatus();
 
-    // Diagnostic: query the actual D1 database name to verify which DB is bound
-    let databaseName: string | null = null;
+    // Diagnostic: check player stats counts to verify which DB is bound
+    let playerStatsCount: number | null = null;
+    let r2PlayerStatsCount: number | null = null;
     try {
-      const dbResult = await c.env.DB.prepare(
-        "SELECT name FROM pragma_database_list WHERE seq = 0"
-      ).first<{ name: string }>();
-      databaseName = dbResult?.name ?? null;
+      const totalResult = await c.env.DB.prepare(
+        "SELECT COUNT(*) as cnt FROM match_performances"
+      ).first<{ cnt: number }>();
+      playerStatsCount = totalResult?.cnt ?? null;
+
+      const r2Result = await c.env.DB.prepare(
+        "SELECT COUNT(*) as cnt FROM match_performances WHERE year = 2026 AND round = 2"
+      ).first<{ cnt: number }>();
+      r2PlayerStatsCount = r2Result?.cnt ?? null;
     } catch {
-      // Ignore — pragma may not be available
+      // Table may not exist or different schema
     }
 
-    const response: HealthResponse & { cache: typeof cacheStatus; environment: string; databaseName: string | null } = {
+    const response: HealthResponse & { cache: typeof cacheStatus; environment: string; playerStatsCount: number | null; r2PlayerStatsCount: number | null } = {
       status: 'ok',
       loadedYears: await deps.matchRepository.getLoadedYears(),
       totalFixtures: await deps.matchRepository.getMatchCount(),
       cache: cacheStatus,
       environment: c.env.ENVIRONMENT ?? 'unknown',
-      databaseName,
+      playerStatsCount,
+      r2PlayerStatsCount,
     };
     return c.json(response);
   };
