@@ -31,7 +31,8 @@
   "triggers": {
     "crons": [
       "0 6 * * MON",
-      "*/10 * * * *"
+      "*/10 4-12 * 3-10 THU,FRI,SAT,SUN,MON",
+      "0 * * 3-10 TUE,WED"
     ]
   },
   "d1_databases": [
@@ -51,7 +52,8 @@
       "triggers": {
         "crons": [
           "0 6 * * MON",
-          "*/10 * * * *"
+          "*/10 4-12 * 3-10 THU,FRI,SAT,SUN,MON",
+          "0 * * 3-10 TUE,WED"
         ]
       },
       "d1_databases": [
