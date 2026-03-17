@@ -3,7 +3,7 @@
  * Provides persistent storage for Player aggregates and MatchPerformance records.
  */
 
-import type { PlayerRepository, SeasonAggregates } from '../../domain/repositories/player-repository.js';
+import type { PlayerRepository, SeasonAggregates, PlayerSeasonSummary } from '../../domain/repositories/player-repository.js';
 import type { Player, MatchPerformance } from '../../domain/player.js';
 
 export class D1PlayerRepository implements PlayerRepository {
@@ -765,10 +765,10 @@ export class D1PlayerRepository implements PlayerRepository {
     year: number,
     round: number,
     teamCode: string
-  ): Promise<Array<{ playerName: string; position: string; performance: MatchPerformance }>> {
+  ): Promise<Array<{ playerName: string; position: string; playerId: string; performance: MatchPerformance }>> {
     const result = await this.db
       .prepare(
-        `SELECT p.name, p.position,
+        `SELECT p.id AS player_id, p.name, p.position,
           mp.match_id, mp.season, mp.round, mp.team_code,
           mp.all_run_metres, mp.all_runs, mp.bomb_kicks, mp.cross_field_kicks,
           mp.conversions, mp.conversion_attempts, mp.dummy_half_runs, mp.dummy_half_run_metres,
@@ -792,7 +792,7 @@ export class D1PlayerRepository implements PlayerRepository {
       )
       .bind(year, round, teamCode)
       .all<{
-        name: string; position: string;
+        player_id: string; name: string; position: string;
         match_id: string; season: number; round: number; team_code: string;
         all_run_metres: number; all_runs: number; bomb_kicks: number; cross_field_kicks: number;
         conversions: number; conversion_attempts: number; dummy_half_runs: number;
@@ -815,6 +815,7 @@ export class D1PlayerRepository implements PlayerRepository {
       }>();
 
     return (result.results ?? []).map(row => ({
+      playerId: row.player_id,
       playerName: row.name,
       position: row.position,
       performance: {
@@ -908,5 +909,61 @@ export class D1PlayerRepository implements PlayerRepository {
       .first<{ match_count: number }>();
 
     return row?.match_count ?? 0;
+  }
+
+  async findAllSeasonSummaries(season: number): Promise<PlayerSeasonSummary[]> {
+    const result = await this.db
+      .prepare(
+        `SELECT
+          p.id AS player_id,
+          p.name AS player_name,
+          p.position,
+          (SELECT mp2.team_code FROM match_performances mp2
+           WHERE mp2.player_id = p.id AND mp2.season = ?
+           ORDER BY mp2.round DESC LIMIT 1) AS team_code,
+          COUNT(*) AS games_played,
+          SUM(mp.tries) AS total_tries,
+          SUM(mp.all_run_metres) AS total_run_metres,
+          SUM(mp.tackles_made) AS total_tackles_made,
+          SUM(mp.points) AS total_points,
+          AVG(mp.fantasy_points_total) AS average_fantasy_points,
+          SUM(mp.tackle_breaks) AS total_tackle_breaks,
+          SUM(mp.line_breaks) AS total_line_breaks
+        FROM match_performances mp
+        JOIN players p ON p.id = mp.player_id
+        WHERE mp.season = ?
+        GROUP BY mp.player_id
+        ORDER BY p.name`
+      )
+      .bind(season, season)
+      .all<{
+        player_id: string;
+        player_name: string;
+        position: string;
+        team_code: string;
+        games_played: number;
+        total_tries: number;
+        total_run_metres: number;
+        total_tackles_made: number;
+        total_points: number;
+        average_fantasy_points: number;
+        total_tackle_breaks: number;
+        total_line_breaks: number;
+      }>();
+
+    return (result.results ?? []).map(row => ({
+      playerId: row.player_id,
+      playerName: row.player_name,
+      teamCode: row.team_code,
+      position: row.position,
+      gamesPlayed: row.games_played,
+      totalTries: row.total_tries,
+      totalRunMetres: row.total_run_metres,
+      totalTacklesMade: row.total_tackles_made,
+      totalPoints: row.total_points,
+      averageFantasyPoints: row.average_fantasy_points,
+      totalTackleBreaks: row.total_tackle_breaks,
+      totalLineBreaks: row.total_line_breaks,
+    }));
   }
 }

@@ -16,6 +16,22 @@ export interface SeasonAggregates {
   readonly totalFantasyPoints: number;
 }
 
+/** Summary of a player's season for the all-players listing */
+export interface PlayerSeasonSummary {
+  readonly playerId: string;
+  readonly playerName: string;
+  readonly teamCode: string;
+  readonly position: string;
+  readonly gamesPlayed: number;
+  readonly totalTries: number;
+  readonly totalRunMetres: number;
+  readonly totalTacklesMade: number;
+  readonly totalPoints: number;
+  readonly averageFantasyPoints: number;
+  readonly totalTackleBreaks: number;
+  readonly totalLineBreaks: number;
+}
+
 /** Repository interface for Player aggregate persistence */
 export interface PlayerRepository {
   /** Save or update a player and their match performances. Upsert by player ID. */
@@ -44,5 +60,8 @@ export interface PlayerRepository {
     year: number,
     round: number,
     teamCode: string
-  ): Promise<Array<{ playerName: string; position: string; performance: MatchPerformance }>>;
+  ): Promise<Array<{ playerName: string; position: string; playerId: string; performance: MatchPerformance }>>;
+
+  /** Get aggregated season summaries for all players with appearances in a season */
+  findAllSeasonSummaries(season: number): Promise<PlayerSeasonSummary[]>;
 }

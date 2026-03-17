@@ -9,6 +9,8 @@ import type {
   AllTeamsRankingResponse,
   SeasonSummaryResponse,
   MatchDetailResponse,
+  PlayerSeasonResponse,
+  PlayerDetailResponse,
   ApiError,
 } from '../types';
 
@@ -220,6 +222,18 @@ export async function getMatchDetail(
   matchId: string
 ): Promise<MatchDetailResponse> {
   return fetchApi<MatchDetailResponse>(`/matches/${encodeURIComponent(matchId)}`);
+}
+
+export async function getSeasonPlayers(
+  year: number
+): Promise<PlayerSeasonResponse> {
+  return fetchApi<PlayerSeasonResponse>(`/players/season/${year}`);
+}
+
+export async function getPlayer(
+  playerId: string
+): Promise<PlayerDetailResponse> {
+  return fetchApi<PlayerDetailResponse>(`/players/${encodeURIComponent(playerId)}`);
 }
 
 // Supercoach API

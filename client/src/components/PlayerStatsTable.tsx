@@ -11,6 +11,7 @@ import {
   Typography,
   Box,
   Tooltip,
+  Link,
 } from '@mui/material';
 import type { PlayerMatchStats } from '../types';
 
@@ -21,6 +22,7 @@ interface PlayerStatsTableProps {
   players: PlayerMatchStats[];
   teamName: string;
   teamCode: string;
+  onPlayerClick?: (playerId: string) => void;
 }
 
 interface ColumnDef {
@@ -158,7 +160,7 @@ function compareValues(a: string | number | null, b: string | number | null, dir
 const cellSx = { whiteSpace: 'nowrap', px: 0.75, py: 0.25, fontSize: '0.75rem' } as const;
 const headerCellSx = { ...cellSx, color: 'white', fontWeight: 600 } as const;
 
-export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTableProps) {
+export function PlayerStatsTable({ players, teamName, teamCode, onPlayerClick }: PlayerStatsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('minutesPlayed');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -258,9 +260,20 @@ export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTab
                   if (col.key === 'playerName') {
                     return (
                       <TableCell key={col.key} sx={{ ...cellSx, position: 'sticky', left: 0, bgcolor: idx % 2 === 0 ? '#f5f5f5' : '#fff', zIndex: 1 }}>
-                        <Typography variant="body2" fontWeight={500} fontSize="0.75rem" noWrap>
-                          {val}
-                        </Typography>
+                        {onPlayerClick ? (
+                          <Link
+                            component="button"
+                            variant="body2"
+                            onClick={() => onPlayerClick(player.playerId)}
+                            sx={{ fontSize: '0.75rem', fontWeight: 500, textAlign: 'left', cursor: 'pointer' }}
+                          >
+                            {val}
+                          </Link>
+                        ) : (
+                          <Typography variant="body2" fontWeight={500} fontSize="0.75rem" noWrap>
+                            {val}
+                          </Typography>
+                        )}
                       </TableCell>
                     );
                   }
@@ -281,8 +294,9 @@ export function PlayerStatsTable({ players, teamName, teamCode }: PlayerStatsTab
                     );
                   }
                   const formatted = col.format ? col.format(val as number) : val;
+                  const isZero = val === 0 || formatted === '0' || formatted === '0.0' || formatted === '0.0%';
                   return (
-                    <TableCell key={col.key} align="right" sx={cellSx}>
+                    <TableCell key={col.key} align="right" sx={{ ...cellSx, ...(isZero && { color: 'text.disabled' }) }}>
                       {formatted}
                     </TableCell>
                   );

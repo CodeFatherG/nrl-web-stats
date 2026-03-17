@@ -10,11 +10,13 @@ import { RoundOverviewView } from './views/RoundOverviewView';
 import { CompactSeasonView } from './views/CompactSeasonView';
 import { ByeOverviewView } from './views/ByeOverviewView';
 import { MatchDetailView } from './views/MatchDetailView';
+import { PlayersSummaryView } from './views/PlayersSummaryView';
+import { PlayerDetailView } from './views/PlayerDetailView';
 import { useRouter } from './hooks/useRouter';
-import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, getValidTeamCodes } from './utils/routes';
-import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook } from './services/api';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, getValidTeamCodes } from './utils/routes';
+import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook, getSeasonPlayers } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
-import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak } from './types';
+import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak, PlayerSeasonSummary } from './types';
 
 type AppStatus = 'loading' | 'error' | 'no-data' | 'ready';
 
@@ -37,6 +39,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     if (route.type === 'team') return 'team';
     if (route.type === 'bye') return 'bye';
+    if (route.type === 'players' || route.type === 'player') return 'player';
     return 'round';
   });
 
@@ -44,6 +47,15 @@ function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(() =>
     route.type === 'match' ? route.matchId : null
   );
+
+  // Player detail view state — initialised from route
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(() =>
+    route.type === 'player' ? route.playerId : null
+  );
+
+  // Player summary data
+  const [playerSummaryData, setPlayerSummaryData] = useState<PlayerSeasonSummary[] | null>(null);
+  const [playerSummaryLoading, setPlayerSummaryLoading] = useState(false);
 
   // Team schedule state — initialised from route
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>(() =>
@@ -96,22 +108,35 @@ function App() {
       setActiveTab('round');
       setRoundViewMode('compact');
       setSelectedMatchId(null);
+      setSelectedPlayerId(null);
     } else if (route.type === 'round') {
       setActiveTab('round');
       setRoundViewMode('detailed');
       setSelectedRound(route.roundNumber);
       setRoundData(null);
       setSelectedMatchId(null);
+      setSelectedPlayerId(null);
     } else if (route.type === 'team') {
       setActiveTab('team');
       setSelectedTeamCode(route.teamCode);
       setTeamSchedule(null);
       setSelectedMatchId(null);
+      setSelectedPlayerId(null);
     } else if (route.type === 'bye') {
       setActiveTab('bye');
       setSelectedMatchId(null);
+      setSelectedPlayerId(null);
     } else if (route.type === 'match') {
       setSelectedMatchId(route.matchId);
+      setSelectedPlayerId(null);
+    } else if (route.type === 'players') {
+      setActiveTab('player');
+      setSelectedMatchId(null);
+      setSelectedPlayerId(null);
+    } else if (route.type === 'player') {
+      setActiveTab('player');
+      setSelectedMatchId(null);
+      setSelectedPlayerId(route.playerId);
     }
   }, [route, isPopState]);
 
@@ -306,6 +331,7 @@ function App() {
     (tab: ActiveTab) => {
       setActiveTab(tab);
       setSelectedMatchId(null);
+      setSelectedPlayerId(null);
       if (tab === 'team') {
         const code = selectedTeamCode ?? teams[0]?.code ?? 'BRO';
         navigate(buildTeamUrl(code));
@@ -320,6 +346,8 @@ function App() {
         }
       } else if (tab === 'bye') {
         navigate(buildByeUrl());
+      } else if (tab === 'player') {
+        navigate(buildPlayersUrl());
       }
     },
     [navigate, selectedTeamCode, roundViewMode, selectedRound, teams]
@@ -363,6 +391,36 @@ function App() {
       void fetchSeasonSummary();
     }
   }, [activeTab, roundViewMode, seasonSummary, loadedYears, fetchSeasonSummary]);
+
+  // Load player summary data when switching to player tab
+  useEffect(() => {
+    if (activeTab === 'player' && !playerSummaryData && !playerSummaryLoading && loadedYears.length > 0) {
+      const year = loadedYears[0]!;
+      setPlayerSummaryLoading(true);
+      getSeasonPlayers(year)
+        .then(data => setPlayerSummaryData(data.players))
+        .catch(() => setPlayerSummaryData([]))
+        .finally(() => setPlayerSummaryLoading(false));
+    }
+  }, [activeTab, playerSummaryData, playerSummaryLoading, loadedYears]);
+
+  const handlePlayerClick = useCallback(
+    (playerId: string) => {
+      navigate(buildPlayerUrl(playerId));
+      setSelectedPlayerId(playerId);
+    },
+    [navigate]
+  );
+
+  const handlePlayerDetailBack = useCallback(() => {
+    if (window.history.length <= 1) {
+      navigate(buildPlayersUrl());
+      setSelectedPlayerId(null);
+      setActiveTab('player');
+    } else {
+      window.history.back();
+    }
+  }, [navigate]);
 
   if (status === 'loading') {
     return <LoadingState />;
@@ -413,12 +471,20 @@ function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
-        {/* Match Detail View — replaces tab content when a match is selected */}
-        {selectedMatchId ? (
+        {/* Player Detail View — replaces tab content when a player is selected */}
+        {selectedPlayerId ? (
+          <PlayerDetailView
+            playerId={selectedPlayerId}
+            onBack={handlePlayerDetailBack}
+            teams={teams}
+            year={currentYear}
+          />
+        ) : selectedMatchId ? (
           <MatchDetailView
             matchId={selectedMatchId}
             onBack={handleMatchDetailBack}
             strengthThresholds={strengthThresholds}
+            onPlayerClick={handlePlayerClick}
           />
         ) : route.type === 'notFound' ? (
           <>
@@ -490,6 +556,15 @@ function App() {
                 loading={seasonSummaryLoading}
                 error={seasonSummaryError}
                 onRetry={fetchSeasonSummary}
+              />
+            )}
+
+            {activeTab === 'player' && (
+              <PlayersSummaryView
+                players={playerSummaryData ?? []}
+                teams={teams}
+                onPlayerClick={handlePlayerClick}
+                loading={playerSummaryLoading}
               />
             )}
           </>

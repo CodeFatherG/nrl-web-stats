@@ -19,6 +19,8 @@ export type RouteMatch =
   | { type: 'match'; matchId: string }
   | { type: 'supercoach' }
   | { type: 'supercoachRound'; roundNumber: number }
+  | { type: 'players' }
+  | { type: 'player'; playerId: string }
   | { type: 'notFound'; path: string };
 
 /** Check if a team code is valid (case-insensitive) */
@@ -96,6 +98,20 @@ export function parseUrl(pathname: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
+  // /players
+  if (segments.length === 1 && segments[0] === 'players') {
+    return { type: 'players' };
+  }
+
+  // /player/:playerId
+  if (segments.length === 2 && segments[0] === 'player') {
+    const playerId = segments[1]!;
+    if (playerId.length > 0) {
+      return { type: 'player', playerId };
+    }
+    return { type: 'notFound', path };
+  }
+
   return { type: 'notFound', path };
 }
 
@@ -132,4 +148,14 @@ export function buildSupercoachUrl(): string {
 /** Build URL for a specific supercoach round */
 export function buildSupercoachRoundUrl(roundNumber: number): string {
   return `/supercoach/${roundNumber}`;
+}
+
+/** Build URL for players summary */
+export function buildPlayersUrl(): string {
+  return '/players';
+}
+
+/** Build URL for a specific player detail */
+export function buildPlayerUrl(playerId: string): string {
+  return `/player/${playerId}`;
 }

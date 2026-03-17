@@ -22,9 +22,10 @@ interface MatchDetailViewProps {
   matchId: string;
   onBack: () => void;
   strengthThresholds: StrengthThresholds;
+  onPlayerClick?: (playerId: string) => void;
 }
 
-export function MatchDetailView({ matchId, onBack, strengthThresholds }: MatchDetailViewProps) {
+export function MatchDetailView({ matchId, onBack, strengthThresholds, onPlayerClick }: MatchDetailViewProps) {
   const [match, setMatch] = useState<MatchDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -201,12 +202,14 @@ export function MatchDetailView({ matchId, onBack, strengthThresholds }: MatchDe
             players={match.homePlayerStats}
             teamName={match.homeTeamName}
             teamCode={match.homeTeamCode}
+            onPlayerClick={onPlayerClick}
           />
 
           <PlayerStatsTable
             players={match.awayPlayerStats}
             teamName={match.awayTeamName}
             teamCode={match.awayTeamCode}
+            onPlayerClick={onPlayerClick}
           />
         </>
       )}

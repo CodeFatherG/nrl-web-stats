@@ -165,7 +165,7 @@ export interface StrengthThresholds {
 
 export type StrengthCategory = 'easy' | 'medium' | 'hard';
 
-export type ActiveTab = 'team' | 'round' | 'bye';
+export type ActiveTab = 'team' | 'round' | 'bye' | 'player';
 
 export interface AppState {
   serverReady: boolean;
@@ -333,6 +333,7 @@ export interface TeamChipProps {
 
 /** Player performance stats for a single match (all available fields) */
 export interface PlayerMatchStats {
+  playerId: string;
   playerName: string;
   position: string;
   minutesPlayed: number;
@@ -425,4 +426,126 @@ export interface MatchDetailResponse {
   weather: string | null;
   homePlayerStats: PlayerMatchStats[];
   awayPlayerStats: PlayerMatchStats[];
+}
+
+// Player Season Statistics Types
+
+/** Aggregated season statistics for a single player */
+export interface PlayerSeasonSummary {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  position: string;
+  gamesPlayed: number;
+  totalTries: number;
+  totalRunMetres: number;
+  totalTacklesMade: number;
+  totalPoints: number;
+  averageFantasyPoints: number;
+  totalTackleBreaks: number;
+  totalLineBreaks: number;
+}
+
+/** Response from GET /api/players/season/:year */
+export interface PlayerSeasonResponse {
+  season: number;
+  players: PlayerSeasonSummary[];
+}
+
+/** Full per-round performance — same stat fields as PlayerMatchStats plus round/opponent context */
+export interface PlayerPerformanceDetail {
+  matchId: string;
+  round: number;
+  teamCode: string;
+  opponentTeamCode: string | null;
+  isComplete: boolean;
+  minutesPlayed: number;
+  tries: number;
+  tryAssists: number;
+  goals: number;
+  goalConversionRate: number;
+  fieldGoals: number;
+  onePointFieldGoals: number;
+  twoPointFieldGoals: number;
+  conversions: number;
+  conversionAttempts: number;
+  penaltyGoals: number;
+  points: number;
+  allRuns: number;
+  allRunMetres: number;
+  hitUps: number;
+  hitUpRunMetres: number;
+  lineEngagedRuns: number;
+  postContactMetres: number;
+  lineBreaks: number;
+  lineBreakAssists: number;
+  tackleBreaks: number;
+  offloads: number;
+  receipts: number;
+  passes: number;
+  passesToRunRatio: number;
+  dummyHalfRuns: number;
+  dummyHalfRunMetres: number;
+  dummyPasses: number;
+  tacklesMade: number;
+  missedTackles: number;
+  ineffectiveTackles: number;
+  tackleEfficiency: number;
+  intercepts: number;
+  oneOnOneSteal: number;
+  oneOnOneLost: number;
+  kicks: number;
+  kickMetres: number;
+  kickReturnMetres: number;
+  kicksDefused: number;
+  kicksDead: number;
+  bombKicks: number;
+  grubberKicks: number;
+  crossFieldKicks: number;
+  forcedDropOutKicks: number;
+  fortyTwentyKicks: number;
+  twentyFortyKicks: number;
+  errors: number;
+  handlingErrors: number;
+  penalties: number;
+  ruckInfringements: number;
+  offsideWithinTenMetres: number;
+  onReport: number;
+  sinBins: number;
+  sendOffs: number;
+  playTheBallTotal: number;
+  playTheBallAverageSpeed: number;
+  stintOne: number;
+  fantasyPointsTotal: number;
+  // Supplementary stats from nrlsupercoachstats.com (null when unavailable)
+  lastTouch: number | null;
+  missedGoals: number | null;
+  missedFieldGoals: number | null;
+  effectiveOffloads: number | null;
+  ineffectiveOffloads: number | null;
+  runsOver8m: number | null;
+  runsUnder8m: number | null;
+  trySaves: number | null;
+  kickRegatherBreak: number | null;
+  heldUpInGoal: number | null;
+}
+
+/** Season detail within the player detail response */
+export interface PlayerSeasonDetail {
+  matchesPlayed: number;
+  totalTries: number;
+  totalGoals: number;
+  totalTackles: number;
+  totalRunMetres: number;
+  totalFantasyPoints: number;
+  performances: PlayerPerformanceDetail[];
+}
+
+/** Response from GET /api/players/:playerId */
+export interface PlayerDetailResponse {
+  id: string;
+  name: string;
+  position: string;
+  teamCode: string;
+  seasons: Record<string, PlayerSeasonDetail>;
 }

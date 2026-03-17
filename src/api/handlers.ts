@@ -538,6 +538,33 @@ export function getTeamPlayers(deps: HandlerDeps) {
 }
 
 /**
+ * GET /api/players/season/:year - Get all players with aggregated season stats
+ */
+export function getSeasonPlayers(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearParam = c.req.param('year');
+    const parsed = YearSchema.safeParse(Number(yearParam));
+
+    if (!parsed.success) {
+      return errorResponse(c, 'Bad Request', 'Invalid year parameter', 400);
+    }
+
+    const year = parsed.data;
+    const repo = deps.createPlayerRepository(c.env.DB);
+    const summaries = await repo.findAllSeasonSummaries(year);
+
+    if (summaries.length === 0) {
+      return errorResponse(c, 'Not Found', `No player data for season ${year}`, 404);
+    }
+
+    return c.json({
+      season: year,
+      players: summaries,
+    });
+  };
+}
+
+/**
  * GET /api/players/:playerId - Get a single player
  */
 export function getPlayer(deps: HandlerDeps) {
@@ -564,7 +591,7 @@ export function getPlayer(deps: HandlerDeps) {
       return errorResponse(c, 'Not Found', `Player not found: ${playerId}`, 404);
     }
 
-    // Group performances by season
+    // Group performances by season — return full stats (same shape as match detail player stats)
     const seasons: Record<string, {
       matchesPlayed: number;
       totalTries: number;
@@ -572,28 +599,62 @@ export function getPlayer(deps: HandlerDeps) {
       totalTackles: number;
       totalRunMetres: number;
       totalFantasyPoints: number;
-      performances: Array<{
-        matchId: string;
-        round: number;
-        teamCode: string;
-        tries: number;
-        goals: number;
-        tackles: number;
-        runMetres: number;
-        fantasyPoints: number;
-        isComplete: boolean;
-      }>;
+      performances: Array<Record<string, unknown>>;
     }> = {};
 
     // Get unique seasons from performances
     const performanceSeasons = new Set(player.performances.map(p => p.year));
     const seasonsToQuery = seasonFilter ? [seasonFilter] : [...performanceSeasons];
 
+    // Build opponent lookup from match_performances table
+    // For each match_id, find the other team_code that participated
+    const opponentMap = new Map<string, string>();
+    const matchIdsForLookup = player.performances
+      .filter(p => seasonsToQuery.includes(p.year))
+      .map(p => p.matchId);
+    if (matchIdsForLookup.length > 0) {
+      const placeholders = matchIdsForLookup.map(() => '?').join(',');
+      const oppResult = await c.env.DB
+        .prepare(`SELECT DISTINCT match_id, team_code FROM match_performances WHERE match_id IN (${placeholders})`)
+        .bind(...matchIdsForLookup)
+        .all<{ match_id: string; team_code: string }>();
+      // Group by match_id to find pairs
+      const matchTeams = new Map<string, string[]>();
+      for (const row of oppResult.results ?? []) {
+        const teams = matchTeams.get(row.match_id) ?? [];
+        if (!teams.includes(row.team_code)) teams.push(row.team_code);
+        matchTeams.set(row.match_id, teams);
+      }
+      for (const [matchId, teamCodes] of matchTeams) {
+        if (teamCodes.length === 2) {
+          opponentMap.set(`${matchId}:${teamCodes[0]}`, teamCodes[1]!);
+          opponentMap.set(`${matchId}:${teamCodes[1]}`, teamCodes[0]!);
+        }
+      }
+    }
+
+    // Build supplementary stats lookup: normalize player name for matching
+    const suppRepo = new D1SupplementaryStatsRepository(c.env.DB);
+    // Convert "Nathan Cleary" → "cleary, nathan" for lookup
+    const nameParts = player.name.trim().split(/\s+/);
+    const lastName = nameParts.length > 1 ? nameParts.slice(-1).join(' ') : nameParts[0];
+    const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+    const normalizedPlayerName = normalizeName(`${lastName}, ${firstName}`);
+
     for (const year of seasonsToQuery) {
       const performances = await repo.findMatchPerformances(playerId, year);
       const aggregates = await repo.findSeasonAggregates(playerId, year);
 
       if (performances.length > 0 || aggregates) {
+        // Load supplementary stats for all rounds this player played
+        const rounds = [...new Set(performances.map(p => p.round))];
+        const suppByRound = new Map<number, import('../domain/ports/supplementary-stats-source').SupplementaryPlayerStats>();
+        for (const round of rounds) {
+          const roundSupp = await suppRepo.findByRound(year, round);
+          const match = roundSupp.find(s => normalizeName(s.playerName) === normalizedPlayerName);
+          if (match) suppByRound.set(round, match);
+        }
+
         seasons[String(year)] = {
           matchesPlayed: aggregates?.matchesPlayed ?? 0,
           totalTries: aggregates?.totalTries ?? 0,
@@ -601,17 +662,24 @@ export function getPlayer(deps: HandlerDeps) {
           totalTackles: aggregates?.totalTackles ?? 0,
           totalRunMetres: aggregates?.totalRunMetres ?? 0,
           totalFantasyPoints: aggregates?.totalFantasyPoints ?? 0,
-          performances: performances.map(p => ({
-            matchId: p.matchId,
-            round: p.round,
-            teamCode: p.teamCode,
-            tries: p.tries,
-            goals: p.goals,
-            tackles: p.tackles,
-            runMetres: p.runMetres,
-            fantasyPoints: p.fantasyPoints,
-            isComplete: p.isComplete,
-          })),
+          performances: performances.map(p => {
+            const { matchId, year: _y, ...stats } = p;
+            const opponentTeamCode = opponentMap.get(`${matchId}:${p.teamCode}`) ?? null;
+            const supp = suppByRound.get(p.round) ?? null;
+            return {
+              matchId, opponentTeamCode, ...stats,
+              lastTouch: supp?.lastTouch ?? null,
+              missedGoals: supp?.missedGoals ?? null,
+              missedFieldGoals: supp?.missedFieldGoals ?? null,
+              effectiveOffloads: supp?.effectiveOffloads ?? null,
+              ineffectiveOffloads: supp?.ineffectiveOffloads ?? null,
+              runsOver8m: supp?.runsOver8m ?? null,
+              runsUnder8m: supp?.runsUnder8m ?? null,
+              trySaves: supp?.trySaves ?? null,
+              kickRegatherBreak: supp?.kickRegatherBreak ?? null,
+              heldUpInGoal: supp?.heldUpInGoal ?? null,
+            };
+          }),
         };
       }
     }
@@ -924,9 +992,9 @@ export function getMatchDetail(deps: HandlerDeps) {
 
     // Fetch player performances for both teams
     const repo = deps.createPlayerRepository(c.env.DB);
-    const mapPerformance = (p: { playerName: string; position: string; performance: import('../domain/player').MatchPerformance }) => {
+    const mapPerformance = (p: { playerName: string; position: string; playerId: string; performance: import('../domain/player').MatchPerformance }) => {
       const { matchId: _mid, year: _y, round: _r, teamCode: _tc, isComplete: _ic, ...stats } = p.performance;
-      return { playerName: p.playerName, position: p.position, ...stats };
+      return { playerId: p.playerId, playerName: p.playerName, position: p.position, ...stats };
     };
 
     let homePlayerStats: ReturnType<typeof mapPerformance>[] = [];

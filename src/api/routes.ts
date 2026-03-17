@@ -60,6 +60,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/matches/:matchId', handlers.getMatchDetail(deps));
 
   // Player Statistics
+  api.get('/players/season/:year', handlers.getSeasonPlayers(deps));
   api.get('/players/team/:teamCode', handlers.getTeamPlayers(deps));
   api.get('/players/:playerId', handlers.getPlayer(deps));
   api.post('/scrape/players', handlers.triggerPlayerScrape(deps));

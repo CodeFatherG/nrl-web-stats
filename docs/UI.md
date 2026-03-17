@@ -4,11 +4,12 @@ The frontend is a React 18 + Material-UI 5.x single-page application served via 
 
 ## Navigation
 
-The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Four main tabs control the primary view:
+The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Five main tabs control the primary view:
 
 - **Round Overview** — view matches by round (detailed or compact mode)
 - **Team Schedule** — view a single team's full season
 - **Bye Overview** — grid of bye schedules across all teams
+- **Players** — browse all players' season statistics with sortable, searchable summary table
 - **Supercoach** — view computed Supercoach scores per round
 
 When in the Round Overview tab, toggle buttons switch between **Detailed** (single round list) and **Compact** (9×3 season grid) modes.
@@ -26,6 +27,8 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 | `/team/{CODE}` | Team Schedule | `CODE`: 3-letter team code (case-insensitive), e.g., `BRO`, `MEL`, `SYD` |
 | `/bye` | Bye Overview | None |
 | `/match/{ID}` | Match Detail | `ID`: match identifier string |
+| `/players` | Players Season Summary | None |
+| `/player/{ID}` | Player Detail | `ID`: player identifier string |
 | `/supercoach` | Supercoach Scores (latest round) | None |
 | `/supercoach/{N}` | Supercoach Scores for round N | `N`: round number, integer 1–27 |
 
@@ -131,7 +134,56 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 **Interactions**:
 - Click any column header to sort the table ascending/descending (default: sorted by minutes played)
 - Scroll horizontally to see all stat columns (player name column stays sticky on the left)
+- Click a player name to navigate to their Player Detail page
 - Click "Back to overview" to return to the previous view
+
+## Players Summary View
+
+**Purpose**: Browse all players' aggregated season statistics in a sortable, searchable, filterable table.
+
+**How to access**: Select the **Players** tab in the main navigation bar, or navigate directly to `/players`.
+
+**Components**:
+- `PlayersSummaryView` in `client/src/views/PlayersSummaryView.tsx`
+
+**What you see**:
+- **Search field**: Text input to filter players by name (case-insensitive substring match)
+- **Team filter**: Dropdown to show only players from a specific team ("All Teams" to clear)
+- **Position filter**: Dropdown to show only players at a specific position ("All Positions" to clear), dynamically populated from the current player data
+- **Player count**: Shows total number of matching players
+- **Summary table**: Columns — Player Name (clickable, sticky left), Team, Position, Games Played, Tries, Run Metres, Tackles, Points, Avg Fantasy Points, Tackle Breaks, Line Breaks
+- **Loading spinner**: Shown while data is being fetched
+- **Empty state**: Message when no players match the current filters
+
+**Interactions**:
+- Type in the search field to filter by player name
+- Select a team from the dropdown to filter by team
+- Select a position from the dropdown to filter by position
+- All three filters combine (name AND team AND position)
+- Click any column header to sort ascending/descending (default: average fantasy points, descending)
+- Click a player name to navigate to their Player Detail page
+
+## Player Detail View
+
+**Purpose**: View a player's round-by-round performance breakdown for the current season, with totals and averages.
+
+**How to access**: Click a player name from the Players Summary View or from the Match Detail View player stats table. Or navigate directly to `/player/{ID}`.
+
+**Components**:
+- `PlayerDetailView` in `client/src/views/PlayerDetailView.tsx`
+
+**What you see**:
+- **Back button**: Returns to the previous view
+- **Player header**: Player name (h4), team name chip, position chip, season label with games played count
+- **Season totals**: Summary line showing total tries, run metres, tackles, goals, and fantasy points
+- **Round-by-round table**: One row per match performance with columns — Round, Opponent (derived from match ID), Team, Tries, Goals, Tackles, Run Metres, Fantasy Points, Status
+- **Totals row** (blue background): Sums of all numeric columns
+- **Averages row** (green background, italic): Per-game averages (totals / games played)
+- **Incomplete match indicator**: Rows for incomplete matches shown with reduced opacity (0.6) and a warning icon with tooltip "Partial data — stats may be incomplete"
+- **Player not found**: When navigating to a non-existent player ID, shows "Player not found" with a link back to the Players tab
+
+**Interactions**:
+- Click "Back" to return to the previous view (uses browser history, falls back to `/players`)
 
 ## Supercoach View
 

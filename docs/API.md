@@ -411,6 +411,7 @@ Get full match detail including player statistics for both teams.
   "stadium": "Suncorp Stadium", "weather": "Clear, 22°C",
   "homePlayerStats": [
     {
+      "playerId": "player-name-1995-02-11",
       "playerName": "Player Name", "position": "Five-Eighth",
       "tries": 0, "goals": 2, "tackles": 12, "runMetres": 250,
       "fantasyPoints": 85, "minutesPlayed": 80
@@ -425,6 +426,43 @@ Player stats arrays contain 60+ fields per player (see [Scraping Behaviour — D
 **Errors**: 400 (invalid match ID format), 404 (match not found)
 
 ## Players
+
+### GET /api/players/season/:year
+
+Get aggregated season statistics for all players in a given season. Returns a summary per player with totals and averages across all their match performances.
+
+**Path Parameters**:
+- `year` (number, required): Season year (2020–2030)
+
+**Response** (200):
+```json
+{
+  "season": 2026,
+  "players": [
+    {
+      "playerId": "cameron-munster-1995-02-11",
+      "playerName": "Cameron Munster",
+      "teamCode": "MEL",
+      "position": "Five-Eighth",
+      "gamesPlayed": 10,
+      "totalTries": 2,
+      "totalRunMetres": 2500,
+      "totalTacklesMade": 120,
+      "totalPoints": 44,
+      "averageFantasyPoints": 85.5,
+      "totalTackleBreaks": 15,
+      "totalLineBreaks": 8
+    }
+  ]
+}
+```
+
+**Notes**:
+- Players with no match performances in the season are excluded
+- `teamCode` reflects the player's most recent team in that season (handles mid-season transfers)
+- Stats are aggregated from `match_performances` table via SQL GROUP BY
+
+**Errors**: 400 (invalid year), 404 (no player data for season)
 
 ### GET /api/players/team/:teamCode
 
