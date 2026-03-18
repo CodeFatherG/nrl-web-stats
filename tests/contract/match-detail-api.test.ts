@@ -11,18 +11,18 @@ describe('GET /api/matches/:matchId', () => {
   let mf: Miniflare;
 
   beforeAll(async () => {
-    const matchesMigration = fs.readFileSync(
-      path.join(__dirname, '../../migrations/0002_create_matches_table.sql'),
-      'utf-8'
-    );
-    const strengthMigration = fs.readFileSync(
-      path.join(__dirname, '../../migrations/0003_add_strength_ratings.sql'),
-      'utf-8'
-    );
-    const playerMigration = fs.readFileSync(
-      path.join(__dirname, '../../migrations/0001_create_player_tables.sql'),
-      'utf-8'
-    );
+    const migrationFiles = [
+      '0001_create_player_tables.sql',
+      '0002_create_matches_table.sql',
+      '0003_add_strength_ratings.sql',
+      '0004_create_supplementary_stats.sql',
+      '0006_add_price_breakeven.sql',
+      '0007_create_player_name_links.sql',
+      '0008_add_team_code_to_supplementary_stats.sql',
+    ];
+    const migrationSql = migrationFiles
+      .map(f => fs.readFileSync(path.join(__dirname, '../../migrations', f), 'utf-8'))
+      .join('\n');
 
     mf = new Miniflare({
       modules: true,
@@ -34,14 +34,12 @@ describe('GET /api/matches/:matchId', () => {
 
     // Apply migrations
     const db = await mf.getD1Database('DB');
-    for (const sql of [playerMigration, matchesMigration, strengthMigration]) {
-      const statements = sql
-        .split(/;\s*\n/)
-        .map(s => s.replace(/--.*$/gm, '').trim())
-        .filter(s => s.length > 0);
-      const prepared = statements.map(s => db.prepare(s));
-      await db.batch(prepared);
-    }
+    const statements = migrationSql
+      .split(/;\s*\n/)
+      .map(s => s.replace(/--.*$/gm, '').trim())
+      .filter(s => s.length > 0);
+    const prepared = statements.map(s => db.prepare(s));
+    await db.batch(prepared);
   });
 
   afterAll(async () => {

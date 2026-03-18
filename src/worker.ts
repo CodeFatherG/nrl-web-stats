@@ -17,6 +17,7 @@ import { NrlSupercoachStatsAdapter } from './infrastructure/adapters/nrl-superco
 import { D1SupplementaryStatsRepository } from './infrastructure/persistence/d1-supplementary-stats-repo.js';
 import { ScrapeSupplementaryStatsUseCase } from './application/use-cases/scrape-supplementary-stats.js';
 import { GetSupercoachScoresUseCase } from './application/use-cases/get-supercoach-scores.js';
+import { D1PlayerNameLinkRepository } from './infrastructure/persistence/d1-player-name-link-repo.js';
 import { loadScoringConfig } from './config/supercoach-scoring-config.js';
 import { AnalyticsCache } from './analytics/analytics-cache.js';
 import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
@@ -70,7 +71,8 @@ function initializeDeps(db?: D1Database): void {
       new GetSupercoachScoresUseCase(
         new D1PlayerRepository(reqDb),
         new D1SupplementaryStatsRepository(reqDb),
-        loadScoringConfig(new Date().getFullYear())
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb)
       ),
   } satisfies HandlerDeps);
 
@@ -381,6 +383,72 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
         });
       }
     }
+  }
+
+  // Price/break-even backfill: re-scrape rounds where price or break_even are NULL (migration leftovers)
+  const roundsWithNullPriceBE = await suppRepo.findRoundsWithNullPriceBreakEven();
+
+  logger.info('[CRON] Price/break-even backfill candidates', {
+    roundsDetected: roundsWithNullPriceBE.length,
+    rounds: roundsWithNullPriceBE,
+  });
+
+  if (roundsWithNullPriceBE.length > 0) {
+    let filled = 0;
+    let skipped = 0;
+    for (const { year, round } of roundsWithNullPriceBE) {
+      try {
+        logger.info('[CRON] Starting price/BE backfill scrape', { year, round });
+        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
+        logger.info('[CRON] Price/BE backfill scrape complete', {
+          year,
+          round,
+          playersScraped: backfillResult.playersScraped,
+        });
+        filled++;
+      } catch (backfillError) {
+        logger.error('[CRON] Price/BE backfill scrape failed (will retry next cycle)', {
+          year,
+          round,
+          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
+        });
+        skipped++;
+      }
+    }
+    logger.info('[CRON] Price/BE backfill complete', { filled, skipped, total: roundsWithNullPriceBE.length });
+  }
+
+  // Team code backfill: re-scrape rounds where team_code is NULL (migration leftovers)
+  const roundsWithNullTeamCode = await suppRepo.findRoundsWithNullTeamCode();
+
+  logger.info('[CRON] Team code backfill candidates', {
+    roundsDetected: roundsWithNullTeamCode.length,
+    rounds: roundsWithNullTeamCode,
+  });
+
+  if (roundsWithNullTeamCode.length > 0) {
+    let filled = 0;
+    let skipped = 0;
+    for (const { year, round } of roundsWithNullTeamCode) {
+      try {
+        logger.info('[CRON] Starting team code backfill scrape', { year, round });
+        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
+        logger.info('[CRON] Team code backfill scrape complete', {
+          year,
+          round,
+          playersScraped: backfillResult.playersScraped,
+        });
+        filled++;
+      } catch (backfillError) {
+        logger.error('[CRON] Team code backfill scrape failed (will retry next cycle)', {
+          year,
+          round,
+          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
+        });
+        skipped++;
+      }
+    }
+    logger.info('[CRON] Team code backfill complete', { filled, skipped, total: roundsWithNullTeamCode.length });
   }
 
   logger.info('[CRON] Scheduled handler complete');

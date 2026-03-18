@@ -41,6 +41,8 @@ const JqGridRowSchema = z.object({
   TS: z.string().optional().default('0'),
   KB: z.string().optional().default('0'),
   HG: z.string().optional().default('0'),
+  Price: z.string().optional().default(''),
+  BE: z.string().optional().default(''),
 }).passthrough();
 
 const JqGridResponseSchema = z.object({
@@ -163,6 +165,13 @@ export class NrlSupercoachStatsAdapter implements SupplementaryStatsSource {
     return parseInt(value, 10) || 0;
   }
 
+  /** Parse a string to integer, returning null if empty/missing. Used for non-scoring fields like price/BE. */
+  private toNullableInt(value: string): number | null {
+    if (!value || value.trim() === '') return null;
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
   /** Convert a point-contribution column back to a raw stat count. */
   private pointsToRaw(value: string, pointsPerUnit: number): number {
     const pts = this.toInt(value);
@@ -189,6 +198,9 @@ export class NrlSupercoachStatsAdapter implements SupplementaryStatsSource {
       trySaves: 0, // TS column is "Try Assist Score" (primary duplicate), not try saves
       kickRegatherBreak: this.pointsToRaw(row.KB, POINTS_PER_UNIT.KB),
       heldUpInGoal: this.pointsToRaw(row.HG, POINTS_PER_UNIT.HG),
+      price: this.toNullableInt(row.Price),
+      breakEven: this.toNullableInt(row.BE),
+      teamCode: row.Team || null,
     };
   }
 

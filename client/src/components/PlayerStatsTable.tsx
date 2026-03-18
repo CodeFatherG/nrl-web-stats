@@ -113,7 +113,9 @@ const COLUMNS: ColumnDef[] = [
   { key: 'sinBins', label: 'SB', group: 'Discipline', tip: 'Sin Bins' },
   { key: 'sendOffs', label: 'SO', group: 'Discipline', tip: 'Send Offs' },
 
-  // Supercoach supplementary stats
+  // Supercoach supplementary stats (Price & BE first for visibility)
+  { key: 'price', label: 'Price', group: 'Supercoach', tip: 'Player Price', format: (v: number) => `$${v.toLocaleString()}` },
+  { key: 'breakEven', label: 'BE', group: 'Supercoach', tip: 'Break Even' },
   { key: 'lastTouch', label: 'LT', group: 'Supercoach', tip: 'Last Touch' },
   { key: 'missedGoals', label: 'MG', group: 'Supercoach', tip: 'Missed Goals' },
   { key: 'missedFieldGoals', label: 'MF', group: 'Supercoach', tip: 'Missed Field Goals' },

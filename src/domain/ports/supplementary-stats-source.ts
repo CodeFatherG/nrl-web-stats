@@ -21,6 +21,9 @@ export interface SupplementaryPlayerStats {
   readonly trySaves: number;      // TS
   readonly kickRegatherBreak: number; // KB
   readonly heldUpInGoal: number;   // HG
+  readonly price: number | null;   // Price — player Supercoach price in whole dollars
+  readonly breakEven: number | null; // BE — score needed to maintain current price
+  readonly teamCode: string | null; // Team — 3-letter team code from supplementary source
 }
 
 /** Port for fetching supplementary player statistics */

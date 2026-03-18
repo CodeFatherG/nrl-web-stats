@@ -12,10 +12,17 @@ describe('Player Stats API', () => {
   let mf: Miniflare;
 
   beforeAll(async () => {
-    const migrationSql = fs.readFileSync(
-      path.join(__dirname, '../../migrations/0001_create_player_tables.sql'),
-      'utf-8'
-    );
+    const migrationFiles = [
+      '0001_create_player_tables.sql',
+      '0004_create_supplementary_stats.sql',
+      '0005_drop_published_score.sql',
+      '0006_add_price_breakeven.sql',
+      '0007_create_player_name_links.sql',
+      '0008_add_team_code_to_supplementary_stats.sql',
+    ];
+    const migrationSql = migrationFiles
+      .map(f => fs.readFileSync(path.join(__dirname, '../../migrations', f), 'utf-8'))
+      .join('\n');
 
     mf = new Miniflare({
       modules: true,
@@ -25,7 +32,7 @@ describe('Player Stats API', () => {
       d1Databases: { DB: 'test-db' },
     });
 
-    // Apply migration via batch (db.exec doesn't handle multiline SQL)
+    // Apply migrations via batch (db.exec doesn't handle multiline SQL)
     const db = await mf.getD1Database('DB');
     const statements = migrationSql
       .split(/;\s*\n/)

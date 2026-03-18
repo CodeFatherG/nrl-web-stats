@@ -119,7 +119,9 @@ const COLUMNS: ColumnDef[] = [
   { key: 'sinBins', label: 'SB', group: 'Discipline', tip: 'Sin Bins' },
   { key: 'sendOffs', label: 'SO', group: 'Discipline', tip: 'Send Offs' },
 
-  // Supercoach supplementary stats
+  // Supercoach supplementary stats (Price & BE first for visibility)
+  { key: 'price', label: 'Price', group: 'Supercoach', tip: 'Player Price', format: (v: number) => `$${v.toLocaleString()}` },
+  { key: 'breakEven', label: 'BE', group: 'Supercoach', tip: 'Break Even' },
   { key: 'lastTouch', label: 'LT', group: 'Supercoach', tip: 'Last Touch' },
   { key: 'missedGoals', label: 'MG', group: 'Supercoach', tip: 'Missed Goals' },
   { key: 'missedFieldGoals', label: 'MF', group: 'Supercoach', tip: 'Missed Field Goals' },
@@ -135,7 +137,8 @@ const COLUMNS: ColumnDef[] = [
 const SUMMABLE_KEYS = COLUMNS
   .filter(c => c.key !== 'round' && c.key !== 'opponentTeamCode' &&
     c.key !== 'goalConversionRate' && c.key !== 'tackleEfficiency' &&
-    c.key !== 'passesToRunRatio' && c.key !== 'playTheBallAverageSpeed')
+    c.key !== 'passesToRunRatio' && c.key !== 'playTheBallAverageSpeed' &&
+    c.key !== 'price' && c.key !== 'breakEven')
   .map(c => c.key);
 
 function getGroupHeaders(): Array<{ label: string; span: number }> {
@@ -320,6 +323,38 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
           </Typography>
         </Box>
       </Box>
+
+      {/* Current Price & Break Even */}
+      {performances.length > 0 && (() => {
+        const latest = performances[performances.length - 1]!;
+        const latestPrice = latest.price;
+        const latestBE = latest.breakEven;
+        if (latestPrice == null && latestBE == null) return null;
+        return (
+          <Paper sx={{ p: 2, mb: 2, display: 'flex', gap: 3, alignItems: 'center', bgcolor: '#f3e5f5' }}>
+            {latestPrice != null && (
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Price (Rd {latest.round})
+                </Typography>
+                <Typography variant="h5" fontWeight={700} color="primary.dark">
+                  ${latestPrice.toLocaleString()}
+                </Typography>
+              </Box>
+            )}
+            {latestBE != null && (
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Break Even (Rd {latest.round})
+                </Typography>
+                <Typography variant="h5" fontWeight={700} sx={{ color: latestBE < 0 ? 'success.main' : latestBE > 0 ? 'error.main' : 'text.primary' }}>
+                  {latestBE}
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+        );
+      })()}
 
       {/* Summary Cards */}
       {seasonData && gamesPlayed > 0 && (

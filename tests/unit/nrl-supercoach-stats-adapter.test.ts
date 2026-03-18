@@ -76,6 +76,74 @@ describe('NrlSupercoachStatsAdapter', () => {
       ]);
     });
 
+    it('extracts price as raw integer', async () => {
+      mockFetchResponses([{ data: fixtureData }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.price).toBe(692200);
+
+      const walsh = result.data.find(p => p.playerName === 'Walsh, Reece')!;
+      expect(walsh.price).toBe(511700);
+    });
+
+    it('extracts break even as signed integer (positive, zero, negative)', async () => {
+      mockFetchResponses([{ data: fixtureData }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.breakEven).toBe(42); // positive
+
+      const walsh = result.data.find(p => p.playerName === 'Walsh, Reece')!;
+      expect(walsh.breakEven).toBe(0); // zero
+
+      const munster = result.data.find(p => p.playerName === 'Munster, Cameron')!;
+      expect(munster.breakEven).toBe(-11); // negative
+
+      const haas = result.data.find(p => p.playerName === 'Haas, Payne')!;
+      expect(haas.breakEven).toBe(-110); // large negative
+    });
+
+    it('returns null for price and breakEven when columns are missing', async () => {
+      const noPriceData = JSON.parse(JSON.stringify(fixtureData));
+      delete noPriceData.rows[0].Price;
+      delete noPriceData.rows[0].BE;
+
+      mockFetchResponses([{ data: noPriceData }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.price).toBeNull();
+      expect(cleary.breakEven).toBeNull();
+
+      // Other players should still have values
+      const munster = result.data.find(p => p.playerName === 'Munster, Cameron')!;
+      expect(munster.price).toBe(583100);
+      expect(munster.breakEven).toBe(-11);
+    });
+
+    it('extracts team code from row', async () => {
+      mockFetchResponses([{ data: fixtureData }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.teamCode).toBe('PTH');
+
+      const walsh = result.data.find(p => p.playerName === 'Walsh, Reece')!;
+      expect(walsh.teamCode).toBe('BRO');
+
+      const talakai = result.data.find(p => p.playerName === 'Talakai, Siosifa')!;
+      expect(talakai.teamCode).toBe('SHA');
+    });
+
     it('verifies Munster supplementary stats', async () => {
       mockFetchResponses([{ data: fixtureData }]);
 

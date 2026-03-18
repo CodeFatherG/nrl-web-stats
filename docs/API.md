@@ -525,6 +525,10 @@ Get a single player's profile with season-by-season breakdown.
 }
 ```
 
+Each performance object in the `performances` array includes supplementary stats from nrlsupercoachstats.com (null when unavailable), including:
+- `price` (number | null): Player Supercoach price in whole dollars (e.g., 523400 for $523,400)
+- `breakEven` (number | null): Break even score for the round (signed integer, can be negative)
+
 **Errors**: 400 (missing playerId), 404 (player not found)
 
 ## Supercoach
@@ -550,6 +554,7 @@ Get computed Supercoach scores for all players in a round.
       "playerId": "cameron-munster-1995-02-11",
       "playerName": "Cameron Munster",
       "teamCode": "MEL",
+      "matchConfidence": "exact",
       "totalScore": 85,
       "categories": {
         "Scoring": 20, "Create": 15, "Evade": 12,
@@ -566,6 +571,14 @@ Get computed Supercoach scores for all players in a round.
   }
 }
 ```
+
+The `matchConfidence` field indicates how the player was linked between nrl.com and nrlsupercoachstats.com:
+- `linked` — matched via persisted link database (highest confidence)
+- `exact` — exact normalized name match
+- `normalized` — fuzzy prefix first name match
+- `team_lastname` — matched by last name + team code (unique on team)
+- `override` — legacy manual override (deprecated)
+- `unmatched` — no supplementary data linked
 
 **Errors**: 400 (invalid year/round or team code), 404 (no data for year/round)
 

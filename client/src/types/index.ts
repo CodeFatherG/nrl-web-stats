@@ -405,6 +405,8 @@ export interface PlayerMatchStats {
   trySaves: number | null;
   kickRegatherBreak: number | null;
   heldUpInGoal: number | null;
+  price: number | null;
+  breakEven: number | null;
 }
 
 /** Response from GET /api/matches/:matchId */
@@ -528,6 +530,8 @@ export interface PlayerPerformanceDetail {
   trySaves: number | null;
   kickRegatherBreak: number | null;
   heldUpInGoal: number | null;
+  price: number | null;
+  breakEven: number | null;
 }
 
 /** Season detail within the player detail response */

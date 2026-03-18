@@ -176,8 +176,8 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - **Back button**: Returns to the previous view
 - **Player header**: Player name (h4), team name chip, position chip, season label with games played count
 - **Season totals**: Summary line showing total tries, run metres, tackles, goals, and fantasy points
-- **Round-by-round table**: One row per match performance with columns — Round, Opponent (derived from match ID), Team, Tries, Goals, Tackles, Run Metres, Fantasy Points, Status
-- **Totals row** (blue background): Sums of all numeric columns
+- **Round-by-round table**: One row per match performance with columns grouped by category — Match, Scoring, Running, Passing, Defence, Kicking, Discipline, and Supercoach. The Supercoach group includes supplementary stats (LT, MG, MF, eOL, iOL, R8+, R8-, KB, HG) plus **Price** (formatted as currency, e.g., "$523,400") and **Break Even** (signed integer). Null values display as "—".
+- **Totals row** (blue background): Sums of all numeric columns (Price and Break Even excluded from totals/averages)
 - **Averages row** (green background, italic): Per-game averages (totals / games played)
 - **Incomplete match indicator**: Rows for incomplete matches shown with reduced opacity (0.6) and a warning icon with tooltip "Partial data — stats may be incomplete"
 - **Player not found**: When navigating to a non-existent player ID, shows "Player not found" with a link back to the Players tab

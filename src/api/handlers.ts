@@ -43,7 +43,10 @@ import {
   getTeamByCode,
 } from '../database/store.js';
 import { D1SupplementaryStatsRepository } from '../infrastructure/persistence/d1-supplementary-stats-repo.js';
-import { normalizeName } from '../config/player-name-matcher.js';
+import { D1PlayerNameLinkRepository } from '../infrastructure/persistence/d1-player-name-link-repo.js';
+import { normalizeName, matchPlayerName } from '../config/player-name-matcher.js';
+import type { MatchingContext } from '../config/player-name-matcher.js';
+import type { SupplementaryPlayerStats } from '../domain/ports/supplementary-stats-source.js';
 import { fixtures } from '../database/query.js';
 import {
   getTeamRoundRanking,
@@ -633,13 +636,21 @@ export function getPlayer(deps: HandlerDeps) {
       }
     }
 
-    // Build supplementary stats lookup: normalize player name for matching
+    // Build supplementary stats lookup using centralized name matcher
     const suppRepo = new D1SupplementaryStatsRepository(c.env.DB);
-    // Convert "Nathan Cleary" → "cleary, nathan" for lookup
+    const linkRepo = new D1PlayerNameLinkRepository(c.env.DB);
+
+    // Load persisted links once
+    const persistedLinks = new Map<string, string>();
+    const allLinks = await linkRepo.findAll();
+    for (const link of allLinks) {
+      persistedLinks.set(link.playerId, link.supplementaryName);
+    }
+
     const nameParts = player.name.trim().split(/\s+/);
     const lastName = nameParts.length > 1 ? nameParts.slice(-1).join(' ') : nameParts[0];
     const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
-    const normalizedPlayerName = normalizeName(`${lastName}, ${firstName}`);
+    let linkPersisted = false;
 
     for (const year of seasonsToQuery) {
       const performances = await repo.findMatchPerformances(playerId, year);
@@ -648,11 +659,30 @@ export function getPlayer(deps: HandlerDeps) {
       if (performances.length > 0 || aggregates) {
         // Load supplementary stats for all rounds this player played
         const rounds = [...new Set(performances.map(p => p.round))];
-        const suppByRound = new Map<number, import('../domain/ports/supplementary-stats-source').SupplementaryPlayerStats>();
+        const suppByRound = new Map<number, SupplementaryPlayerStats>();
         for (const round of rounds) {
           const roundSupp = await suppRepo.findByRound(year, round);
-          const match = roundSupp.find(s => normalizeName(s.playerName) === normalizedPlayerName);
-          if (match) suppByRound.set(round, match);
+          const supplementaryNames = roundSupp.map(s => s.playerName);
+          const supplementaryTeamCodes = new Map<string, string>();
+          for (const s of roundSupp) {
+            if (s.teamCode) supplementaryTeamCodes.set(s.playerName, s.teamCode);
+          }
+          const ctx: MatchingContext = { persistedLinks, supplementaryTeamCodes };
+          const identityMatch = matchPlayerName(playerId, firstName, lastName, player.teamCode, supplementaryNames, ctx);
+          if (identityMatch) {
+            const matched = roundSupp.find(s => s.playerName === identityMatch.supplementaryName);
+            if (matched) suppByRound.set(round, matched);
+
+            // Auto-persist new link on first discovery
+            if (!linkPersisted && identityMatch.confidence !== 'linked') {
+              linkPersisted = true;
+              linkRepo.save({
+                playerId, playerName: player.name, teamCode: player.teamCode,
+                supplementaryName: identityMatch.supplementaryName,
+                confidence: identityMatch.confidence, source: 'auto',
+              }).catch(() => {}); // non-blocking
+            }
+          }
         }
 
         seasons[String(year)] = {
@@ -678,6 +708,8 @@ export function getPlayer(deps: HandlerDeps) {
               trySaves: supp?.trySaves ?? null,
               kickRegatherBreak: supp?.kickRegatherBreak ?? null,
               heldUpInGoal: supp?.heldUpInGoal ?? null,
+              price: supp?.price ?? null,
+              breakEven: supp?.breakEven ?? null,
             };
           }),
         };
@@ -1010,23 +1042,43 @@ export function getMatchDetail(deps: HandlerDeps) {
       awayPlayerStats = awayPerfs.map(mapPerformance);
     }
 
-    // Join supplementary stats (from nrlsupercoachstats.com) by player name
+    // Join supplementary stats (from nrlsupercoachstats.com) using centralized matcher
     const suppRepo = new D1SupplementaryStatsRepository(c.env.DB);
+    const linkRepo = new D1PlayerNameLinkRepository(c.env.DB);
     const suppStats = await suppRepo.findByRound(match.year, match.round);
-
-    // Build normalized lookup: "cleary, nathan" → supplementary stats
-    const suppLookup = new Map(
-      suppStats.map(s => [normalizeName(s.playerName), s])
+    const supplementaryNames = suppStats.map(s => s.playerName);
+    const suppMap = new Map<string, SupplementaryPlayerStats>(
+      suppStats.map(s => [s.playerName, s])
     );
 
-    // Merge supplementary fields into player stats
-    const mergeSupp = (player: ReturnType<typeof mapPerformance>) => {
-      // Convert "Nathan Cleary" → "cleary, nathan" for lookup
+    // Build matching context
+    const persistedLinks = new Map<string, string>();
+    const allLinks = await linkRepo.findAll();
+    for (const link of allLinks) {
+      persistedLinks.set(link.playerId, link.supplementaryName);
+    }
+    const supplementaryTeamCodes = new Map<string, string>();
+    for (const s of suppStats) {
+      if (s.teamCode) supplementaryTeamCodes.set(s.playerName, s.teamCode);
+    }
+    const matchCtx: MatchingContext = { persistedLinks, supplementaryTeamCodes };
+
+    // Merge supplementary fields into player stats and auto-persist new links
+    const linksToSave: Array<import('../infrastructure/persistence/d1-player-name-link-repo.js').PlayerNameLink> = [];
+    const mergeSupp = (player: ReturnType<typeof mapPerformance>, teamCode: string) => {
       const parts = player.playerName.trim().split(/\s+/);
       const lastName = parts.length > 1 ? parts.slice(-1).join(' ') : parts[0];
       const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
-      const key = normalizeName(`${lastName}, ${firstName}`);
-      const supp = suppLookup.get(key) ?? null;
+      const identityMatch = matchPlayerName(player.playerId, firstName, lastName, teamCode, supplementaryNames, matchCtx);
+      const supp = identityMatch ? (suppMap.get(identityMatch.supplementaryName) ?? null) : null;
+
+      if (identityMatch && identityMatch.confidence !== 'linked') {
+        linksToSave.push({
+          playerId: player.playerId, playerName: player.playerName, teamCode,
+          supplementaryName: identityMatch.supplementaryName,
+          confidence: identityMatch.confidence, source: 'auto',
+        });
+      }
 
       return {
         ...player,
@@ -1040,8 +1092,18 @@ export function getMatchDetail(deps: HandlerDeps) {
         trySaves: supp?.trySaves ?? null,
         kickRegatherBreak: supp?.kickRegatherBreak ?? null,
         heldUpInGoal: supp?.heldUpInGoal ?? null,
+        price: supp?.price ?? null,
+        breakEven: supp?.breakEven ?? null,
       };
     };
+
+    const homeStats = homePlayerStats.map(p => mergeSupp(p, match.homeTeamCode ?? ''));
+    const awayStats = awayPlayerStats.map(p => mergeSupp(p, match.awayTeamCode ?? ''));
+
+    // Auto-persist new links (non-blocking)
+    if (linksToSave.length > 0) {
+      linkRepo.saveBatch(linksToSave).catch(() => {});
+    }
 
     return c.json({
       matchId: match.id,
@@ -1059,8 +1121,8 @@ export function getMatchDetail(deps: HandlerDeps) {
       scheduledTime: match.scheduledTime,
       stadium: match.stadium,
       weather: match.weather,
-      homePlayerStats: homePlayerStats.map(mergeSupp),
-      awayPlayerStats: awayPlayerStats.map(mergeSupp),
+      homePlayerStats: homeStats,
+      awayPlayerStats: awayStats,
     });
   };
 }

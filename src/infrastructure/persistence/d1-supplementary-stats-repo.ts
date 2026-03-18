@@ -22,8 +22,9 @@ export class D1SupplementaryStatsRepository {
               last_touch, missed_goals, missed_field_goals,
               effective_offloads, ineffective_offloads,
               runs_over_8m, runs_under_8m,
-              try_saves, kick_regather_break, held_up_in_goal
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              try_saves, kick_regather_break, held_up_in_goal,
+              price, break_even, team_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(player_name, season, round) DO UPDATE SET
               last_touch = excluded.last_touch,
               missed_goals = excluded.missed_goals,
@@ -34,7 +35,10 @@ export class D1SupplementaryStatsRepository {
               runs_under_8m = excluded.runs_under_8m,
               try_saves = excluded.try_saves,
               kick_regather_break = excluded.kick_regather_break,
-              held_up_in_goal = excluded.held_up_in_goal`
+              held_up_in_goal = excluded.held_up_in_goal,
+              price = excluded.price,
+              break_even = excluded.break_even,
+              team_code = excluded.team_code`
           )
           .bind(
             stat.playerName,
@@ -49,7 +53,10 @@ export class D1SupplementaryStatsRepository {
             stat.runsUnder8m,
             stat.trySaves,
             stat.kickRegatherBreak,
-            stat.heldUpInGoal
+            stat.heldUpInGoal,
+            stat.price,
+            stat.breakEven,
+            stat.teamCode
           )
       );
     }
@@ -64,7 +71,8 @@ export class D1SupplementaryStatsRepository {
           last_touch, missed_goals, missed_field_goals,
           effective_offloads, ineffective_offloads,
           runs_over_8m, runs_under_8m,
-          try_saves, kick_regather_break, held_up_in_goal
+          try_saves, kick_regather_break, held_up_in_goal,
+          price, break_even, team_code
         FROM supplementary_stats
         WHERE season = ? AND round = ?
         ORDER BY player_name`
@@ -84,6 +92,9 @@ export class D1SupplementaryStatsRepository {
         try_saves: number;
         kick_regather_break: number;
         held_up_in_goal: number;
+        price: number | null;
+        break_even: number | null;
+        team_code: string | null;
       }>();
 
     return (result.results ?? []).map(row => ({
@@ -100,6 +111,9 @@ export class D1SupplementaryStatsRepository {
       trySaves: row.try_saves,
       kickRegatherBreak: row.kick_regather_break,
       heldUpInGoal: row.held_up_in_goal,
+      price: row.price ?? null,
+      breakEven: row.break_even ?? null,
+      teamCode: row.team_code ?? null,
     }));
   }
 
@@ -112,6 +126,40 @@ export class D1SupplementaryStatsRepository {
       .first<{ count: number }>();
 
     return (row?.count ?? 0) > 0;
+  }
+
+  /** Find all (season, round) pairs where any row has null price or break_even (migration backfill). */
+  async findRoundsWithNullPriceBreakEven(): Promise<Array<{ year: number; round: number }>> {
+    const result = await this.db
+      .prepare(
+        `SELECT DISTINCT season, round
+        FROM supplementary_stats
+        WHERE price IS NULL OR break_even IS NULL
+        ORDER BY season, round`
+      )
+      .all<{ season: number; round: number }>();
+
+    return (result.results ?? []).map(row => ({
+      year: row.season,
+      round: row.round,
+    }));
+  }
+
+  /** Find all (season, round) pairs where any row has null team_code (migration backfill). */
+  async findRoundsWithNullTeamCode(): Promise<Array<{ year: number; round: number }>> {
+    const result = await this.db
+      .prepare(
+        `SELECT DISTINCT season, round
+        FROM supplementary_stats
+        WHERE team_code IS NULL
+        ORDER BY season, round`
+      )
+      .all<{ season: number; round: number }>();
+
+    return (result.results ?? []).map(row => ({
+      year: row.season,
+      round: row.round,
+    }));
   }
 
   async deleteRound(season: number, round: number): Promise<void> {

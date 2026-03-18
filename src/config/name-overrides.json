@@ -1,4 +1,0 @@
-{
-  "_comment": "Manual player identity overrides. Maps nrl.com playerId to the exact name string used in nrlsupercoachstats.com. Add entries here for players whose names cannot be matched automatically.",
-  "overrides": {}
-}

@@ -3,6 +3,7 @@
  *
  * Fetches primary stats from PlayerRepository, supplementary stats from D1,
  * runs name matching to join them, computes scores via the scoring service.
+ * Auto-persists new player name links when algorithmic matching succeeds.
  */
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
@@ -11,17 +12,64 @@ import type { ScoringConfig } from '../../config/supercoach-scoring-config.js';
 import type { SupplementaryPlayerStats } from '../../domain/ports/supplementary-stats-source.js';
 import type { RoundSupercoachSummary, SupercoachScore, PlayerSeasonSupercoach, RoundScore } from '../../domain/supercoach-score.js';
 import type { MergedPlayerStats } from '../../analytics/supercoach-types.js';
+import type { D1PlayerNameLinkRepository, PlayerNameLink } from '../../infrastructure/persistence/d1-player-name-link-repo.js';
+import type { MatchingContext } from '../../config/player-name-matcher.js';
 import { extractPrimaryScoringStats } from '../../analytics/supercoach-types.js';
 import { computePlayerScore } from '../../analytics/supercoach-scoring-service.js';
 import { matchPlayerName } from '../../config/player-name-matcher.js';
 import { VALID_TEAM_CODES } from '../../models/team.js';
+import { logger } from '../../utils/logger.js';
 
 export class GetSupercoachScoresUseCase {
   constructor(
     private readonly playerRepository: PlayerRepository,
     private readonly supplementaryRepo: D1SupplementaryStatsRepository,
-    private readonly scoringConfig: ScoringConfig
+    private readonly scoringConfig: ScoringConfig,
+    private readonly linkRepo?: D1PlayerNameLinkRepository
   ) {}
+
+  /** Build matching context from persisted links and supplementary team codes */
+  private async buildMatchingContext(
+    supplementaryStats: SupplementaryPlayerStats[]
+  ): Promise<MatchingContext> {
+    // Load persisted links
+    const persistedLinks = new Map<string, string>();
+    if (this.linkRepo) {
+      const allLinks = await this.linkRepo.findAll();
+      for (const link of allLinks) {
+        persistedLinks.set(link.playerId, link.supplementaryName);
+      }
+    }
+
+    // Build supplementary team code map
+    const supplementaryTeamCodes = new Map<string, string>();
+    for (const stat of supplementaryStats) {
+      if (stat.teamCode) {
+        supplementaryTeamCodes.set(stat.playerName, stat.teamCode);
+      }
+    }
+
+    return { persistedLinks, supplementaryTeamCodes };
+  }
+
+  /** Auto-persist a newly discovered link (non-blocking) */
+  private persistLink(
+    playerId: string,
+    playerName: string,
+    teamCode: string,
+    supplementaryName: string,
+    confidence: string,
+    linksToSave: PlayerNameLink[]
+  ): void {
+    linksToSave.push({
+      playerId,
+      playerName,
+      teamCode,
+      supplementaryName,
+      confidence,
+      source: 'auto',
+    });
+  }
 
   async execute(
     year: number,
@@ -36,15 +84,18 @@ export class GetSupercoachScoresUseCase {
       supplementaryMap.set(stat.playerName, stat);
     }
 
+    const matchingContext = await this.buildMatchingContext(supplementaryStats);
+
     // Get primary stats for all teams (or filtered team)
     const teamCodes = teamCodeFilter ? [teamCodeFilter] : [...VALID_TEAM_CODES];
     const scores: SupercoachScore[] = [];
     let unmatchedCount = 0;
+    const linksToSave: PlayerNameLink[] = [];
 
     for (const teamCode of teamCodes) {
       const performances = await this.playerRepository.findPerformancesByMatch(year, round, teamCode);
 
-      for (const { playerName, performance } of performances) {
+      for (const { playerName, playerId, performance } of performances) {
         // Split player name into first/last for matching
         const nameParts = playerName.split(' ');
         const firstName = nameParts[0] ?? '';
@@ -53,11 +104,12 @@ export class GetSupercoachScoresUseCase {
         // Try to find supplementary match
         const identityMatch = supplementaryStats.length > 0
           ? matchPlayerName(
-              performance.matchId + '-' + playerName, // use a composite key for matching context
+              playerId,
               firstName,
               lastName,
               teamCode,
-              supplementaryNames
+              supplementaryNames,
+              matchingContext
             )
           : null;
 
@@ -67,6 +119,15 @@ export class GetSupercoachScoresUseCase {
         if (identityMatch) {
           supplementary = supplementaryMap.get(identityMatch.supplementaryName) ?? null;
           matchConfidence = identityMatch.confidence;
+
+          // Auto-persist new links (skip if already a persisted link)
+          if (identityMatch.confidence !== 'linked' && this.linkRepo) {
+            this.persistLink(
+              playerId, playerName, teamCode,
+              identityMatch.supplementaryName, identityMatch.confidence,
+              linksToSave
+            );
+          }
         } else if (supplementaryStats.length > 0) {
           unmatchedCount++;
         }
@@ -113,6 +174,16 @@ export class GetSupercoachScoresUseCase {
       }
     }
 
+    // Batch-save new links
+    if (linksToSave.length > 0 && this.linkRepo) {
+      try {
+        await this.linkRepo.saveBatch(linksToSave);
+        logger.info('Auto-persisted player name links', { count: linksToSave.length, year, round });
+      } catch (err) {
+        logger.error('Failed to persist player name links', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     // Sort by total score descending
     scores.sort((a, b) => b.totalScore - a.totalScore);
 
@@ -147,7 +218,17 @@ export class GetSupercoachScoresUseCase {
     const performances = await this.playerRepository.findMatchPerformances(playerId, year);
     if (performances.length === 0) return null;
 
+    // Load persisted links once for the whole request
+    const persistedLinks = new Map<string, string>();
+    if (this.linkRepo) {
+      const allLinks = await this.linkRepo.findAll();
+      for (const link of allLinks) {
+        persistedLinks.set(link.playerId, link.supplementaryName);
+      }
+    }
+
     const rounds: RoundScore[] = [];
+    const linksToSave: PlayerNameLink[] = [];
 
     for (const perf of performances) {
       // Get supplementary stats for this round
@@ -158,17 +239,26 @@ export class GetSupercoachScoresUseCase {
         supplementaryMap.set(stat.playerName, stat);
       }
 
+      // Build team codes for this round
+      const supplementaryTeamCodes = new Map<string, string>();
+      for (const stat of supplementaryStats) {
+        if (stat.teamCode) {
+          supplementaryTeamCodes.set(stat.playerName, stat.teamCode);
+        }
+      }
+
       const nameParts = player.name.split(' ');
       const firstName = nameParts[0] ?? '';
       const lastName = nameParts.slice(1).join(' ') || firstName;
 
       const identityMatch = supplementaryStats.length > 0
         ? matchPlayerName(
-            perf.matchId + '-' + player.name,
+            playerId,
             firstName,
             lastName,
             perf.teamCode,
-            supplementaryNames
+            supplementaryNames,
+            { persistedLinks, supplementaryTeamCodes }
           )
         : null;
 
@@ -178,6 +268,15 @@ export class GetSupercoachScoresUseCase {
       if (identityMatch) {
         supplementary = supplementaryMap.get(identityMatch.supplementaryName) ?? null;
         matchConfidence = identityMatch.confidence;
+
+        // Auto-persist new links
+        if (identityMatch.confidence !== 'linked' && this.linkRepo) {
+          this.persistLink(
+            playerId, player.name, perf.teamCode,
+            identityMatch.supplementaryName, identityMatch.confidence,
+            linksToSave
+          );
+        }
       }
 
       const primaryStats = extractPrimaryScoringStats({
@@ -225,6 +324,16 @@ export class GetSupercoachScoresUseCase {
         isComplete: score.isComplete,
         categoryTotals: score.categoryTotals,
       });
+    }
+
+    // Batch-save new links
+    if (linksToSave.length > 0 && this.linkRepo) {
+      try {
+        await this.linkRepo.saveBatch(linksToSave);
+        logger.info('Auto-persisted player name links (single player)', { count: linksToSave.length, playerId });
+      } catch (err) {
+        logger.error('Failed to persist player name links', { error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     // Sort by round

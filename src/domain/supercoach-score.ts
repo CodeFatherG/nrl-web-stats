@@ -29,7 +29,7 @@ export interface ValidationWarning {
 }
 
 /** Identity match confidence level */
-export type MatchConfidence = 'exact' | 'normalized' | 'override' | 'unmatched';
+export type MatchConfidence = 'linked' | 'exact' | 'normalized' | 'team_lastname' | 'override' | 'unmatched';
 
 /** Score contributions grouped by category */
 export type CategoryBreakdown = Record<ScoringCategory, StatContribution[]>;

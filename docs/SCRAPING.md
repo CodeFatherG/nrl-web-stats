@@ -120,6 +120,11 @@ The primary value of this source is the **strength ratings**, which are not avai
 | `H8` | `runs_over_8m` | Runs over 8 metres |
 | `HU` | `runs_under_8m` | Runs under 8 metres |
 | `TS` | `try_saves` | Try saves |
+| `Price` | `price` | Player Supercoach price in whole dollars (raw integer, not a point contribution) |
+| `BE` | `break_even` | Break even score — points needed to maintain current price (signed integer) |
+
+**Additional Fields Extracted**:
+- `Team` — 3-letter team code (e.g., PTH, BRO, GCT). Persisted to `supplementary_stats.team_code` for team-based player name matching.
 
 **Rate Limiting**: 2-second delay between page requests to avoid overloading the source.
 
@@ -131,6 +136,23 @@ The primary value of this source is the **strength ratings**, which are not avai
 - Match dates or times
 - Weather conditions
 - Primary player statistics (available from NRL.com Match Centre)
+
+## Player Name Linking
+
+Players can have different names across nrl.com and nrlsupercoachstats.com (e.g., "AJ Brimson" vs "Alexander Brimson"). The system uses a five-tier matching strategy to link players between sources:
+
+1. **Persisted link** — D1 `player_name_links` table stores confirmed mappings (highest priority)
+2. **Exact normalized** — Normalizes both names (lowercase, strip diacritics/apostrophes/hyphens) and compares
+3. **Fuzzy prefix** — Exact last name + first name prefix matching (handles "N" → "Nathan")
+4. **Team-based last name** — Exact last name + matching team code + only one candidate on that team
+5. **Unmatched** — No match found
+
+When tiers 2–4 produce a match, the link is **auto-persisted** to the `player_name_links` table. Subsequent lookups use tier 1 (the persisted link), which is stable even if new players with similar names are added later.
+
+**Manual corrections**: Insert/update rows in `player_name_links` via `wrangler d1 execute` with `source = 'manual'`. Manual links take the same priority as auto links (tier 1).
+
+**Matcher**: `src/config/player-name-matcher.ts`
+**Link repository**: `src/infrastructure/persistence/d1-player-name-link-repo.ts`
 
 ## Data NOT Scraped (Any Source)
 
