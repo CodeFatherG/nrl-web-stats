@@ -20,6 +20,9 @@ import { GetSupercoachScoresUseCase } from './application/use-cases/get-supercoa
 import { D1PlayerNameLinkRepository } from './infrastructure/persistence/d1-player-name-link-repo.js';
 import { loadScoringConfig } from './config/supercoach-scoring-config.js';
 import { AnalyticsCache } from './analytics/analytics-cache.js';
+import { NrlComTeamListAdapter } from './infrastructure/adapters/nrl-com-team-list-adapter.js';
+import { D1TeamListRepository } from './infrastructure/persistence/d1-team-list-repository.js';
+import { ScrapeTeamListsUseCase } from './application/use-cases/scrape-team-lists.js';
 import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
 import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outlook.js';
 import { GetPlayerTrendsUseCase } from './application/use-cases/get-player-trends.js';
@@ -40,6 +43,7 @@ const dataSource = new SuperCoachStatsAdapter();
 const matchResultSource = new NrlComMatchResultAdapter();
 const playerStatsSource = new NrlComPlayerStatsAdapter();
 const supplementaryStatsSource = new NrlSupercoachStatsAdapter();
+const teamListSource = new NrlComTeamListAdapter();
 const analyticsCache = new AnalyticsCache();
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
 
@@ -74,6 +78,9 @@ function initializeDeps(db?: D1Database): void {
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb)
       ),
+    createScrapeTeamListsUseCase: (reqDb: D1Database) =>
+      new ScrapeTeamListsUseCase(teamListSource, new D1TeamListRepository(reqDb), matchRepository),
+    createTeamListRepository: (reqDb: D1Database) => new D1TeamListRepository(reqDb),
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -416,6 +423,62 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       }
     }
     logger.info('[CRON] Price/BE backfill complete', { filled, skipped, total: roundsWithNullPriceBE.length });
+  }
+
+  // Team list scraping: initial Tuesday scrape + window-based updates (24h/90min before match)
+  const currentYear = new Date(event.scheduledTime).getFullYear();
+  try {
+    const teamListUseCase = new ScrapeTeamListsUseCase(
+      teamListSource,
+      new D1TeamListRepository(env.DB),
+      matchRepository
+    );
+
+    // Find the current/upcoming round and scrape team lists
+    const allMatches = await matchRepository.findByYear(currentYear);
+    const upcomingRounds = [...new Set(
+      allMatches
+        .filter(m => m.status !== 'Completed')
+        .map(m => m.round)
+    )].sort((a, b) => a - b);
+
+    if (upcomingRounds.length > 0) {
+      // Scrape the next upcoming round
+      const nextRound = upcomingRounds[0];
+      logger.info('[CRON] Starting team list scrape', { year: currentYear, round: nextRound });
+      const tlResult = await teamListUseCase.execute(currentYear, nextRound);
+      logger.info('[CRON] Team list scrape complete', {
+        year: currentYear,
+        round: nextRound,
+        scraped: tlResult.scrapedCount,
+        skipped: tlResult.skippedCount,
+        warnings: tlResult.warnings.length,
+      });
+    }
+
+    // Window-based updates: 24 hours and 90 minutes before kickoff
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const NINETY_MINUTES = 90 * 60 * 1000;
+
+    const windowResult24h = await teamListUseCase.scrapeMatchesInWindow(currentYear, TWENTY_FOUR_HOURS, currentTime);
+    if (windowResult24h.scrapedCount > 0) {
+      logger.info('[CRON] 24h window team list update', { scraped: windowResult24h.scrapedCount });
+    }
+
+    const windowResult90m = await teamListUseCase.scrapeMatchesInWindow(currentYear, NINETY_MINUTES, currentTime);
+    if (windowResult90m.scrapedCount > 0) {
+      logger.info('[CRON] 90min window team list update', { scraped: windowResult90m.scrapedCount });
+    }
+
+    // Backfill completed matches missing team lists
+    const backfillResult = await teamListUseCase.backfillCompleted(currentYear);
+    if (backfillResult.backfilledCount > 0) {
+      logger.info('[CRON] Team list backfill complete', { backfilled: backfillResult.backfilledCount });
+    }
+  } catch (tlError) {
+    logger.error('[CRON] Team list scraping failed (will retry next cycle)', {
+      error: tlError instanceof Error ? tlError.message : 'Unknown error',
+    });
   }
 
   // Team code backfill: re-scrape rounds where team_code is NULL (migration leftovers)

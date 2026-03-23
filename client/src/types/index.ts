@@ -409,6 +409,21 @@ export interface PlayerMatchStats {
   breakEven: number | null;
 }
 
+/** A single player in a team list */
+export interface TeamListMember {
+  jerseyNumber: number;
+  playerName: string;
+  position: string;
+  playerId: number;
+}
+
+/** Team list data for one team in a match */
+export interface TeamListData {
+  teamCode: string;
+  scrapedAt: string;
+  members: TeamListMember[];
+}
+
 /** Response from GET /api/matches/:matchId */
 export interface MatchDetailResponse {
   matchId: string;
@@ -426,6 +441,8 @@ export interface MatchDetailResponse {
   scheduledTime: string | null;
   stadium: string | null;
   weather: string | null;
+  homeTeamList: TeamListData | null;
+  awayTeamList: TeamListData | null;
   homePlayerStats: PlayerMatchStats[];
   awayPlayerStats: PlayerMatchStats[];
 }

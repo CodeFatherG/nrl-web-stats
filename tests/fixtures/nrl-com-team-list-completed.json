@@ -1,0 +1,63 @@
+{
+  "matchId": 20260301,
+  "matchState": "FullTime",
+  "roundNumber": 3,
+  "homeTeam": {
+    "teamId": 500013,
+    "players": [
+      { "playerId": 300001, "firstName": "Kaeo", "lastName": "Weekes", "position": "Fullback", "number": 1 },
+      { "playerId": 300002, "firstName": "Xavier", "lastName": "Savage", "position": "Wing", "number": 2 },
+      { "playerId": 300003, "firstName": "Matt", "lastName": "Timoko", "position": "Centre", "number": 3 },
+      { "playerId": 300004, "firstName": "Sebastian", "lastName": "Kris", "position": "Centre", "number": 4 },
+      { "playerId": 300005, "firstName": "Nick", "lastName": "Cotric", "position": "Wing", "number": 5 },
+      { "playerId": 300006, "firstName": "Ethan", "lastName": "Strange", "position": "Five-Eighth", "number": 6 },
+      { "playerId": 300007, "firstName": "Jamal", "lastName": "Fogarty", "position": "Halfback", "number": 7 },
+      { "playerId": 300008, "firstName": "Josh", "lastName": "Papali'i", "position": "Prop", "number": 8 },
+      { "playerId": 300009, "firstName": "Tom", "lastName": "Starling", "position": "Hooker", "number": 9 },
+      { "playerId": 300010, "firstName": "Joseph", "lastName": "Tapine", "position": "Prop", "number": 10 },
+      { "playerId": 300011, "firstName": "Hudson", "lastName": "Young", "position": "Second Row", "number": 11 },
+      { "playerId": 300012, "firstName": "Morgan", "lastName": "Smithies", "position": "Second Row", "number": 12 },
+      { "playerId": 300013, "firstName": "Elliott", "lastName": "Whitehead", "position": "Lock", "number": 13 },
+      { "playerId": 300014, "firstName": "Zac", "lastName": "Woolford", "position": "Interchange", "number": 14 },
+      { "playerId": 300015, "firstName": "Corey", "lastName": "Horsburgh", "position": "Interchange", "number": 15 },
+      { "playerId": 300016, "firstName": "Trey", "lastName": "Mooney", "position": "Interchange", "number": 16 },
+      { "playerId": 300017, "firstName": "Peter", "lastName": "Hola", "position": "Interchange", "number": 17 },
+      { "playerId": 300018, "firstName": "Ata", "lastName": "Mariota", "position": "Reserve", "number": 18 },
+      { "playerId": 300019, "firstName": "Emre", "lastName": "Guler", "position": "Reserve", "number": 19 },
+      { "playerId": 300020, "firstName": "Pasami", "lastName": "Saulo", "position": "Reserve", "number": 20 },
+      { "playerId": 300021, "firstName": "Seb", "lastName": "Kris", "position": "Reserve", "number": 21 }
+    ]
+  },
+  "awayTeam": {
+    "teamId": 500032,
+    "players": [
+      { "playerId": 400001, "firstName": "Charnze", "lastName": "Nicoll-Klokstad", "position": "Fullback", "number": 1 },
+      { "playerId": 400002, "firstName": "Dallin", "lastName": "Watene-Zelezniak", "position": "Wing", "number": 2 },
+      { "playerId": 400003, "firstName": "Adam", "lastName": "Pompey", "position": "Centre", "number": 3 },
+      { "playerId": 400004, "firstName": "Roger", "lastName": "Tuivasa-Sheck", "position": "Centre", "number": 4 },
+      { "playerId": 400005, "firstName": "Marcelo", "lastName": "Montoya", "position": "Wing", "number": 5 },
+      { "playerId": 400006, "firstName": "Te Maire", "lastName": "Martin", "position": "Five-Eighth", "number": 6 },
+      { "playerId": 400007, "firstName": "Shaun", "lastName": "Johnson", "position": "Halfback", "number": 7 },
+      { "playerId": 400008, "firstName": "Addin", "lastName": "Fonua-Blake", "position": "Prop", "number": 8 },
+      { "playerId": 400009, "firstName": "Wayde", "lastName": "Egan", "position": "Hooker", "number": 9 },
+      { "playerId": 400010, "firstName": "Tohu", "lastName": "Harris", "position": "Prop", "number": 10 },
+      { "playerId": 400011, "firstName": "Marata", "lastName": "Niukore", "position": "Second Row", "number": 11 },
+      { "playerId": 400012, "firstName": "Mitchell", "lastName": "Barnett", "position": "Second Row", "number": 12 },
+      { "playerId": 400013, "firstName": "Jazz", "lastName": "Tevaga", "position": "Lock", "number": 13 },
+      { "playerId": 400014, "firstName": "Bunty", "lastName": "Afoa", "position": "Interchange", "number": 14 },
+      { "playerId": 400015, "firstName": "Kurt", "lastName": "Capewell", "position": "Interchange", "number": 15 },
+      { "playerId": 400016, "firstName": "Jackson", "lastName": "Ford", "position": "Interchange", "number": 16 },
+      { "playerId": 400017, "firstName": "Taniela", "lastName": "Otukolo", "position": "Interchange", "number": 17 },
+      { "playerId": 400018, "firstName": "Edward", "lastName": "Kosi", "position": "Reserve", "number": 18 },
+      { "playerId": 400019, "firstName": "Freddy", "lastName": "Lussick", "position": "Reserve", "number": 19 },
+      { "playerId": 400020, "firstName": "Demitric", "lastName": "Sifakula", "position": "Reserve", "number": 20 },
+      { "playerId": 400021, "firstName": "Chanel", "lastName": "Harris-Tavita", "position": "Reserve", "number": 21 }
+    ]
+  },
+  "stats": {
+    "players": {
+      "homeTeam": [],
+      "awayTeam": []
+    }
+  }
+}

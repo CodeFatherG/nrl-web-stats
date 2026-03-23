@@ -65,6 +65,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/players/:playerId', handlers.getPlayer(deps));
   api.post('/scrape/players', handlers.triggerPlayerScrape(deps));
   api.post('/scrape/supercoach', handlers.triggerSupercoachScrape(deps));
+  api.post('/scrape/team-lists', handlers.triggerTeamListScrape(deps));
 
   // Supercoach Scores (player route must come before :round to avoid conflict)
   api.get('/supercoach/:year/player/:playerId', handlers.getPlayerSupercoachSeason(deps));

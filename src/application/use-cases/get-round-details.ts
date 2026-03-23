@@ -1,5 +1,6 @@
 import type { FixtureRepository } from '../ports/fixture-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { RoundDetailsResult, RoundMatch } from '../results/round-details-result.js';
 import { createMatchId, MatchStatus } from '../../domain/match.js';
 import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter.js';
@@ -7,7 +8,8 @@ import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter
 export class GetRoundDetailsUseCase {
   constructor(
     private readonly fixtures: FixtureRepository,
-    private readonly matchRepository?: MatchRepository
+    private readonly matchRepository?: MatchRepository,
+    private readonly teamListRepository?: TeamListRepository
   ) {}
 
   async execute(year: number, round: number): Promise<RoundDetailsResult> {
@@ -32,6 +34,8 @@ export class GetRoundDetailsUseCase {
         let stadium: string | null = null;
         let weather: string | null = null;
 
+        let hasTeamLists = false;
+
         if (this.matchRepository) {
           const matchId = createMatchId(fixture.teamCode, fixture.opponentCode, year, round);
           const match = await this.matchRepository.findById(matchId);
@@ -42,6 +46,10 @@ export class GetRoundDetailsUseCase {
             isComplete = match.status === MatchStatus.Completed;
             stadium = match.stadium;
             weather = match.weather;
+          }
+
+          if (this.teamListRepository) {
+            hasTeamLists = await this.teamListRepository.hasTeamListsForMatch(matchId);
           }
         }
 
@@ -56,6 +64,7 @@ export class GetRoundDetailsUseCase {
           isComplete,
           stadium,
           weather,
+          hasTeamLists,
         });
       }
     }
@@ -71,6 +80,6 @@ export class GetRoundDetailsUseCase {
   }
 }
 
-export function createGetRoundDetailsUseCase(matchRepository?: MatchRepository): GetRoundDetailsUseCase {
-  return new GetRoundDetailsUseCase(fixtureRepositoryAdapter, matchRepository);
+export function createGetRoundDetailsUseCase(matchRepository?: MatchRepository, teamListRepository?: TeamListRepository): GetRoundDetailsUseCase {
+  return new GetRoundDetailsUseCase(fixtureRepositoryAdapter, matchRepository, teamListRepository);
 }

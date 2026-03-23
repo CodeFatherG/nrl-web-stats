@@ -153,7 +153,8 @@ Get all matches and bye teams for a specific round.
       "homeStrength": 0.65, "awayStrength": 0.35,
       "homeScore": null, "awayScore": null,
       "scheduledTime": "2026-03-15T18:00:00Z", "isComplete": false,
-      "stadium": "AAMI Park", "weather": "Clear, 20°C"
+      "stadium": "AAMI Park", "weather": "Clear, 20°C",
+      "hasTeamLists": true
     }
   ],
   "byeTeams": ["NZL", "PTH"]
@@ -389,6 +390,33 @@ Trigger supplementary stats scraping from nrlsupercoachstats.com for Supercoach 
 
 **Errors**: 400 (invalid parameters), 502 (scrape failed)
 
+### POST /api/scrape/team-lists
+
+Trigger team list (lineup) scraping for a season/round.
+
+**Request Body**:
+```json
+{ "year": 2026, "round": 5 }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `year` | number | Yes | Season year (2020–2030) |
+| `round` | number | No | Round number (1–31). If omitted, scrapes all rounds for the year |
+
+**Response** (200):
+```json
+{
+  "success": true, "year": 2026, "round": 5,
+  "scrapedCount": 16, "skippedCount": 0, "backfilledCount": 0,
+  "warnings": [
+    { "type": "EMPTY_TEAM_LIST", "message": "No players in home team roster for 2026-R5-BRO-MEL", "context": {} }
+  ]
+}
+```
+
+**Errors**: 400 (invalid year or round)
+
 ## Matches
 
 ### GET /api/matches/:matchId
@@ -409,6 +437,14 @@ Get full match detail including player statistics for both teams.
   "homeStrengthRating": 0.65, "awayStrengthRating": 0.35,
   "scheduledTime": "2026-03-15T18:00:00Z",
   "stadium": "Suncorp Stadium", "weather": "Clear, 22°C",
+  "homeTeamList": {
+    "teamCode": "BRO",
+    "scrapedAt": "2026-03-15T06:00:00Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Reece Walsh", "position": "Fullback", "playerId": 100001 }
+    ]
+  },
+  "awayTeamList": null,
   "homePlayerStats": [
     {
       "playerId": "player-name-1995-02-11",
@@ -422,6 +458,8 @@ Get full match detail including player statistics for both teams.
 ```
 
 Player stats arrays contain 60+ fields per player (see [Scraping Behaviour — Data Source 3](SCRAPING.md#data-source-3-nrlcom-match-centre-player-statistics) for full field list).
+
+Team list fields (`homeTeamList`, `awayTeamList`) are `null` when no team list data is available. When present, `members` are ordered by jersey number (1–17), with starters (1–13) before interchange (14–17).
 
 **Errors**: 400 (invalid match ID format), 404 (match not found)
 

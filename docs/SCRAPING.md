@@ -154,6 +154,41 @@ When tiers 2–4 produce a match, the link is **auto-persisted** to the `player_
 **Matcher**: `src/config/player-name-matcher.ts`
 **Link repository**: `src/infrastructure/persistence/d1-player-name-link-repo.ts`
 
+## Data Source 5: NRL.com Match Centre (Team Lists / Lineups)
+
+**URL**: Same draw API to discover match centre URLs, then `https://www.nrl.com{matchCentreUrl}data` per match
+
+**Format**: JSON (validated with Zod)
+
+**Two-Step Process** (same pattern as Data Source 3):
+1. Fetch draw API to get `matchCentreUrl` for each match in the round
+2. Fetch each match centre URL to extract player roster with jersey numbers
+
+**Data Extracted**:
+- Jersey number (1–17)
+- Player name (first + last)
+- Position
+- Player ID
+
+**Team list composition**: 17 players per team — starters (jersey 1–13) and interchange (jersey 14–17). Players outside the 1–17 range are filtered out.
+
+**Save Behaviour**:
+- Upcoming/in-progress matches: Team lists are replaced (delete + re-insert) on each scrape
+- Completed matches: Team lists are only saved if no existing data — existing team lists for completed matches are never overwritten
+
+**Scrape Modes**:
+1. **Initial scrape**: Fetch team lists for all matches in the current round (triggered Tuesday 4pm AEST when team lists are released)
+2. **Window-based update**: Re-fetch for matches within 24h or 90min of kickoff (catches late changes)
+3. **Backfill**: Populate team lists for completed matches that are missing data
+
+**Edge Cases**:
+- Matches where nrl.com returns empty player arrays (team list not yet published) are gracefully skipped with an `EMPTY_TEAM_LIST` warning
+- Source fetch failures produce `TEAM_LIST_FETCH_FAILED`, `WINDOW_SCRAPE_FAILED`, or `BACKFILL_FETCH_FAILED` warnings
+
+**Adapter**: `NrlComTeamListAdapter` in `src/infrastructure/adapters/nrl-com-team-list-adapter.ts`
+
+**Persistence**: `D1TeamListRepository` in `src/infrastructure/persistence/d1-team-list-repository.ts` — flattened table with one row per squad member, PK: `(match_id, team_code, jersey_number)`
+
 ## Data NOT Scraped (Any Source)
 
 - Historical player data (pre-match career stats)
@@ -179,3 +214,4 @@ Configured via cron triggers in `wrangler.jsonc`:
 2. Identifies rounds needing result scraping (match scheduled time + 2-hour buffer has passed, status still Scheduled)
 3. Identifies rounds needing player stats (all matches Completed, no player stats yet in repository)
 4. Scrapes results first, then player stats for completed rounds
+5. Team list scraping: initial round scrape, 24h window updates, 90min window updates, then backfill of completed matches missing team lists

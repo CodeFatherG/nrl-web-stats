@@ -3,7 +3,7 @@
  */
 
 /** Warning types for malformed data during scraping */
-export type WarningType = 'MALFORMED_CELL' | 'MISSING_DATA' | 'PARSE_ERROR' | 'UNPAIRED_FIXTURE' | 'UNMAPPED_TEAM' | 'UNPARSEABLE_ROUND' | 'MATCH_FETCH_FAILED' | 'PLAYER_NOT_IN_ROSTER';
+export type WarningType = 'MALFORMED_CELL' | 'MISSING_DATA' | 'PARSE_ERROR' | 'UNPAIRED_FIXTURE' | 'UNMAPPED_TEAM' | 'UNPARSEABLE_ROUND' | 'MATCH_FETCH_FAILED' | 'PLAYER_NOT_IN_ROSTER' | 'TEAM_LIST_FETCH_FAILED' | 'EMPTY_TEAM_LIST' | 'WINDOW_SCRAPE_FAILED' | 'BACKFILL_FETCH_FAILED';
 
 /** Warning for malformed data during scraping */
 export interface Warning {

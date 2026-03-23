@@ -33,6 +33,8 @@ import type { ScrapeMatchResultsUseCase } from '../application/use-cases/scrape-
 import type { ScrapePlayerStatsUseCase } from '../application/use-cases/scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from '../application/use-cases/scrape-supplementary-stats.js';
 import type { GetSupercoachScoresUseCase } from '../application/use-cases/get-supercoach-scores.js';
+import type { ScrapeTeamListsUseCase } from '../application/use-cases/scrape-team-lists.js';
+import type { TeamListRepository } from '../domain/repositories/team-list-repository.js';
 import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
@@ -79,6 +81,10 @@ export interface HandlerDeps {
   createScrapeSupplementaryStatsUseCase: (db: D1Database) => ScrapeSupplementaryStatsUseCase;
   /** Factory to create a per-request GetSupercoachScoresUseCase from the DB binding */
   createGetSupercoachScoresUseCase: (db: D1Database) => GetSupercoachScoresUseCase;
+  /** Factory to create a per-request ScrapeTeamListsUseCase from the DB binding */
+  createScrapeTeamListsUseCase: (db: D1Database) => ScrapeTeamListsUseCase;
+  /** Factory to create a per-request TeamListRepository from the DB binding */
+  createTeamListRepository: (db: D1Database) => TeamListRepository;
 }
 
 // Environment bindings type
@@ -261,7 +267,8 @@ export function getRoundDetails(deps: HandlerDeps) {
     if (!roundResult.success) {
       return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
     }
-    const result = await createGetRoundDetailsUseCase(deps.matchRepository).execute(yearResult.data, roundResult.data);
+    const teamListRepo = deps.createTeamListRepository(c.env.DB);
+    const result = await createGetRoundDetailsUseCase(deps.matchRepository, teamListRepo).execute(yearResult.data, roundResult.data);
     return c.json(result);
   };
 }
@@ -1105,6 +1112,26 @@ export function getMatchDetail(deps: HandlerDeps) {
       linkRepo.saveBatch(linksToSave).catch(() => {});
     }
 
+    // Fetch team lists if available
+    const teamListRepo = deps.createTeamListRepository(c.env.DB);
+    const teamLists = await teamListRepo.findByMatch(match.id);
+    const homeTeamList = teamLists.find(tl => tl.teamCode === match.homeTeamCode) ?? null;
+    const awayTeamList = teamLists.find(tl => tl.teamCode === match.awayTeamCode) ?? null;
+
+    const formatTeamList = (tl: typeof homeTeamList) =>
+      tl
+        ? {
+            teamCode: tl.teamCode,
+            scrapedAt: tl.scrapedAt,
+            members: tl.members.map(m => ({
+              jerseyNumber: m.jerseyNumber,
+              playerName: m.playerName,
+              position: m.position,
+              playerId: m.playerId,
+            })),
+          }
+        : null;
+
     return c.json({
       matchId: match.id,
       year: match.year,
@@ -1121,8 +1148,51 @@ export function getMatchDetail(deps: HandlerDeps) {
       scheduledTime: match.scheduledTime,
       stadium: match.stadium,
       weather: match.weather,
+      homeTeamList: formatTeamList(homeTeamList),
+      awayTeamList: formatTeamList(awayTeamList),
       homePlayerStats: homeStats,
       awayPlayerStats: awayStats,
     });
+  };
+}
+
+// ============================================
+// Team List Scrape Trigger
+// ============================================
+
+const TeamListScrapeSchema = z.object({
+  year: z.coerce.number().int().min(1998),
+  round: z.coerce.number().int().min(1).max(30).optional(),
+});
+
+/**
+ * POST /api/scrape/team-lists - Trigger team list scrape
+ */
+export function triggerTeamListScrape(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parseResult = TeamListScrapeSchema.safeParse(body);
+
+    if (!parseResult.success) {
+      return errorResponse(c, 'INVALID_REQUEST', 'Request must include a valid year', 400);
+    }
+
+    const { year, round } = parseResult.data;
+
+    try {
+      const useCase = deps.createScrapeTeamListsUseCase(c.env.DB);
+      const result = await useCase.execute(year, round);
+
+      return c.json({
+        success: result.success,
+        scrapedCount: result.scrapedCount,
+        skippedCount: result.skippedCount,
+        backfilledCount: result.backfilledCount,
+        warnings: result.warnings.map(w => w.message),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'SCRAPE_FAILED', `Failed to scrape team lists: ${message}`, 500);
+    }
   };
 }

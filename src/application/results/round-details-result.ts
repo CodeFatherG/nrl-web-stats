@@ -9,6 +9,7 @@ export interface RoundMatch {
   isComplete: boolean;
   stadium: string | null;
   weather: string | null;
+  hasTeamLists: boolean;
 }
 
 export interface RoundDetailsResult {

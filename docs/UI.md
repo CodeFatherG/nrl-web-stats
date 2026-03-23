@@ -122,6 +122,7 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - **Match header**: Round and year, outlook badge (if available), "Match In Progress" warning (if applicable)
 - **Teams display**: Home team (left) and away team (right) with strength rating badges. Score displayed in centre if match is completed, or "vs" if not started
 - **Match info**: Formatted date/time, stadium name, weather conditions
+- **Team lists** (when available): Side-by-side display of home and away team lineups, showing jersey number, player name, and position. Starters (1–13) are separated from interchange (14–17) with a visual divider. Each player name is clickable to navigate to their player detail page. Shows "scraped at" timestamp below each team list. Hidden when team list data is null.
 - **Player statistics** (only for completed/in-progress matches): Two tables (one per team) with 45+ stat columns organised into grouped categories:
   - **Player**: Name (sticky column), Position, Minutes, Stint One
   - **Scoring**: Tries, Try Assists, Goals, Conversions, Points, Field Goals

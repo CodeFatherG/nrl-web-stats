@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { PlayerStatsTable } from '../components/PlayerStatsTable';
+import { TeamListDisplay } from '../components/TeamListDisplay';
 import { StrengthBadge } from '../components/StrengthBadge';
 import { OutlookBadge } from '../components/OutlookBadge';
 import { getMatchDetail, getMatchOutlook } from '../services/api';
@@ -185,6 +186,17 @@ export function MatchDetailView({ matchId, onBack, strengthThresholds, onPlayerC
           )}
         </Box>
       </Paper>
+
+      {/* Team Lists */}
+      <TeamListDisplay
+        homeTeamList={match.homeTeamList}
+        awayTeamList={match.awayTeamList}
+        homeTeamName={match.homeTeamName}
+        awayTeamName={match.awayTeamName}
+        homeTeamCode={match.homeTeamCode}
+        awayTeamCode={match.awayTeamCode}
+        onPlayerClick={onPlayerClick}
+      />
 
       {/* Player Stats */}
       {(isCompleted || isInProgress) && (
