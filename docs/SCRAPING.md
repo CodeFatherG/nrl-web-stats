@@ -200,6 +200,34 @@ When tiers 2–4 produce a match, the link is **auto-persisted** to the `player_
 - Video referee decisions
 - Substitution timing details
 
+## Data Source 6: NRL.com Casualty Ward API (Injuries)
+
+**URL**: `https://www.nrl.com/casualty-ward/data?competition=111`
+
+**Format**: JSON (validated with Zod)
+
+**Data Extracted**:
+- Player first/last name
+- Team nickname (resolved to 3-letter team code via `resolveTeam()`)
+- Injury type (e.g., "Knee", "Shoulder", "Concussion")
+- Expected return (e.g., "Round 10", "TBC", "Indefinite", "Next Season")
+
+**Change Detection Algorithm**:
+The API provides a point-in-time snapshot (no historical data). The scraper uses diff-based change detection:
+1. Fetch current casualty list from API
+2. Load all open records (end_date IS NULL) from D1
+3. Build lookup maps keyed by `firstName|lastName|teamCode`
+4. **New entries**: Players in API but not in open DB records → INSERT with today as start_date
+5. **Closed entries**: Open DB records not in API → UPDATE with today as end_date
+6. **Updated entries**: Matching records where injury or expectedReturn changed → UPDATE fields
+7. **Source failure safety**: If API fetch fails, no records are closed (prevents false closures)
+
+**Player ID Linkage**: After insert, attempts to match casualty ward entries to existing player records via name + team code lookup from the player repository.
+
+**Data NOT Extracted from This Source**:
+- Historical injury dates (API is snapshot-only — tracked via start/end dates in D1)
+- Severity classification (only free-text injury description available)
+
 ## Scraping Schedule
 
 Configured via cron triggers in `wrangler.jsonc`:
@@ -215,3 +243,4 @@ Configured via cron triggers in `wrangler.jsonc`:
 3. Identifies rounds needing player stats (all matches Completed, no player stats yet in repository)
 4. Scrapes results first, then player stats for completed rounds
 5. Team list scraping: initial round scrape, 24h window updates, 90min window updates, then backfill of completed matches missing team lists
+6. Casualty ward scraping: fetches current snapshot, applies change detection to insert/close/update records

@@ -1,0 +1,64 @@
+{
+  "casualties": [
+    {
+      "firstName": "Jack",
+      "lastName": "Gosiewski",
+      "expectedReturn": "Round 4",
+      "imageUrl": "/remote.axd?test-image-1.png",
+      "injury": "Concussion",
+      "teamNickname": "Broncos",
+      "theme": { "key": "broncos", "logos": {} },
+      "url": "https://www.nrl.com/players/nrl-premiership/broncos/jack-gosiewski/"
+    },
+    {
+      "firstName": "Adam",
+      "lastName": "Reynolds",
+      "expectedReturn": "Round 4",
+      "imageUrl": "/remote.axd?test-image-2.png",
+      "injury": "Ribs",
+      "teamNickname": "Broncos",
+      "theme": { "key": "broncos", "logos": {} },
+      "url": "https://www.nrl.com/players/nrl-premiership/broncos/adam-reynolds/"
+    },
+    {
+      "firstName": "Payne",
+      "lastName": "Haas",
+      "expectedReturn": "TBC",
+      "imageUrl": "/remote.axd?test-image-3.png",
+      "injury": "Shoulder",
+      "teamNickname": "Broncos",
+      "theme": { "key": "broncos", "logos": {} },
+      "url": "https://www.nrl.com/players/nrl-premiership/broncos/payne-haas/"
+    },
+    {
+      "firstName": "Nathan",
+      "lastName": "Cleary",
+      "expectedReturn": "Round 6",
+      "imageUrl": "/remote.axd?test-image-4.png",
+      "injury": "Knee",
+      "teamNickname": "Panthers",
+      "theme": { "key": "panthers", "logos": {} },
+      "url": "https://www.nrl.com/players/nrl-premiership/panthers/nathan-cleary/"
+    },
+    {
+      "firstName": "Cameron",
+      "lastName": "Munster",
+      "expectedReturn": "Indefinite",
+      "imageUrl": "/remote.axd?test-image-5.png",
+      "injury": "ACL",
+      "teamNickname": "Storm",
+      "theme": { "key": "storm", "logos": {} },
+      "url": "https://www.nrl.com/players/nrl-premiership/storm/cameron-munster/"
+    }
+  ],
+  "filterCompetitions": [
+    { "theme": { "key": "nrl-premiership", "logos": {} }, "text": "Telstra Premiership", "value": 111 }
+  ],
+  "filterTeams": [
+    { "text": "All Teams", "value": 0 },
+    { "theme": { "key": "broncos", "logos": {} }, "text": "Broncos", "value": 500011 },
+    { "theme": { "key": "panthers", "logos": {} }, "text": "Panthers", "value": 500014 },
+    { "theme": { "key": "storm", "logos": {} }, "text": "Storm", "value": 500021 }
+  ],
+  "selectedCompetitionId": 111
+}

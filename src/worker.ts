@@ -23,6 +23,9 @@ import { AnalyticsCache } from './analytics/analytics-cache.js';
 import { NrlComTeamListAdapter } from './infrastructure/adapters/nrl-com-team-list-adapter.js';
 import { D1TeamListRepository } from './infrastructure/persistence/d1-team-list-repository.js';
 import { ScrapeTeamListsUseCase } from './application/use-cases/scrape-team-lists.js';
+import { ScrapeCasualtyWardUseCase } from './application/use-cases/scrape-casualty-ward.js';
+import { NrlComCasualtyWardAdapter } from './infrastructure/adapters/nrl-com-casualty-ward-adapter.js';
+import { D1CasualtyWardRepository } from './infrastructure/persistence/d1-casualty-ward-repository.js';
 import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
 import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outlook.js';
 import { GetPlayerTrendsUseCase } from './application/use-cases/get-player-trends.js';
@@ -44,6 +47,7 @@ const matchResultSource = new NrlComMatchResultAdapter();
 const playerStatsSource = new NrlComPlayerStatsAdapter();
 const supplementaryStatsSource = new NrlSupercoachStatsAdapter();
 const teamListSource = new NrlComTeamListAdapter();
+const casualtyWardSource = new NrlComCasualtyWardAdapter();
 const analyticsCache = new AnalyticsCache();
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
 
@@ -81,6 +85,9 @@ function initializeDeps(db?: D1Database): void {
     createScrapeTeamListsUseCase: (reqDb: D1Database) =>
       new ScrapeTeamListsUseCase(teamListSource, new D1TeamListRepository(reqDb), matchRepository),
     createTeamListRepository: (reqDb: D1Database) => new D1TeamListRepository(reqDb),
+    createScrapeCasualtyWardUseCase: (reqDb: D1Database) =>
+      new ScrapeCasualtyWardUseCase(casualtyWardSource, new D1CasualtyWardRepository(reqDb)),
+    createCasualtyWardRepository: (reqDb: D1Database) => new D1CasualtyWardRepository(reqDb),
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -478,6 +485,28 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   } catch (tlError) {
     logger.error('[CRON] Team list scraping failed (will retry next cycle)', {
       error: tlError instanceof Error ? tlError.message : 'Unknown error',
+    });
+  }
+
+  // Casualty ward scrape: runs on Tuesday/Wednesday crons to track player injuries
+  try {
+    const casualtyWardUseCase = new ScrapeCasualtyWardUseCase(
+      casualtyWardSource,
+      new D1CasualtyWardRepository(env.DB)
+    );
+    logger.info('[CRON] Starting casualty ward scrape');
+    const cwResult = await casualtyWardUseCase.execute();
+    logger.info('[CRON] Casualty ward scrape complete', {
+      success: cwResult.success,
+      newEntries: cwResult.newEntries,
+      closedEntries: cwResult.closedEntries,
+      updatedEntries: cwResult.updatedEntries,
+      totalOpen: cwResult.totalOpen,
+      warnings: cwResult.warnings.length,
+    });
+  } catch (cwError) {
+    logger.error('[CRON] Casualty ward scrape failed (will retry next cycle)', {
+      error: cwError instanceof Error ? cwError.message : 'Unknown error',
     });
   }
 

@@ -3,6 +3,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import PersonIcon from '@mui/icons-material/Person';
+import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
 import type { ActiveTab, RoundViewMode } from '../types';
@@ -21,7 +22,7 @@ export function TabNavigation({
   onRoundViewModeChange,
 }: TabNavigationProps) {
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
-    const tabs: ActiveTab[] = ['round', 'team', 'bye', 'player'];
+    const tabs: ActiveTab[] = ['round', 'team', 'bye', 'player', 'casualtyWard'];
     onTabChange(tabs[newValue] ?? 'round');
   };
 
@@ -46,7 +47,7 @@ export function TabNavigation({
       }}
     >
       <Tabs
-        value={activeTab === 'round' ? 0 : activeTab === 'team' ? 1 : activeTab === 'bye' ? 2 : 3}
+        value={activeTab === 'round' ? 0 : activeTab === 'team' ? 1 : activeTab === 'bye' ? 2 : activeTab === 'player' ? 3 : 4}
         onChange={handleChange}
         aria-label="Schedule view tabs"
       >
@@ -77,6 +78,13 @@ export function TabNavigation({
           label="Players"
           id="tab-player"
           aria-controls="tabpanel-player"
+        />
+        <Tab
+          icon={<LocalHospitalIcon />}
+          iconPosition="start"
+          label="Casualty Ward"
+          id="tab-casualty-ward"
+          aria-controls="tabpanel-casualty-ward"
         />
       </Tabs>
 

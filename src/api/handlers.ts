@@ -35,6 +35,8 @@ import type { ScrapeSupplementaryStatsUseCase } from '../application/use-cases/s
 import type { GetSupercoachScoresUseCase } from '../application/use-cases/get-supercoach-scores.js';
 import type { ScrapeTeamListsUseCase } from '../application/use-cases/scrape-team-lists.js';
 import type { TeamListRepository } from '../domain/repositories/team-list-repository.js';
+import type { ScrapeCasualtyWardUseCase } from '../application/use-cases/scrape-casualty-ward.js';
+import type { CasualtyWardRepository } from '../domain/repositories/casualty-ward-repository.js';
 import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
@@ -85,6 +87,10 @@ export interface HandlerDeps {
   createScrapeTeamListsUseCase: (db: D1Database) => ScrapeTeamListsUseCase;
   /** Factory to create a per-request TeamListRepository from the DB binding */
   createTeamListRepository: (db: D1Database) => TeamListRepository;
+  /** Factory to create a per-request ScrapeCasualtyWardUseCase from the DB binding */
+  createScrapeCasualtyWardUseCase: (db: D1Database) => ScrapeCasualtyWardUseCase;
+  /** Factory to create a per-request CasualtyWardRepository from the DB binding */
+  createCasualtyWardRepository: (db: D1Database) => CasualtyWardRepository;
 }
 
 // Environment bindings type
@@ -1193,6 +1199,106 @@ export function triggerTeamListScrape(deps: HandlerDeps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'SCRAPE_FAILED', `Failed to scrape team lists: ${message}`, 500);
+    }
+  };
+}
+
+// ============================================
+// Casualty Ward
+// ============================================
+
+/**
+ * POST /api/scrape/casualty-ward - Trigger casualty ward scrape
+ */
+export function triggerCasualtyWardScrape(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const useCase = deps.createScrapeCasualtyWardUseCase(c.env.DB);
+      const result = await useCase.execute();
+
+      return c.json({
+        success: result.success,
+        newEntries: result.newEntries,
+        closedEntries: result.closedEntries,
+        updatedEntries: result.updatedEntries,
+        totalOpen: result.totalOpen,
+        warnings: result.warnings.map(w => w.message),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'SCRAPE_FAILED', `Failed to scrape casualty ward: ${message}`, 500);
+    }
+  };
+}
+
+/**
+ * GET /api/casualty-ward - Get all currently injured players
+ */
+export function getCasualtyWard(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const repo = deps.createCasualtyWardRepository(c.env.DB);
+      const entries = await repo.findOpen();
+
+      return c.json({
+        entries: entries.map(e => ({
+          id: e.id,
+          firstName: e.firstName,
+          lastName: e.lastName,
+          playerName: `${e.firstName} ${e.lastName}`,
+          teamCode: e.teamCode,
+          injury: e.injury,
+          expectedReturn: e.expectedReturn,
+          startDate: e.startDate,
+          endDate: e.endDate,
+          playerId: e.playerId,
+        })),
+        count: entries.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'FETCH_FAILED', `Failed to fetch casualty ward: ${message}`, 500);
+    }
+  };
+}
+
+/**
+ * GET /api/casualty-ward/player/:playerId - Get injury history for a player
+ */
+export function getPlayerInjuryHistory(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const playerId = c.req.param('playerId');
+
+    if (!playerId) {
+      return errorResponse(c, 'INVALID_PARAMS', 'Player ID is required', 400);
+    }
+
+    try {
+      const repo = deps.createCasualtyWardRepository(c.env.DB);
+      const entries = await repo.findByPlayerId(playerId);
+
+      if (entries.length === 0) {
+        return errorResponse(c, 'NOT_FOUND', `No casualty ward records found for player ${playerId}`, 404);
+      }
+
+      return c.json({
+        playerId,
+        entries: entries.map(e => ({
+          id: e.id,
+          firstName: e.firstName,
+          lastName: e.lastName,
+          playerName: `${e.firstName} ${e.lastName}`,
+          teamCode: e.teamCode,
+          injury: e.injury,
+          expectedReturn: e.expectedReturn,
+          startDate: e.startDate,
+          endDate: e.endDate,
+          playerId: e.playerId,
+        })),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'FETCH_FAILED', `Failed to fetch player injury history: ${message}`, 500);
     }
   };
 }

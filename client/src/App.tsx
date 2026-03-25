@@ -12,8 +12,9 @@ import { ByeOverviewView } from './views/ByeOverviewView';
 import { MatchDetailView } from './views/MatchDetailView';
 import { PlayersSummaryView } from './views/PlayersSummaryView';
 import { PlayerDetailView } from './views/PlayerDetailView';
+import { CasualtyWardView } from './views/CasualtyWardView';
 import { useRouter } from './hooks/useRouter';
-import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, getValidTeamCodes } from './utils/routes';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, getValidTeamCodes } from './utils/routes';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook, getSeasonPlayers } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak, PlayerSeasonSummary } from './types';
@@ -40,6 +41,7 @@ function App() {
     if (route.type === 'team') return 'team';
     if (route.type === 'bye') return 'bye';
     if (route.type === 'players' || route.type === 'player') return 'player';
+    if (route.type === 'casualtyWard') return 'casualtyWard';
     return 'round';
   });
 
@@ -137,6 +139,10 @@ function App() {
       setActiveTab('player');
       setSelectedMatchId(null);
       setSelectedPlayerId(route.playerId);
+    } else if (route.type === 'casualtyWard') {
+      setActiveTab('casualtyWard');
+      setSelectedMatchId(null);
+      setSelectedPlayerId(null);
     }
   }, [route, isPopState]);
 
@@ -348,6 +354,8 @@ function App() {
         navigate(buildByeUrl());
       } else if (tab === 'player') {
         navigate(buildPlayersUrl());
+      } else if (tab === 'casualtyWard') {
+        navigate(buildCasualtyWardUrl());
       }
     },
     [navigate, selectedTeamCode, roundViewMode, selectedRound, teams]
@@ -565,6 +573,13 @@ function App() {
                 teams={teams}
                 onPlayerClick={handlePlayerClick}
                 loading={playerSummaryLoading}
+              />
+            )}
+
+            {activeTab === 'casualtyWard' && (
+              <CasualtyWardView
+                teams={teams}
+                onPlayerClick={handlePlayerClick}
               />
             )}
           </>

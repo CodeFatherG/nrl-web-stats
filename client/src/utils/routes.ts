@@ -21,6 +21,7 @@ export type RouteMatch =
   | { type: 'supercoachRound'; roundNumber: number }
   | { type: 'players' }
   | { type: 'player'; playerId: string }
+  | { type: 'casualtyWard' }
   | { type: 'notFound'; path: string };
 
 /** Check if a team code is valid (case-insensitive) */
@@ -98,6 +99,11 @@ export function parseUrl(pathname: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
+  // /casualty-ward
+  if (segments.length === 1 && segments[0] === 'casualty-ward') {
+    return { type: 'casualtyWard' };
+  }
+
   // /players
   if (segments.length === 1 && segments[0] === 'players') {
     return { type: 'players' };
@@ -148,6 +154,11 @@ export function buildSupercoachUrl(): string {
 /** Build URL for a specific supercoach round */
 export function buildSupercoachRoundUrl(roundNumber: number): string {
   return `/supercoach/${roundNumber}`;
+}
+
+/** Build URL for casualty ward */
+export function buildCasualtyWardUrl(): string {
+  return '/casualty-ward';
 }
 
 /** Build URL for players summary */

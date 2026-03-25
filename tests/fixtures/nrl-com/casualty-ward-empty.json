@@ -1,0 +1,10 @@
+{
+  "casualties": [],
+  "filterCompetitions": [
+    { "theme": { "key": "nrl-premiership", "logos": {} }, "text": "Telstra Premiership", "value": 111 }
+  ],
+  "filterTeams": [
+    { "text": "All Teams", "value": 0 }
+  ],
+  "selectedCompetitionId": 111
+}

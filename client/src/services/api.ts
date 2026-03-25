@@ -332,6 +332,41 @@ export interface PlayerSeasonSupercoachResponse {
   roundsPlayed: number;
 }
 
+// Casualty Ward API
+
+export interface CasualtyWardEntry {
+  id: number;
+  firstName: string;
+  lastName: string;
+  playerName: string;
+  teamCode: string;
+  injury: string;
+  expectedReturn: string;
+  startDate: string;
+  endDate: string | null;
+  playerId: string | null;
+}
+
+export interface CasualtyWardResponse {
+  entries: CasualtyWardEntry[];
+  count: number;
+}
+
+export interface PlayerInjuryHistoryResponse {
+  playerId: string;
+  entries: CasualtyWardEntry[];
+}
+
+export async function getCasualtyWard(): Promise<CasualtyWardResponse> {
+  return fetchApi<CasualtyWardResponse>('/casualty-ward');
+}
+
+export async function getPlayerInjuryHistory(
+  playerId: string
+): Promise<PlayerInjuryHistoryResponse> {
+  return fetchApi<PlayerInjuryHistoryResponse>(`/casualty-ward/player/${encodeURIComponent(playerId)}`);
+}
+
 export async function getPlayerSupercoachSeason(
   year: number,
   playerId: string

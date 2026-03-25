@@ -18,7 +18,8 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import { getPlayer } from '../services/api';
+import { getPlayer, getPlayerInjuryHistory } from '../services/api';
+import type { CasualtyWardEntry } from '../services/api';
 import { buildPlayersUrl } from '../utils/routes';
 import type { PlayerDetailResponse, PlayerPerformanceDetail, Team } from '../types';
 
@@ -192,6 +193,7 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [injuries, setInjuries] = useState<CasualtyWardEntry[]>([]);
 
   const teamNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -207,9 +209,15 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
     setError(null);
     setNotFound(false);
 
-    getPlayer(playerId)
-      .then(data => {
-        if (!cancelled) setPlayer(data);
+    Promise.all([
+      getPlayer(playerId),
+      getPlayerInjuryHistory(playerId).catch(() => ({ entries: [] as CasualtyWardEntry[] })),
+    ])
+      .then(([data, injuryData]) => {
+        if (!cancelled) {
+          setPlayer(data);
+          setInjuries(injuryData.entries);
+        }
       })
       .catch(err => {
         if (!cancelled) {
@@ -392,7 +400,7 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
         </Typography>
       ) : (
         <>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ mt: 2 }}>
             Round-by-Round Performance
           </Typography>
           <TableContainer component={Paper} sx={{ maxHeight: 'calc(100vh - 480px)' }}>
@@ -546,6 +554,46 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
             </Table>
           </TableContainer>
         </>
+      )}
+
+      {/* Injury History */}
+      {injuries.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            Injury History
+          </Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Injury</TableCell>
+                  <TableCell>Expected Return</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>End Date</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {injuries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>{entry.injury}</TableCell>
+                    <TableCell>{entry.expectedReturn}</TableCell>
+                    <TableCell>{entry.startDate}</TableCell>
+                    <TableCell>{entry.endDate ?? '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={entry.endDate ? 'Recovered' : 'Current'}
+                        size="small"
+                        color={entry.endDate ? 'success' : 'error'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
       )}
     </Box>
   );

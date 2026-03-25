@@ -4,12 +4,13 @@ The frontend is a React 18 + Material-UI 5.x single-page application served via 
 
 ## Navigation
 
-The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Five main tabs control the primary view:
+The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Six main tabs control the primary view:
 
 - **Round Overview** — view matches by round (detailed or compact mode)
 - **Team Schedule** — view a single team's full season
 - **Bye Overview** — grid of bye schedules across all teams
 - **Players** — browse all players' season statistics with sortable, searchable summary table
+- **Casualty Ward** — view currently injured players grouped by expected return
 - **Supercoach** — view computed Supercoach scores per round
 
 When in the Round Overview tab, toggle buttons switch between **Detailed** (single round list) and **Compact** (9×3 season grid) modes.
@@ -29,6 +30,7 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 | `/match/{ID}` | Match Detail | `ID`: match identifier string |
 | `/players` | Players Season Summary | None |
 | `/player/{ID}` | Player Detail | `ID`: player identifier string |
+| `/casualty-ward` | Casualty Ward | None |
 | `/supercoach` | Supercoach Scores (latest round) | None |
 | `/supercoach/{N}` | Supercoach Scores for round N | `N`: round number, integer 1–27 |
 
@@ -181,10 +183,30 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - **Totals row** (blue background): Sums of all numeric columns (Price and Break Even excluded from totals/averages)
 - **Averages row** (green background, italic): Per-game averages (totals / games played)
 - **Incomplete match indicator**: Rows for incomplete matches shown with reduced opacity (0.6) and a warning icon with tooltip "Partial data — stats may be incomplete"
+- **Injury history** (when available): Table showing the player's injury records from the casualty ward, with columns for Injury, Expected Return, Start Date, End Date, and Status. Status shows "Current" (red chip) for active injuries or "Recovered" (green chip) for past injuries.
 - **Player not found**: When navigating to a non-existent player ID, shows "Player not found" with a link back to the Players tab
 
 **Interactions**:
 - Click "Back" to return to the previous view (uses browser history, falls back to `/players`)
+
+## Casualty Ward View
+
+**Purpose**: View all currently injured players, grouped by their expected return timeline.
+
+**How to access**: Select the **Casualty Ward** tab (hospital icon) in the main navigation bar, or navigate directly to `/casualty-ward`.
+
+**Components**:
+- `CasualtyWardView` in `client/src/views/CasualtyWardView.tsx`
+
+**What you see**:
+- **Title**: "Casualty Ward (N players)" showing total count of currently injured players
+- **Grouped sections**: One section per expected return value (e.g., "Round 10", "TBC", "Indefinite", "Next Season"), each with a count chip
+- **Per section table**: Columns — Player (clickable if linked to player record), Team, Injury, Since (start date). Rows sorted alphabetically by last name within each group
+
+**Group ordering**: Round N (sorted numerically) → TBC → Indefinite → Next Season → Other
+
+**Interactions**:
+- Click a player name (when linked) to navigate to their Player Detail page with injury history
 
 ## Supercoach View
 

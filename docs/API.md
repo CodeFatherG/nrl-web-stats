@@ -652,6 +652,85 @@ Get a player's Supercoach scoring trend across the season.
 
 **Errors**: 400 (invalid year or playerId), 404 (player not found)
 
+## Casualty Ward
+
+### GET /api/casualty-ward
+
+Get all currently active casualty ward entries (players with open injuries).
+
+**Parameters**: None
+
+**Response** (200):
+```json
+{
+  "entries": [
+    {
+      "id": 1,
+      "firstName": "Nathan",
+      "lastName": "Cleary",
+      "playerName": "Nathan Cleary",
+      "teamCode": "PTH",
+      "injury": "Knee",
+      "expectedReturn": "Round 10",
+      "startDate": "2026-03-25",
+      "endDate": null,
+      "playerId": "nathan-cleary-1998-01-14"
+    }
+  ],
+  "count": 15
+}
+```
+
+### GET /api/casualty-ward/player/:playerId
+
+Get injury history for a specific player.
+
+**Path Parameters**:
+- `playerId` (string, required): Player ID
+
+**Response** (200):
+```json
+{
+  "playerId": "nathan-cleary-1998-01-14",
+  "entries": [
+    {
+      "id": 1,
+      "firstName": "Nathan",
+      "lastName": "Cleary",
+      "playerName": "Nathan Cleary",
+      "teamCode": "PTH",
+      "injury": "Knee",
+      "expectedReturn": "Round 10",
+      "startDate": "2026-03-25",
+      "endDate": "2026-05-01",
+      "playerId": "nathan-cleary-1998-01-14"
+    }
+  ]
+}
+```
+
+**Errors**: 404 (player not found)
+
+### POST /api/scrape/casualty-ward
+
+Trigger casualty ward scrape from nrl.com. Uses change detection to insert new entries, close removed entries, and update changed injuries/expected returns.
+
+**Request Body**: None required
+
+**Response** (200):
+```json
+{
+  "success": true,
+  "newEntries": 3,
+  "closedEntries": 1,
+  "updatedEntries": 0,
+  "totalOpen": 15,
+  "warnings": []
+}
+```
+
+**Errors**: 502 (nrl.com API failure)
+
 ## Analytics
 
 ### GET /api/analytics/form/:year/:teamCode

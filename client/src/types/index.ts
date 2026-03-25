@@ -165,7 +165,7 @@ export interface StrengthThresholds {
 
 export type StrengthCategory = 'easy' | 'medium' | 'hard';
 
-export type ActiveTab = 'team' | 'round' | 'bye' | 'player';
+export type ActiveTab = 'team' | 'round' | 'bye' | 'player' | 'casualtyWard';
 
 export interface AppState {
   serverReady: boolean;
