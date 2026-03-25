@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS player_name_links (
   PRIMARY KEY (player_id)
 );
 
-CREATE INDEX idx_player_name_links_supp ON player_name_links(supplementary_name);
+CREATE INDEX IF NOT EXISTS idx_player_name_links_supp ON player_name_links(supplementary_name);
