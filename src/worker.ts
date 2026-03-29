@@ -80,7 +80,8 @@ function initializeDeps(db?: D1Database): void {
         new D1PlayerRepository(reqDb),
         new D1SupplementaryStatsRepository(reqDb),
         loadScoringConfig(new Date().getFullYear()),
-        new D1PlayerNameLinkRepository(reqDb)
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
       ),
     createScrapeTeamListsUseCase: (reqDb: D1Database) =>
       new ScrapeTeamListsUseCase(teamListSource, new D1TeamListRepository(reqDb), matchRepository),

@@ -571,61 +571,148 @@ Each performance object in the `performances` array includes supplementary stats
 
 ## Supercoach
 
-### GET /api/supercoach/:year/:round
+All Supercoach endpoints share a common **match result** shape. A match result contains two team groups (home and away), each with player scores and a `teamTotal`. The `teamTotal` always equals the arithmetic sum of its `players` array `totalScore` values.
 
-Get computed Supercoach scores for all players in a round.
-
-**Path Parameters**:
-- `year` (number, required): Season year
-- `round` (number, required): Round number (1–27)
-
-**Query Parameters**:
-- `teamCode` (string, optional): Filter to a specific team (3 uppercase letters)
-
-**Response** (200):
-```json
-{
-  "year": 2026, "round": 1,
-  "isComplete": true,
-  "scores": [
-    {
-      "playerId": "cameron-munster-1995-02-11",
-      "playerName": "Cameron Munster",
-      "teamCode": "MEL",
-      "matchConfidence": "exact",
-      "totalScore": 85,
-      "categories": {
-        "Scoring": 20, "Create": 15, "Evade": 12,
-        "Base": 25, "Defence": 18, "Negative": -5
-      }
-    }
-  ],
-  "validationSummary": {
-    "totalPlayers": 234,
-    "playersWithWarnings": 3,
-    "warnings": [
-      { "playerId": "...", "type": "score_difference", "detail": "Computed 85 vs published 82 (diff: 3)" }
-    ]
-  }
-}
-```
-
-The `matchConfidence` field indicates how the player was linked between nrl.com and nrlsupercoachstats.com:
+**Shared `matchConfidence` values** — how a player was linked between nrl.com and nrlsupercoachstats.com:
 - `linked` — matched via persisted link database (highest confidence)
 - `exact` — exact normalized name match
 - `normalized` — fuzzy prefix first name match
 - `team_lastname` — matched by last name + team code (unique on team)
-- `override` — legacy manual override (deprecated)
+- `override` — legacy manual override
 - `unmatched` — no supplementary data linked
 
-**Errors**: 400 (invalid year/round or team code), 404 (no data for year/round)
+**Error envelope**: `{ "error": "CODE", "message": "...", "validOptions": [...] }`
+
+---
+
+### GET /api/supercoach/:year/match/:matchId
+
+Get Supercoach scores for a single match, grouped by team.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `matchId` (string, required): Match ID in format `{year}-R{round}-{teamA}-{teamB}` (e.g. `2026-R3-NQC-BRI`)
+
+**Response** (200):
+```json
+{
+  "matchId": "2026-R3-NQC-BRI",
+  "year": 2026,
+  "round": 3,
+  "isComplete": true,
+  "homeTeam": {
+    "teamCode": "NQC",
+    "teamName": "North Queensland Cowboys",
+    "teamTotal": 612,
+    "isComplete": true,
+    "players": [
+      {
+        "playerId": "jason-taumalolo-1993-09-12",
+        "playerName": "Jason Taumalolo",
+        "teamCode": "NQC",
+        "matchId": "2026-R3-NQC-BRI",
+        "year": 2026,
+        "round": 3,
+        "totalScore": 95,
+        "isComplete": true,
+        "matchConfidence": "linked",
+        "categoryTotals": { "scoring": 20, "create": 10, "evade": 15, "base": 42, "defence": 12, "negative": -4 },
+        "categories": { "scoring": [], "create": [], "evade": [], "base": [], "defence": [], "negative": [] },
+        "validationWarnings": []
+      }
+    ]
+  },
+  "awayTeam": {
+    "teamCode": "BRI",
+    "teamName": "Brisbane Broncos",
+    "teamTotal": 589,
+    "isComplete": true,
+    "players": []
+  }
+}
+```
+
+**Errors**: 400 `INVALID_YEAR`, 400 `INVALID_MATCH_ID`, 404 `MATCH_NOT_FOUND`
+
+---
+
+### GET /api/supercoach/:year/:round
+
+Get Supercoach scores for all matches in a round. Each match entry uses the shared match result shape.
+
+**⚠️ Breaking change**: Previous response was a flat `{ scores: [] }` array. Now returns `{ matches: [] }`.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `round` (number, required): Round number (1–27)
+
+**Response** (200):
+```json
+{
+  "year": 2026,
+  "round": 3,
+  "isComplete": true,
+  "matchCount": 8,
+  "matches": [
+    {
+      "matchId": "2026-R3-NQC-BRI",
+      "year": 2026,
+      "round": 3,
+      "isComplete": true,
+      "homeTeam": { "teamCode": "NQC", "teamName": "...", "teamTotal": 612, "isComplete": true, "players": [] },
+      "awayTeam": { "teamCode": "BRI", "teamName": "...", "teamTotal": 589, "isComplete": true, "players": [] }
+    }
+  ]
+}
+```
+
+Returns `{ matches: [] }` (empty array, not 404) when no data exists for the round.
+
+**Errors**: 400 `INVALID_YEAR`, 400 `INVALID_ROUND`
+
+---
+
+### GET /api/supercoach/:year/team/:teamCode
+
+Get all matches a team played in a year. Each match uses the shared match result shape and includes both teams.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `teamCode` (string, required): 3-letter team code (uppercase, e.g. `NQC`)
+
+**Response** (200):
+```json
+{
+  "year": 2026,
+  "teamCode": "NQC",
+  "teamName": "North Queensland Cowboys",
+  "matches": [
+    {
+      "matchId": "2026-R1-NQC-BRI",
+      "year": 2026,
+      "round": 1,
+      "isComplete": true,
+      "homeTeam": { "teamCode": "NQC", "teamTotal": 590, "isComplete": true, "players": [] },
+      "awayTeam": { "teamCode": "BRI", "teamTotal": 620, "isComplete": true, "players": [] }
+    }
+  ]
+}
+```
+
+Returns `{ matches: [] }` (not 404) when team has no data for the year. Ordered by round ascending.
+
+**Errors**: 400 `INVALID_YEAR`, 400 `INVALID_TEAM_CODE` (includes `validOptions` list)
+
+---
 
 ### GET /api/supercoach/:year/player/:playerId
 
-Get a player's Supercoach scoring trend across the season.
+Get a player's Supercoach scores across the season, one entry per match appearance.
+
+**⚠️ Breaking change**: Previous response had `{ rounds: [] }`. Now includes `{ matches: [] }` with per-match entries and `matchId` references.
 
 **Path Parameters**:
-- `year` (number, required): Season year
+- `year` (number, required): Season year (≥ 1998)
 - `playerId` (string, required): Player ID
 
 **Response** (200):
@@ -635,22 +722,27 @@ Get a player's Supercoach scoring trend across the season.
   "playerName": "Cameron Munster",
   "teamCode": "MEL",
   "year": 2026,
-  "rounds": [
+  "seasonTotal": 1240,
+  "seasonAverage": 89,
+  "matchesPlayed": 14,
+  "matches": [
     {
+      "matchId": "2026-R1-MEL-BRI",
       "round": 1,
-      "totalScore": 85,
-      "categories": {
-        "Scoring": 20, "Create": 15, "Evade": 12,
-        "Base": 25, "Defence": 18, "Negative": -5
-      }
+      "opponent": "BRI",
+      "totalScore": 95,
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "categoryTotals": { "scoring": 20, "create": 15, "evade": 18, "base": 42, "defence": 8, "negative": -8 },
+      "validationWarnings": []
     }
-  ],
-  "seasonTotal": 850,
-  "seasonAverage": 85.0
+  ]
 }
 ```
 
-**Errors**: 400 (invalid year or playerId), 404 (player not found)
+Each `matchId` in `matches` resolves against `GET /api/supercoach/:year/match/:matchId`.
+
+**Errors**: 400 `INVALID_YEAR`, 404 `PLAYER_NOT_FOUND`
 
 ## Casualty Ward
 

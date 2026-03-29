@@ -309,27 +309,54 @@ export async function scrapeSupercoachStats(
   });
 }
 
+export interface StatContribution {
+  statName: string;
+  displayName: string;
+  rawValue: number;
+  pointsPerUnit: number;
+  contribution: number;
+}
+
+export interface PlayerMatchSupercoach {
+  matchId: string;
+  round: number;
+  opponent: string;
+  totalScore: number;
+  isComplete: boolean;
+  matchConfidence: string;
+  categories: {
+    scoring: StatContribution[];
+    create: StatContribution[];
+    evade: StatContribution[];
+    base: StatContribution[];
+    defence: StatContribution[];
+    negative: StatContribution[];
+  };
+  categoryTotals: {
+    scoring: number;
+    create: number;
+    evade: number;
+    base: number;
+    defence: number;
+    negative: number;
+  };
+  validationWarnings: Array<{
+    type: string;
+    message: string;
+    primaryValue: number | null;
+    supplementaryValue: number | null;
+  }>;
+}
+
 export interface PlayerSeasonSupercoachResponse {
   playerId: string;
   playerName: string;
   teamCode: string;
   year: number;
-  rounds: Array<{
-    round: number;
-    totalScore: number;
-    isComplete: boolean;
-    categoryTotals: {
-      scoring: number;
-      create: number;
-      evade: number;
-      base: number;
-      defence: number;
-      negative: number;
-    };
-  }>;
+  matches: PlayerMatchSupercoach[];
   seasonTotal: number;
   seasonAverage: number;
-  roundsPlayed: number;
+  matchesPlayed: number;
 }
 
 // Casualty Ward API

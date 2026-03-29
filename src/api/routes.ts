@@ -72,7 +72,9 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/casualty-ward', handlers.getCasualtyWard(deps));
   api.get('/casualty-ward/player/:playerId', handlers.getPlayerInjuryHistory(deps));
 
-  // Supercoach Scores (player route must come before :round to avoid conflict)
+  // Supercoach Scores (fixed-literal routes must come before :round wildcard)
+  api.get('/supercoach/:year/match/:matchId', handlers.getSupercoachByMatch(deps));
+  api.get('/supercoach/:year/team/:teamCode', handlers.getSupercoachByTeam(deps));
   api.get('/supercoach/:year/player/:playerId', handlers.getPlayerSupercoachSeason(deps));
   api.get('/supercoach/:year/:round', handlers.getSupercoachScores(deps));
 

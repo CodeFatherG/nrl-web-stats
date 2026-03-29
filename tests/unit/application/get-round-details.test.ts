@@ -54,6 +54,7 @@ describe('GetRoundDetailsUseCase', () => {
       isComplete: false,
       stadium: null,
       weather: null,
+      hasTeamLists: false,
     });
     expect(result.byeTeams).toHaveLength(0);
   });

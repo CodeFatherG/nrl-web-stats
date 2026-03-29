@@ -37,6 +37,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), React 18, MUI 5.x (frontend) — no new dependencies (022-team-list-scraper)
 - Cloudflare D1 (SQLite-based) — new `team_lists` table (022-team-list-scraper)
 - Cloudflare D1 (SQLite-based) — new `casualty_ward` table (023-casualty-ward-scraper)
+- TypeScript 5.x strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing), Miniflare (contract tests) (024-supercoach-api-endpoints)
+- Cloudflare D1 (SQLite) — read-only for this feature; no schema changes (024-supercoach-api-endpoints)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -103,9 +105,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 024-supercoach-api-endpoints: Added TypeScript 5.x strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing), Miniflare (contract tests)
 - 023-casualty-ward-scraper: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), React 18, MUI 5.x (frontend) — no new dependencies
 - 022-team-list-scraper: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), React 18, MUI 5.x (frontend) — no new dependencies
-- 021-player-price-breakeven: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), React 18, MUI 5.x, LinkedOM (scraper)
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -6,7 +6,7 @@ interface ScoreTrendChartProps {
 }
 
 export function ScoreTrendChart({ data }: ScoreTrendChartProps) {
-  if (data.rounds.length === 0) {
+  if (data.matches.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
         No round data available for this player.
@@ -14,13 +14,13 @@ export function ScoreTrendChart({ data }: ScoreTrendChartProps) {
     );
   }
 
-  const maxScore = Math.max(...data.rounds.map(r => Math.abs(r.totalScore)), 1);
+  const maxScore = Math.max(...data.matches.map(r => Math.abs(r.totalScore)), 1);
 
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
         <Typography variant="subtitle2">
-          Season Trend ({data.roundsPlayed} rounds)
+          Season Trend ({data.matchesPlayed} rounds)
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Total: {data.seasonTotal} | Avg: {data.seasonAverage}
@@ -28,7 +28,7 @@ export function ScoreTrendChart({ data }: ScoreTrendChartProps) {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'flex-end', height: 120 }}>
-        {data.rounds.map(round => {
+        {data.matches.map(round => {
           const height = Math.max((Math.abs(round.totalScore) / maxScore) * 100, 4);
           const isNegative = round.totalScore < 0;
 
@@ -58,7 +58,7 @@ export function ScoreTrendChart({ data }: ScoreTrendChartProps) {
 
       {/* Round labels */}
       <Box sx={{ display: 'flex', gap: 0.5 }}>
-        {data.rounds.map(round => (
+        {data.matches.map(round => (
           <Typography
             key={round.round}
             variant="caption"
@@ -71,7 +71,7 @@ export function ScoreTrendChart({ data }: ScoreTrendChartProps) {
       </Box>
 
       {/* Average line reference */}
-      {data.roundsPlayed > 1 && (
+      {data.matchesPlayed > 1 && (
         <Box sx={{ position: 'relative', mt: -0.5 }}>
           <Box
             sx={{

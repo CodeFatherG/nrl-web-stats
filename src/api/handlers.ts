@@ -941,8 +941,41 @@ export function triggerSupercoachScrape(deps: HandlerDeps) {
   };
 }
 
+/** Zod schema for supercoach match ID: {year}-R{round}-{teamA}-{teamB} */
+const SupercoachMatchIdSchema = z.string().regex(
+  /^\d{4}-R\d{1,2}-[A-Z]{3}-[A-Z]{3}$/,
+  'Invalid match ID format. Expected: {year}-R{round}-{teamA}-{teamB}'
+);
+
 /**
- * GET /api/supercoach/:year/:round - Get computed Supercoach scores for a round
+ * GET /api/supercoach/:year/match/:matchId — Supercoach scores for a single match
+ */
+export function getSupercoachByMatch(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const matchIdParam = c.req.param('matchId');
+    const matchIdResult = SupercoachMatchIdSchema.safeParse(matchIdParam);
+    if (!matchIdResult.success) {
+      return errorResponse(c, 'INVALID_MATCH_ID', 'Invalid match ID format. Expected: {year}-R{round}-{teamA}-{teamB}', 400);
+    }
+
+    const useCase = deps.createGetSupercoachScoresUseCase(c.env.DB);
+    const result = await useCase.executeForMatch(matchIdResult.data);
+
+    if (!result) {
+      return errorResponse(c, 'MATCH_NOT_FOUND', `Match not found: ${matchIdResult.data}`, 404);
+    }
+
+    return c.json(result);
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/:round — All matches in a round with team-grouped scores
  */
 export function getSupercoachScores(deps: HandlerDeps) {
   return async (c: ApiContext) => {
@@ -956,16 +989,30 @@ export function getSupercoachScores(deps: HandlerDeps) {
       return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400, Array.from({ length: 27 }, (_, i) => i + 1));
     }
 
-    const year = yearResult.data;
-    const round = roundResult.data;
-    const teamCode = c.req.query('teamCode')?.toUpperCase();
+    const useCase = deps.createGetSupercoachScoresUseCase(c.env.DB);
+    const result = await useCase.executeForRound(yearResult.data, roundResult.data);
 
-    if (teamCode && !VALID_TEAM_CODES.includes(teamCode)) {
-      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${teamCode}`, 400, VALID_TEAM_CODES);
+    return c.json(result);
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/team/:teamCode — All matches a team played this year
+ */
+export function getSupercoachByTeam(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const teamCode = c.req.param('teamCode')?.toUpperCase();
+    if (!teamCode || !VALID_TEAM_CODES.includes(teamCode)) {
+      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${teamCode ?? ''}`, 400, VALID_TEAM_CODES);
     }
 
     const useCase = deps.createGetSupercoachScoresUseCase(c.env.DB);
-    const result = await useCase.execute(year, round, teamCode);
+    const result = await useCase.executeForTeamSeason(yearResult.data, teamCode);
 
     return c.json(result);
   };
