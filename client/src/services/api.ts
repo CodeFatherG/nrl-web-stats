@@ -318,9 +318,16 @@ export interface StatContribution {
 }
 
 export interface PlayerMatchSupercoach {
+  // Identity fields (same as SupercoachScore)
+  playerId: string;
+  playerName: string;
+  teamCode: string;
   matchId: string;
+  year: number;
   round: number;
+  // Context
   opponent: string;
+  // Score
   totalScore: number;
   isComplete: boolean;
   matchConfidence: string;

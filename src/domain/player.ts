@@ -157,34 +157,6 @@ export interface Player {
   readonly performances: readonly MatchPerformance[];
 }
 
-/** Generate a deterministic Player ID from name and optional DOB */
-export function createPlayerId(name: string, dateOfBirth?: string | null): string {
-  const normalised = name
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-');
-  if (dateOfBirth) {
-    return `${normalised}-${dateOfBirth}`;
-  }
-  return normalised;
-}
-
-/** Create a new Player with empty performance history */
-export function createPlayer(
-  name: string,
-  dateOfBirth: string | null,
-  teamCode: string,
-  position: string
-): Player {
-  return {
-    id: createPlayerId(name, dateOfBirth),
-    name,
-    dateOfBirth,
-    teamCode,
-    position,
-    performances: [],
-  };
-}
 
 /** Add a performance record to a Player. Returns a new Player (immutable). */
 export function addPerformance(player: Player, performance: MatchPerformance): Player {

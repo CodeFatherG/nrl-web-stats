@@ -447,7 +447,7 @@ Get full match detail including player statistics for both teams.
   "awayTeamList": null,
   "homePlayerStats": [
     {
-      "playerId": "player-name-1995-02-11",
+      "playerId": "502490",
       "playerName": "Player Name", "position": "Five-Eighth",
       "tries": 0, "goals": 2, "tackles": 12, "runMetres": 250,
       "fantasyPoints": 85, "minutesPlayed": 80
@@ -478,7 +478,7 @@ Get aggregated season statistics for all players in a given season. Returns a su
   "season": 2026,
   "players": [
     {
-      "playerId": "cameron-munster-1995-02-11",
+      "playerId": "502490",
       "playerName": "Cameron Munster",
       "teamCode": "MEL",
       "position": "Five-Eighth",
@@ -518,7 +518,7 @@ Get all players for a team with season statistics and per-match performances.
   "team": "MEL", "season": 2026,
   "players": [
     {
-      "id": "cameron-munster-1995-02-11",
+      "id": "502490",
       "name": "Cameron Munster", "position": "Five-Eighth",
       "seasonStats": {
         "matchesPlayed": 10, "totalTries": 2, "totalGoals": 15,
@@ -543,7 +543,7 @@ Get all players for a team with season statistics and per-match performances.
 Get a single player's profile with season-by-season breakdown.
 
 **Path Parameters**:
-- `playerId` (string, required): Player ID (format: `name-dob` or `name`)
+- `playerId` (string, required): Player ID (NRL.com numeric player ID as a string, e.g. `"502490"`)
 
 **Query Parameters**:
 - `season` (number, optional): Filter by season year (2020–2030)
@@ -551,7 +551,7 @@ Get a single player's profile with season-by-season breakdown.
 **Response** (200):
 ```json
 {
-  "id": "cameron-munster-1995-02-11",
+  "id": "502490",
   "name": "Cameron Munster", "position": "Five-Eighth", "teamCode": "MEL",
   "seasons": {
     "2026": {
@@ -607,7 +607,7 @@ Get Supercoach scores for a single match, grouped by team.
     "isComplete": true,
     "players": [
       {
-        "playerId": "jason-taumalolo-1993-09-12",
+        "playerId": "506000",
         "playerName": "Jason Taumalolo",
         "teamCode": "NQC",
         "matchId": "2026-R3-NQC-BRI",
@@ -718,7 +718,7 @@ Get a player's Supercoach scores across the season, one entry per match appearan
 **Response** (200):
 ```json
 {
-  "playerId": "cameron-munster-1995-02-11",
+  "playerId": "502490",
   "playerName": "Cameron Munster",
   "teamCode": "MEL",
   "year": 2026,
@@ -766,7 +766,7 @@ Get all currently active casualty ward entries (players with open injuries).
       "expectedReturn": "Round 10",
       "startDate": "2026-03-25",
       "endDate": null,
-      "playerId": "nathan-cleary-1998-01-14"
+      "playerId": "100009100"
     }
   ],
   "count": 15
@@ -783,7 +783,7 @@ Get injury history for a specific player.
 **Response** (200):
 ```json
 {
-  "playerId": "nathan-cleary-1998-01-14",
+  "playerId": "100009100",
   "entries": [
     {
       "id": 1,
@@ -795,7 +795,7 @@ Get injury history for a specific player.
       "expectedReturn": "Round 10",
       "startDate": "2026-03-25",
       "endDate": "2026-05-01",
-      "playerId": "nathan-cleary-1998-01-14"
+      "playerId": "100009100"
     }
   ]
 }
@@ -907,7 +907,7 @@ Get player performance trends for a team, comparing recent form to season averag
 ```json
 [
   {
-    "playerId": "cameron-munster-1995-02-11",
+    "playerId": "502490",
     "playerName": "Cameron Munster",
     "roundsPlayed": 5,
     "isSignificant": true, "sampleSizeWarning": false,
@@ -941,7 +941,7 @@ Get individual player impact on team win rate.
   "year": 2026, "totalMatches": 10, "sampleSizeWarning": false,
   "playerImpacts": [
     {
-      "playerId": "cameron-munster-1995-02-11",
+      "playerId": "502490",
       "playerName": "Cameron Munster",
       "matchesPlayed": 8, "matchesMissed": 2,
       "winRateWith": 0.875, "winRateWithout": 0.5,

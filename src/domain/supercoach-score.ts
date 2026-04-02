@@ -109,17 +109,8 @@ export interface TeamSeasonSupercoach {
   readonly matches: MatchSupercoachResult[];
 }
 
-/** Per-match entry in the player season endpoint — the player's own data only */
-export interface PlayerMatchSupercoach {
-  /** Resolves against GET /api/supercoach/:year/match/:matchId */
-  readonly matchId: string;
-  readonly round: number;
+/** Per-match entry in the player season endpoint — full SupercoachScore plus opponent context */
+export interface PlayerMatchSupercoach extends SupercoachScore {
   /** Opposing team code */
   readonly opponent: string;
-  readonly totalScore: number;
-  readonly isComplete: boolean;
-  readonly matchConfidence: MatchConfidence;
-  readonly categories: CategoryBreakdown;
-  readonly categoryTotals: CategoryTotals;
-  readonly validationWarnings: ValidationWarning[];
 }

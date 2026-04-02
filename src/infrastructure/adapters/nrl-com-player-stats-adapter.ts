@@ -12,6 +12,7 @@ import { success, failure } from '../../domain/result.js';
 import { logger } from '../../utils/logger.js';
 import type { Warning } from '../../models/types.js';
 import { resolveNrlComTeamId } from '../shared/nrl-team-id-map.js';
+import { createMatchId } from '../../domain/match.js';
 
 // ---------------------------------------------------------------------------
 // T013: Zod validation schemas for nrl.com draw + match centre responses
@@ -246,25 +247,29 @@ export class NrlComPlayerStatsAdapter implements PlayerStatsSource {
     }
 
     const match = parse.data;
-    const matchId = String(match.matchId);
     const isComplete = match.matchState === 'FullTime';
     const matchWarnings: Warning[] = [];
 
     const stats: PlayerMatchStats[] = [];
 
+    // Resolve both team codes upfront — required to compute the domain match ID.
+    // If either is unmapped we cannot produce a valid internal ID, so skip this match.
+    const homeCode = resolveNrlComTeamId(match.homeTeam.teamId);
+    const awayCode = resolveNrlComTeamId(match.awayTeam.teamId);
+
+    if (!homeCode || !awayCode) {
+      const nrlMatchId = String(match.matchId);
+      if (!homeCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.homeTeam.teamId}`, context: { teamId: match.homeTeam.teamId, nrlMatchId } });
+      if (!awayCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.awayTeam.teamId}`, context: { teamId: match.awayTeam.teamId, nrlMatchId } });
+      return { stats: [], matchWarnings };
+    }
+
+    const matchId = createMatchId(homeCode, awayCode, year, round);
+
     // Process both teams
     for (const side of ['homeTeam', 'awayTeam'] as const) {
       const team = match[side];
-      const teamCode = resolveNrlComTeamId(team.teamId);
-
-      if (!teamCode) {
-        matchWarnings.push({
-          type: 'UNMAPPED_TEAM',
-          message: `Unknown nrl.com teamId ${team.teamId}`,
-          context: { teamId: team.teamId, matchId },
-        });
-        continue;
-      }
+      const teamCode = side === 'homeTeam' ? homeCode : awayCode;
 
       // Build playerId → roster info lookup
       const rosterMap = new Map(

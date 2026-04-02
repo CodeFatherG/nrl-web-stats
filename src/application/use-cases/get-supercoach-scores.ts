@@ -12,7 +12,7 @@ import type { Match } from '../../domain/match.js';
 import type { D1SupplementaryStatsRepository } from '../../infrastructure/persistence/d1-supplementary-stats-repo.js';
 import type { ScoringConfig } from '../../config/supercoach-scoring-config.js';
 import type { SupplementaryPlayerStats } from '../../domain/ports/supplementary-stats-source.js';
-import type { PlayerSeasonSupercoach, MatchSupercoachResult, TeamSupercoachGroup, RoundSupercoachResult, TeamSeasonSupercoach, PlayerMatchSupercoach } from '../../domain/supercoach-score.js';
+import type { SupercoachScore, PlayerSeasonSupercoach, MatchSupercoachResult, TeamSupercoachGroup, RoundSupercoachResult, TeamSeasonSupercoach, PlayerMatchSupercoach } from '../../domain/supercoach-score.js';
 import type { MergedPlayerStats } from '../../analytics/supercoach-types.js';
 import type { D1PlayerNameLinkRepository, PlayerNameLink } from '../../infrastructure/persistence/d1-player-name-link-repo.js';
 import type { MatchingContext } from '../../config/player-name-matcher.js';
@@ -395,7 +395,8 @@ export class GetSupercoachScoresUseCase {
 
       const score = computePlayerScore({ primary: primaryStats, supplementary, matchConfidence }, this.scoringConfig);
 
-      // Derive opponent from match record
+      // Derive opponent from the match record. match_performances.match_id stores domain IDs
+      // (e.g. 2026-R1-NQL-SHA) so findById resolves directly.
       let opponent = '';
       if (this.matchRepository) {
         const matchRecord = await this.matchRepository.findById(perf.matchId);
@@ -407,15 +408,8 @@ export class GetSupercoachScoresUseCase {
       }
 
       matchEntries.push({
-        matchId: perf.matchId,
-        round: perf.round,
+        ...score,
         opponent,
-        totalScore: score.totalScore,
-        isComplete: score.isComplete,
-        matchConfidence: score.matchConfidence,
-        categories: score.categories,
-        categoryTotals: score.categoryTotals,
-        validationWarnings: score.validationWarnings,
       });
     }
 
