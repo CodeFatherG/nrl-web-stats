@@ -87,7 +87,7 @@ function initializeDeps(db?: D1Database): void {
       new ScrapeTeamListsUseCase(teamListSource, new D1TeamListRepository(reqDb), matchRepository),
     createTeamListRepository: (reqDb: D1Database) => new D1TeamListRepository(reqDb),
     createScrapeCasualtyWardUseCase: (reqDb: D1Database) =>
-      new ScrapeCasualtyWardUseCase(casualtyWardSource, new D1CasualtyWardRepository(reqDb)),
+      new ScrapeCasualtyWardUseCase(casualtyWardSource, new D1CasualtyWardRepository(reqDb), new D1PlayerRepository(reqDb)),
     createCasualtyWardRepository: (reqDb: D1Database) => new D1CasualtyWardRepository(reqDb),
   } satisfies HandlerDeps);
 
@@ -493,7 +493,8 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   try {
     const casualtyWardUseCase = new ScrapeCasualtyWardUseCase(
       casualtyWardSource,
-      new D1CasualtyWardRepository(env.DB)
+      new D1CasualtyWardRepository(env.DB),
+      new D1PlayerRepository(env.DB)
     );
     logger.info('[CRON] Starting casualty ward scrape');
     const cwResult = await casualtyWardUseCase.execute();

@@ -585,6 +585,92 @@ All Supercoach endpoints share a common **match result** shape. A match result c
 
 ---
 
+### Shared Types
+
+**`StatContribution`** — a single stat's contribution within a `categories` array:
+
+```json
+{
+  "statName": "tries",
+  "displayName": "Tries",
+  "rawValue": 2,
+  "pointsPerUnit": 17,
+  "contribution": 34
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `statName` | string | Programmatic stat key (see category tables below) |
+| `displayName` | string | Human-readable label |
+| `rawValue` | number | Raw count of the stat |
+| `pointsPerUnit` | number | Points awarded per unit (may be negative) |
+| `contribution` | number | `rawValue × pointsPerUnit` — total points from this stat |
+
+**`categoryTotals`** — sum of all `contribution` values within each category:
+
+```json
+{ "scoring": 34, "create": 12, "evade": 4, "base": 15, "defence": 6, "negative": -4 }
+```
+
+**`categories`** — each key is a `ScoringCategory` containing an array of `StatContribution` entries. Only stats with a non-zero `rawValue` are included. Per-category stat keys (season-specific; values shown are for 2026):
+
+| Category | `statName` keys | Points/unit |
+|----------|-----------------|-------------|
+| `scoring` | `tries` | +17 |
+| | `goals` | +4 |
+| | `missedGoals` | −2 |
+| | `onePointFieldGoals` | +5 |
+| | `twoPointFieldGoals` | +10 |
+| | `missedFieldGoals` | −1 |
+| `create` | `tryAssists` | +12 |
+| | `lastTouch` | +4 |
+| | `lineBreakAssists` | +8 |
+| | `forcedDropOutKicks` | +6 |
+| | `fortyTwentyKicks` | +10 |
+| | `twentyFortyKicks` | +10 |
+| | `kicksDead` | −3 |
+| `evade` | `effectiveOffloads` | +4 |
+| | `ineffectiveOffloads` | +2 |
+| | `tackleBreaks` | +2 |
+| | `lineBreaks` | +10 |
+| | `intercepts` | +5 |
+| | `kickRegatherBreak` | +8 |
+| `base` | `tacklesMade` | +1 |
+| | `missedTackles` | −1 |
+| | `runsOver8m` | +2 |
+| | `runsUnder8m` | +1 |
+| `defence` | `trySaves` | +3 |
+| | `heldUpInGoal` | +3 |
+| `negative` | `penalties` | −2 |
+| | `errors` | −2 |
+| | `sinBins` | −8 |
+| | `sendOffs` | −16 |
+
+Stats sourced from nrlsupercoachstats.com (`lastTouch`, `effectiveOffloads`, `ineffectiveOffloads`, `kickRegatherBreak`, `runsOver8m`, `runsUnder8m`, `trySaves`, `heldUpInGoal`, `missedGoals`, `missedFieldGoals`) will have `rawValue: 0` and `contribution: 0` when `matchConfidence` is `unmatched`.
+
+**`validationWarnings`** — cross-reference discrepancies between nrl.com and nrlsupercoachstats.com data:
+
+```json
+[
+  {
+    "type": "offload_mismatch",
+    "message": "Offload count mismatch: primary=3, supplementary=2",
+    "primaryValue": 3,
+    "supplementaryValue": 2
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `"offload_mismatch"` \| `"run_count_mismatch"` \| `"unmatched_player"` |
+| `message` | string | Human-readable description |
+| `primaryValue` | number \| null | Value from nrl.com |
+| `supplementaryValue` | number \| null | Value from nrlsupercoachstats.com |
+
+---
+
 ### GET /api/supercoach/:year/match/:matchId
 
 Get Supercoach scores for a single match, grouped by team.
@@ -617,8 +703,20 @@ Get Supercoach scores for a single match, grouped by team.
         "isComplete": true,
         "matchConfidence": "linked",
         "categoryTotals": { "scoring": 20, "create": 10, "evade": 15, "base": 42, "defence": 12, "negative": -4 },
-        "categories": { "scoring": [], "create": [], "evade": [], "base": [], "defence": [], "negative": [] },
-        "validationWarnings": []
+        "categories": {
+          "scoring": [
+            { "statName": "tries", "displayName": "Tries", "rawValue": 1, "pointsPerUnit": 17, "contribution": 17 },
+            { "statName": "goals", "displayName": "Goals", "rawValue": 0, "pointsPerUnit": 4, "contribution": 0 }
+          ],
+          "create": [ "..." ],
+          "evade": [ "..." ],
+          "base": [ "..." ],
+          "defence": [ "..." ],
+          "negative": [ "..." ]
+        },
+        "validationWarnings": [
+          { "type": "offload_mismatch", "message": "...", "primaryValue": 3, "supplementaryValue": 2 }
+        ]
       }
     ]
   },
@@ -728,12 +826,24 @@ Get a player's Supercoach scores across the season, one entry per match appearan
   "matches": [
     {
       "matchId": "2026-R1-MEL-BRI",
+      "year": 2026,
       "round": 1,
       "opponent": "BRI",
+      "playerId": "502490",
+      "playerName": "Cameron Munster",
+      "teamCode": "MEL",
       "totalScore": 95,
       "isComplete": true,
       "matchConfidence": "linked",
       "categoryTotals": { "scoring": 20, "create": 15, "evade": 18, "base": 42, "defence": 8, "negative": -8 },
+      "categories": {
+        "scoring": [ "..." ],
+        "create": [ "..." ],
+        "evade": [ "..." ],
+        "base": [ "..." ],
+        "defence": [ "..." ],
+        "negative": [ "..." ]
+      },
       "validationWarnings": []
     }
   ]

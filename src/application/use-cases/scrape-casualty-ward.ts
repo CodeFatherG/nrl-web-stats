@@ -9,9 +9,11 @@
 
 import type { CasualtyWardSource, CasualtyWardPlayerData } from '../../domain/ports/casualty-ward-source.js';
 import type { CasualtyWardRepository } from '../../domain/repositories/casualty-ward-repository.js';
+import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { CasualtyWardEntry } from '../../domain/casualty-ward-entry.js';
 import { createCasualtyWardEntry } from '../../domain/casualty-ward-entry.js';
 import { resolveTeamNickname } from '../../infrastructure/shared/nrl-team-nickname-map.js';
+import { normalizeName } from '../../config/player-name-matcher.js';
 import type { Warning } from '../../models/types.js';
 import { logger } from '../../utils/logger.js';
 
@@ -33,8 +35,23 @@ function playerKey(firstName: string, lastName: string, teamCode: string): strin
 export class ScrapeCasualtyWardUseCase {
   constructor(
     private readonly source: CasualtyWardSource,
-    private readonly repository: CasualtyWardRepository
+    private readonly repository: CasualtyWardRepository,
+    private readonly playerRepository?: PlayerRepository
   ) {}
+
+  /** Build a team → Map<normalizedName, playerId> lookup from the players table */
+  private async buildPlayerLookup(teamCodes: string[]): Promise<Map<string, string>> {
+    const lookup = new Map<string, string>();
+    if (!this.playerRepository) return lookup;
+
+    for (const teamCode of teamCodes) {
+      const players = await this.playerRepository.findByTeam(teamCode);
+      for (const player of players) {
+        lookup.set(`${teamCode}|${normalizeName(player.name)}`, player.id);
+      }
+    }
+    return lookup;
+  }
 
   async execute(today?: string): Promise<ScrapeCasualtyWardResult> {
     const currentDate = today ?? new Date().toISOString().split('T')[0];
@@ -77,6 +94,9 @@ export class ScrapeCasualtyWardUseCase {
       openByKey.set(key, record);
     }
 
+    const uniqueTeamCodes = [...new Set(resolvedPlayers.map(p => p.teamCode))];
+    const playerLookup = await this.buildPlayerLookup(uniqueTeamCodes);
+
     const scrapedKeys = new Set<string>();
 
     // Step 5: Process each scraped player
@@ -85,14 +105,23 @@ export class ScrapeCasualtyWardUseCase {
       scrapedKeys.add(key);
 
       const existing = openByKey.get(key);
+      const resolvedPlayerId = playerLookup.get(
+        `${player.teamCode}|${normalizeName(player.firstName + ' ' + player.lastName)}`
+      ) ?? null;
 
       if (existing) {
         // Player already has an open record — check for updates
-        if (existing.injury !== player.injury || existing.expectedReturn !== player.expectedReturn) {
+        const needsUpdate =
+          existing.injury !== player.injury ||
+          existing.expectedReturn !== player.expectedReturn ||
+          (existing.playerId === null && resolvedPlayerId !== null);
+
+        if (needsUpdate) {
           await this.repository.update({
             ...existing,
             injury: player.injury,
             expectedReturn: player.expectedReturn,
+            playerId: existing.playerId ?? resolvedPlayerId,
           });
           updatedEntries++;
         }
@@ -106,7 +135,7 @@ export class ScrapeCasualtyWardUseCase {
           injury: player.injury,
           expectedReturn: player.expectedReturn,
           startDate: currentDate,
-          playerId: null,
+          playerId: resolvedPlayerId,
         });
         await this.repository.insert(entry);
         newEntries++;
