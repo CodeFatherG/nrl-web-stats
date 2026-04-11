@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -18,12 +18,27 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import { getCasualtyWard } from '../services/api';
 import type { PlayerSeasonSummary, Team } from '../types';
 
 type SortKey = keyof PlayerSeasonSummary;
 type SortDirection = 'asc' | 'desc';
+
+type ChipColor = 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning';
+
+function positionChipColor(position: string): ChipColor {
+  const pos = position.toLowerCase();
+  if (pos.includes('hooker')) return 'secondary';
+  if (pos.includes('prop') || pos.includes('lock') || pos.includes('second row')) return 'primary';
+  if (pos.includes('half') || pos.includes('five-eighth') || pos.includes('five eighth')) return 'warning';
+  if (pos.includes('centre') || pos.includes('center')) return 'success';
+  if (pos.includes('wing') || pos.includes('fullback')) return 'info';
+  return 'default';
+}
 
 interface PlayersSummaryViewProps {
   players: PlayerSeasonSummary[];
@@ -68,6 +83,20 @@ export function PlayersSummaryView({
   const [searchText, setSearchText] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [selectedPosition, setSelectedPosition] = useState<string>('');
+  const [injuredPlayerIds, setInjuredPlayerIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getCasualtyWard()
+      .then(data => {
+        const ids = new Set(
+          data.entries
+            .filter(e => e.endDate === null && e.playerId !== null)
+            .map(e => e.playerId!)
+        );
+        setInjuredPlayerIds(ids);
+      })
+      .catch(() => {}); // non-blocking — list still usable without injury data
+  }, []);
 
   const teamNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -217,6 +246,9 @@ export function PlayersSummaryView({
                       ...(col.key === 'playerName'
                         ? { position: 'sticky', left: 0, zIndex: 3, bgcolor: 'background.paper' }
                         : {}),
+                      ...(col.key === 'averageFantasyPoints'
+                        ? { color: 'primary.main', fontWeight: 800 }
+                        : {}),
                     }}
                   >
                     <TableSortLabel
@@ -242,8 +274,10 @@ export function PlayersSummaryView({
                 >
                   {COLUMNS.map(col => {
                     const value = player[col.key];
+                    const isAvgFP = col.key === 'averageFantasyPoints';
 
                     if (col.key === 'playerName') {
+                      const isInjured = injuredPlayerIds.has(player.playerId);
                       return (
                         <TableCell
                           key={col.key}
@@ -260,14 +294,26 @@ export function PlayersSummaryView({
                             bgcolor: 'inherit',
                           }}
                         >
-                          <Link
-                            component="button"
-                            variant="body2"
-                            onClick={() => onPlayerClick(player.playerId)}
-                            sx={{ fontSize: '0.75rem', fontWeight: 500, textAlign: 'left' }}
-                          >
-                            {String(value)}
-                          </Link>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Link
+                              component="button"
+                              variant="body2"
+                              onClick={() => onPlayerClick(player.playerId)}
+                              sx={{ fontSize: '0.75rem', fontWeight: 500, textAlign: 'left' }}
+                            >
+                              {String(value)}
+                            </Link>
+                            {isInjured && (
+                              <Tooltip title="Currently on casualty ward" arrow>
+                                <Chip
+                                  label="INJ"
+                                  size="small"
+                                  color="error"
+                                  sx={{ height: 16, fontSize: '0.58rem', fontWeight: 700, '& .MuiChip-label': { px: 0.5 } }}
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
                         </TableCell>
                       );
                     }
@@ -284,11 +330,32 @@ export function PlayersSummaryView({
                       );
                     }
 
+                    if (col.key === 'position') {
+                      return (
+                        <TableCell
+                          key={col.key}
+                          align="left"
+                          sx={{ whiteSpace: 'nowrap', px: 1, py: 0.25 }}
+                        >
+                          <Chip
+                            label={String(value)}
+                            size="small"
+                            color={positionChipColor(String(value))}
+                            variant="outlined"
+                            sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }}
+                          />
+                        </TableCell>
+                      );
+                    }
+
                     return (
                       <TableCell
                         key={col.key}
                         align={col.align ?? 'right'}
-                        sx={{ whiteSpace: 'nowrap', px: 1, py: 0.25, fontSize: '0.75rem' }}
+                        sx={{
+                          whiteSpace: 'nowrap', px: 1, py: 0.25, fontSize: '0.75rem',
+                          ...(isAvgFP && { fontWeight: 700, color: 'primary.main' }),
+                        }}
                       >
                         {typeof value === 'number' && col.format
                           ? col.format(value)

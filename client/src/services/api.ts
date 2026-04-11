@@ -407,3 +407,56 @@ export async function getPlayerSupercoachSeason(
 ): Promise<PlayerSeasonSupercoachResponse> {
   return fetchApi<PlayerSeasonSupercoachResponse>(`/supercoach/${year}/player/${encodeURIComponent(playerId)}`);
 }
+
+export type SpikeBand = 'negative' | 'nil' | 'low' | 'moderate' | 'high' | 'boom';
+
+export interface SpikeBandEntry {
+  count: number;
+  frequency: number; // fraction 0–1
+}
+
+export type SpikeDistribution = Record<SpikeBand, SpikeBandEntry>;
+
+export interface GameProjectionEntry {
+  round: number;
+  totalScore: number;
+  floorScore: number;
+  spikeScore: number;
+  minutesPlayed: number;
+}
+
+/** Response from GET /api/supercoach/:year/player/:playerId/projection */
+export interface PlayerProjectionResponse {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  position: string;
+  avgMinutes: number;
+  floorMean: number;
+  floorStd: number | null;
+  floorCv: number | null;
+  floorPerMinute: number;
+  spikeMean: number;
+  spikeStd: number | null;
+  spikeCv: number | null;
+  spikePerMinute: number;
+  spikeP25: number;
+  spikeP50: number;
+  spikeP75: number;
+  spikeP90: number;
+  spikeDistribution: SpikeDistribution;
+  projectedTotal: number;
+  projectedFloor: number;
+  projectedCeiling: number;
+  gamesPlayed: number;
+  lowSampleWarning: boolean;
+  noUsableData: boolean;
+  games: GameProjectionEntry[];
+}
+
+export async function getPlayerSupercoachProjection(
+  year: number,
+  playerId: string
+): Promise<PlayerProjectionResponse> {
+  return fetchApi<PlayerProjectionResponse>(`/supercoach/${year}/player/${encodeURIComponent(playerId)}/projection`);
+}
