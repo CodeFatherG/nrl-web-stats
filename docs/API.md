@@ -1064,3 +1064,106 @@ Get individual player impact on team win rate.
 `method` values: `"availability"` (player missed ≥2 matches — compares win rate with/without), `"correlation"` (Pearson correlation between fantasy points and team wins)
 
 **Errors**: 400 (invalid parameters)
+
+
+---
+
+## Supercoach Player Projections
+
+### GET /api/supercoach/:year/player/:playerId/projection
+
+Get the two-component (Floor + Spike) projection profile for a single player.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `playerId` (string, required): Player ID
+
+**Response** (200):
+```json
+{
+  "playerId": "504279",
+  "playerName": "William Kennedy",
+  "teamCode": "SHA",
+  "position": "Forward",
+  "avgMinutes": 76.29,
+  "floorMean": 50.0,
+  "floorStd": 7.46,
+  "floorCv": 0.1492,
+  "floorPerMinute": 0.655,
+  "spikeMean": 32.86,
+  "spikeStd": 7.80,
+  "spikeCv": 0.237,
+  "spikePerMinute": 0.431,
+  "spikeP25": 29.0,
+  "spikeP50": 34.0,
+  "spikeP75": 35.5,
+  "spikeP90": 40.6,
+  "spikeDistribution": {
+    "negative": { "count": 0, "frequency": 0 },
+    "nil":      { "count": 0, "frequency": 0 },
+    "low":      { "count": 0, "frequency": 0 },
+    "moderate": { "count": 3, "frequency": 0.4286 },
+    "high":     { "count": 4, "frequency": 0.5714 },
+    "boom":     { "count": 0, "frequency": 0 }
+  },
+  "projectedTotal": 82.86,
+  "projectedFloor": 79.0,
+  "projectedCeiling": 90.6,
+  "gamesPlayed": 7,
+  "lowSampleWarning": false,
+  "noUsableData": false
+}
+```
+
+**Notes**:
+- Only `isComplete: true` rounds contribute to the model
+- `floorCv` / `spikeCv` are `null` when fewer than 2 eligible games exist; `spikeCv` is serialised as `null` when mathematically Infinity (spike mean ≤ 0)
+- `lowSampleWarning: true` when `gamesPlayed < 6`
+- `noUsableData: true` when `gamesPlayed === 0`
+
+**Errors**: 400 (invalid year), 404 (player not found)
+
+---
+
+### GET /api/supercoach/:year/team/:teamCode/rankings
+
+Get ranked projection profiles for all players in a team.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `teamCode` (string, required): Team code (e.g. `SHA`, `MEL`)
+
+**Query Parameters**:
+- `mode` (string, optional, default `composite`): Ranking mode — one of `composite`, `captaincy`, `selection`, `trade`
+
+**Ranking Modes**:
+| Mode | Purpose | Weight emphasis |
+|------|---------|-----------------|
+| `composite` | Balanced overall value | Default weights |
+| `captaincy` | High upside — spike-weighted | Spike × 1.5, floor × 0.5 |
+| `selection` | Safe floor selection | Floor × 1.5, consistency × 15 |
+| `trade` | Trade targets — excludes spikeCv ≥ 1.0 | Default weights |
+
+**Response** (200):
+```json
+{
+  "teamCode": "SHA",
+  "year": 2026,
+  "mode": "composite",
+  "rankedPlayers": [
+    {
+      "rank": 1,
+      "compositeScore": 99.3,
+      "profile": { "...": "same shape as /projection endpoint" }
+    }
+  ],
+  "excludedCount": 3
+}
+```
+
+**Notes**:
+- Players with `noUsableData` or `floorCv === null` (< 2 eligible games) are excluded from `rankedPlayers` and counted in `excludedCount`
+- `trade` mode additionally excludes players with `spikeCv ≥ 1.0` or infinite spike volatility
+- `spikeCv` serialised as `null` in JSON when Infinity
+
+**Errors**: 400 (invalid year, team code, or mode)

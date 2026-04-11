@@ -41,6 +41,9 @@ import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
 import type { GetCompositionImpactUseCase } from '../application/use-cases/get-composition-impact.js';
+import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
+import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
+import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
   getLastScrapeTimes,
   getAllTeamsFromDb,
@@ -91,6 +94,10 @@ export interface HandlerDeps {
   createScrapeCasualtyWardUseCase: (db: D1Database) => ScrapeCasualtyWardUseCase;
   /** Factory to create a per-request CasualtyWardRepository from the DB binding */
   createCasualtyWardRepository: (db: D1Database) => CasualtyWardRepository;
+  /** Factory to create a per-request GetPlayerProjectionUseCase from the DB binding */
+  createGetPlayerProjectionUseCase: (db: D1Database) => GetPlayerProjectionUseCase;
+  /** Factory to create a per-request GetTeamProjectionRankingsUseCase from the DB binding */
+  createGetTeamProjectionRankingsUseCase: (db: D1Database) => GetTeamProjectionRankingsUseCase;
 }
 
 // Environment bindings type
@@ -1347,5 +1354,83 @@ export function getPlayerInjuryHistory(deps: HandlerDeps) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'FETCH_FAILED', `Failed to fetch player injury history: ${message}`, 500);
     }
+  };
+}
+
+// ============================================
+// Supercoach Player Projections
+// ============================================
+
+const VALID_RANKING_MODES: RankingMode[] = ['composite', 'captaincy', 'selection', 'trade'];
+
+/**
+ * GET /api/supercoach/:year/player/:playerId/projection
+ */
+export function getPlayerProjection(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const playerId = c.req.param('playerId');
+    if (!playerId) {
+      return errorResponse(c, 'MISSING_PLAYER_ID', 'Player ID is required', 400);
+    }
+
+    const useCase = deps.createGetPlayerProjectionUseCase(c.env.DB);
+    const profile = await useCase.execute(yearResult.data, playerId);
+
+    if (!profile) {
+      return errorResponse(c, 'PLAYER_NOT_FOUND', `Player not found: ${playerId}`, 404);
+    }
+
+    // Serialize Infinity as null (not valid JSON)
+    return c.json({
+      ...profile,
+      spikeCv: isFinite(profile.spikeCv) ? profile.spikeCv : null,
+      floorCv: profile.floorCv === null || isFinite(profile.floorCv) ? profile.floorCv : null,
+    });
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/team/:teamCode/rankings?mode=composite|captaincy|selection|trade
+ */
+export function getTeamProjectionRankings(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const teamCode = c.req.param('teamCode')?.toUpperCase();
+    if (!teamCode || !VALID_TEAM_CODES.includes(teamCode)) {
+      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${teamCode ?? ''}`, 400, VALID_TEAM_CODES);
+    }
+
+    const modeParam = c.req.query('mode') ?? 'composite';
+    if (!VALID_RANKING_MODES.includes(modeParam as RankingMode)) {
+      return errorResponse(c, 'INVALID_MODE', `Unknown ranking mode: ${modeParam}`, 400, VALID_RANKING_MODES);
+    }
+    const mode = modeParam as RankingMode;
+
+    const useCase = deps.createGetTeamProjectionRankingsUseCase(c.env.DB);
+    const rankings = await useCase.execute(yearResult.data, teamCode, mode);
+
+    // Serialize Infinity → null in each player profile
+    const serialized = {
+      ...rankings,
+      rankedPlayers: rankings.rankedPlayers.map(rp => ({
+        ...rp,
+        profile: {
+          ...rp.profile,
+          spikeCv: isFinite(rp.profile.spikeCv) ? rp.profile.spikeCv : null,
+          floorCv: rp.profile.floorCv === null || isFinite(rp.profile.floorCv) ? rp.profile.floorCv : null,
+        },
+      })),
+    };
+
+    return c.json(serialized);
   };
 }

@@ -30,6 +30,8 @@ import { GetTeamFormUseCase } from './application/use-cases/get-team-form.js';
 import { GetMatchOutlookUseCase } from './application/use-cases/get-match-outlook.js';
 import { GetPlayerTrendsUseCase } from './application/use-cases/get-player-trends.js';
 import { GetCompositionImpactUseCase } from './application/use-cases/get-composition-impact.js';
+import { GetPlayerProjectionUseCase } from './application/use-cases/get-player-projection.js';
+import { GetTeamProjectionRankingsUseCase } from './application/use-cases/get-team-projection-rankings.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
@@ -89,6 +91,28 @@ function initializeDeps(db?: D1Database): void {
     createScrapeCasualtyWardUseCase: (reqDb: D1Database) =>
       new ScrapeCasualtyWardUseCase(casualtyWardSource, new D1CasualtyWardRepository(reqDb), new D1PlayerRepository(reqDb)),
     createCasualtyWardRepository: (reqDb: D1Database) => new D1CasualtyWardRepository(reqDb),
+    createGetPlayerProjectionUseCase: (reqDb: D1Database) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const scUseCase = new GetSupercoachScoresUseCase(
+        playerRepo,
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
+      );
+      return new GetPlayerProjectionUseCase(playerRepo, scUseCase);
+    },
+    createGetTeamProjectionRankingsUseCase: (reqDb: D1Database) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const scUseCase = new GetSupercoachScoresUseCase(
+        playerRepo,
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
+      );
+      return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase);
+    },
   } satisfies HandlerDeps);
 
   depsInitialized = true;

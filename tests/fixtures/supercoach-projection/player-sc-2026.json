@@ -1,0 +1,260 @@
+{
+  "description": "Supercoach season data for a middle forward, 8 complete rounds, used in projection model tests",
+  "playerId": "504279",
+  "playerName": "William Kennedy",
+  "teamCode": "SHA",
+  "year": 2026,
+  "seasonTotal": 672,
+  "seasonAverage": 84,
+  "matchesPlayed": 8,
+  "matches": [
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R1-SHA-GCT",
+      "year": 2026,
+      "round": 1,
+      "opponent": "GCT",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 88,
+      "categoryTotals": { "scoring": 17, "create": 12, "evade": 10, "base": 51, "defence": 0, "negative": -2 },
+      "categories": {
+        "scoring": [
+          { "statName": "tries", "displayName": "Tries", "rawValue": 1, "pointsPerUnit": 17, "contribution": 17 }
+        ],
+        "create": [
+          { "statName": "tryAssists", "displayName": "Try Assists", "rawValue": 1, "pointsPerUnit": 12, "contribution": 12 }
+        ],
+        "evade": [
+          { "statName": "lineBreaks", "displayName": "Line Breaks", "rawValue": 1, "pointsPerUnit": 10, "contribution": 10 }
+        ],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 35, "pointsPerUnit": 1, "contribution": 35 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 3, "pointsPerUnit": -1, "contribution": -3 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 8, "pointsPerUnit": 2, "contribution": 16 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 5, "pointsPerUnit": 1, "contribution": 5 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "penalties", "displayName": "Penalties", "rawValue": 1, "pointsPerUnit": -2, "contribution": -2 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R2-SHA-MEL",
+      "year": 2026,
+      "round": 2,
+      "opponent": "MEL",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 72,
+      "categoryTotals": { "scoring": 0, "create": 0, "evade": 0, "base": 76, "defence": 0, "negative": -4 },
+      "categories": {
+        "scoring": [],
+        "create": [],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 30, "pointsPerUnit": 1, "contribution": 30 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 4, "pointsPerUnit": -1, "contribution": -4 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 7, "pointsPerUnit": 2, "contribution": 14 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 6, "pointsPerUnit": 1, "contribution": 6 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "errors", "displayName": "Errors", "rawValue": 2, "pointsPerUnit": -2, "contribution": -4 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R3-SHA-NQL",
+      "year": 2026,
+      "round": 3,
+      "opponent": "NQL",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 104,
+      "categoryTotals": { "scoring": 34, "create": 12, "evade": 0, "base": 58, "defence": 0, "negative": 0 },
+      "categories": {
+        "scoring": [
+          { "statName": "tries", "displayName": "Tries", "rawValue": 2, "pointsPerUnit": 17, "contribution": 34 }
+        ],
+        "create": [
+          { "statName": "tryAssists", "displayName": "Try Assists", "rawValue": 1, "pointsPerUnit": 12, "contribution": 12 }
+        ],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 38, "pointsPerUnit": 1, "contribution": 38 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 2, "pointsPerUnit": -1, "contribution": -2 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 9, "pointsPerUnit": 2, "contribution": 18 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 4, "pointsPerUnit": 1, "contribution": 4 }
+        ],
+        "defence": [],
+        "negative": []
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R4-SHA-CBY",
+      "year": 2026,
+      "round": 4,
+      "opponent": "CBY",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 68,
+      "categoryTotals": { "scoring": 0, "create": 0, "evade": 0, "base": 74, "defence": 0, "negative": -6 },
+      "categories": {
+        "scoring": [],
+        "create": [],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 32, "pointsPerUnit": 1, "contribution": 32 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 5, "pointsPerUnit": -1, "contribution": -5 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 6, "pointsPerUnit": 2, "contribution": 12 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 7, "pointsPerUnit": 1, "contribution": 7 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "penalties", "displayName": "Penalties", "rawValue": 2, "pointsPerUnit": -2, "contribution": -4 },
+          { "statName": "errors", "displayName": "Errors", "rawValue": 1, "pointsPerUnit": -2, "contribution": -2 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R5-SHA-BRI",
+      "year": 2026,
+      "round": 5,
+      "opponent": "BRI",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 80,
+      "categoryTotals": { "scoring": 0, "create": 8, "evade": 0, "base": 72, "defence": 0, "negative": 0 },
+      "categories": {
+        "scoring": [],
+        "create": [
+          { "statName": "lineBreakAssists", "displayName": "Line Break Assists", "rawValue": 1, "pointsPerUnit": 8, "contribution": 8 }
+        ],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 28, "pointsPerUnit": 1, "contribution": 28 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 3, "pointsPerUnit": -1, "contribution": -3 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 8, "pointsPerUnit": 2, "contribution": 16 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 5, "pointsPerUnit": 1, "contribution": 5 },
+          { "statName": "errors", "displayName": "Errors", "rawValue": 0, "pointsPerUnit": -2, "contribution": 0 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "errors", "displayName": "Errors", "rawValue": 0, "pointsPerUnit": -2, "contribution": 0 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R6-SHA-SYD",
+      "year": 2026,
+      "round": 6,
+      "opponent": "SYD",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 92,
+      "categoryTotals": { "scoring": 17, "create": 0, "evade": 10, "base": 65, "defence": 0, "negative": 0 },
+      "categories": {
+        "scoring": [
+          { "statName": "tries", "displayName": "Tries", "rawValue": 1, "pointsPerUnit": 17, "contribution": 17 }
+        ],
+        "create": [],
+        "evade": [
+          { "statName": "lineBreaks", "displayName": "Line Breaks", "rawValue": 1, "pointsPerUnit": 10, "contribution": 10 }
+        ],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 36, "pointsPerUnit": 1, "contribution": 36 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 2, "pointsPerUnit": -1, "contribution": -2 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 10, "pointsPerUnit": 2, "contribution": 20 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 6, "pointsPerUnit": 1, "contribution": 6 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "penalties", "displayName": "Penalties", "rawValue": 1, "pointsPerUnit": -2, "contribution": -2 },
+          { "statName": "errors", "displayName": "Errors", "rawValue": 0, "pointsPerUnit": -2, "contribution": 0 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R7-SHA-PAR",
+      "year": 2026,
+      "round": 7,
+      "opponent": "PAR",
+      "isComplete": true,
+      "matchConfidence": "linked",
+      "totalScore": 76,
+      "categoryTotals": { "scoring": 0, "create": 0, "evade": 0, "base": 76, "defence": 0, "negative": 0 },
+      "categories": {
+        "scoring": [],
+        "create": [],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 33, "pointsPerUnit": 1, "contribution": 33 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 3, "pointsPerUnit": -1, "contribution": -3 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 9, "pointsPerUnit": 2, "contribution": 18 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 7, "pointsPerUnit": 1, "contribution": 7 }
+        ],
+        "defence": [],
+        "negative": [
+          { "statName": "errors", "displayName": "Errors", "rawValue": 0, "pointsPerUnit": -2, "contribution": 0 },
+          { "statName": "penalties", "displayName": "Penalties", "rawValue": 0, "pointsPerUnit": -2, "contribution": 0 }
+        ]
+      },
+      "validationWarnings": []
+    },
+    {
+      "playerId": "504279",
+      "playerName": "William Kennedy",
+      "teamCode": "SHA",
+      "matchId": "2026-R8-SHA-WST",
+      "year": 2026,
+      "round": 8,
+      "opponent": "WST",
+      "isComplete": false,
+      "matchConfidence": "unmatched",
+      "totalScore": 0,
+      "categoryTotals": { "scoring": 0, "create": 0, "evade": 0, "base": 0, "defence": 0, "negative": 0 },
+      "categories": {
+        "scoring": [],
+        "create": [],
+        "evade": [],
+        "base": [
+          { "statName": "tacklesMade", "displayName": "Tackles Made", "rawValue": 0, "pointsPerUnit": 1, "contribution": 0 },
+          { "statName": "missedTackles", "displayName": "Missed Tackles", "rawValue": 0, "pointsPerUnit": -1, "contribution": 0 },
+          { "statName": "runsOver8m", "displayName": "Runs Over 8m", "rawValue": 0, "pointsPerUnit": 2, "contribution": 0 },
+          { "statName": "runsUnder8m", "displayName": "Runs Under 8m", "rawValue": 0, "pointsPerUnit": 1, "contribution": 0 }
+        ],
+        "defence": [],
+        "negative": []
+      },
+      "validationWarnings": [{ "type": "unmatched_player", "message": "No supplementary match found", "primaryValue": null, "supplementaryValue": null }]
+    }
+  ]
+}

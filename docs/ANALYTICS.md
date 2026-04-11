@@ -91,6 +91,168 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 
 **Output**: Array of streaks (type, start/end rounds, favourable/unfavourable counts) plus summary (counts and longest streaks)
 
+## Supercoach Player Projection Model
+
+**Endpoints**:
+- `GET /api/supercoach/:year/player/:playerId/projection`
+- `GET /api/supercoach/:year/team/:teamCode/rankings?mode=composite|captaincy|selection|trade`
+
+**Service**: `src/analytics/player-projection-service.ts`
+
+**Purpose**: Decompose each player's Supercoach scoring history into two independent components — a predictable *floor* driven by volume stats, and a volatile *spike* driven by event stats. This separation makes the model more useful than raw averages for different Supercoach decisions: captaincy picks, trade targets, and team selection all weight floor vs. spike differently.
+
+---
+
+### Data sources
+
+Only rounds where `isComplete: true` are used. This flag is set by the Supercoach scoring engine when supplementary data from nrlsupercoachstats.com was successfully matched — rounds where the match hasn't been processed or the player couldn't be linked are automatically excluded.
+
+For each eligible round, the model joins two pieces of data by `round` number:
+
+| Field | Source |
+|-------|--------|
+| `totalScore`, `categories` | Supercoach score record (`supplementary_stats` + `match_performances`) |
+| `minutesPlayed` | `match_performances` table (defaults to 80 if missing) |
+
+---
+
+### Floor component
+
+The floor captures stats that accumulate steadily regardless of match events — tackles, runs, and penalties. These scale roughly with time on field and are the most predictable part of a player's score.
+
+**Floor stats** (points per unit, 2026 season):
+
+| Stat | Points/unit |
+|------|------------|
+| `tacklesMade` | +1 |
+| `missedTackles` | −1 |
+| `runsOver8m` | +2 |
+| `runsUnder8m` | +1 |
+| `penalties` | −2 |
+| `errors` | −2 |
+
+**Per-game floor score** = sum of `contribution` values (rawValue × pointsPerUnit) across all categories for the above stat names only.
+
+**Floor profile** (computed across all eligible games):
+
+| Field | Formula |
+|-------|---------|
+| `floorMean` | Arithmetic mean of per-game floor scores |
+| `floorStd` | Sample standard deviation (n−1 denominator); `null` when fewer than 2 games |
+| `floorCv` | Coefficient of variation = `floorStd / floorMean`; `null` when `floorStd` is null; `Infinity` when `floorMean ≤ 0` (serialised as `null` in JSON) |
+| `floorPerMinute` | `floorMean / avgMinutes` |
+| `avgMinutes` | Mean of `minutesPlayed` across eligible games |
+
+**What `floorCv` means**: CV (coefficient of variation) is relative variability — how large the standard deviation is compared to the mean. A CV of 0.15 means the standard deviation is 15% of the mean. Lower CV = more consistent floor. A player with floorMean=50 and floorCv=0.10 is far more reliable than one with floorMean=50 and floorCv=0.40.
+
+---
+
+### Spike component
+
+The spike is the residual: `spikeScore = totalScore − floorScore` for each game. It captures tries, try assists, line breaks, line break assists, and any other event-driven scoring. Spikes are inherently unpredictable but their *distribution* carries information.
+
+**Spike profile** (computed from the array of per-game spike scores):
+
+| Field | Formula |
+|-------|---------|
+| `spikeMean` | Arithmetic mean of per-game spike scores |
+| `spikeStd` | Sample standard deviation (n−1); `null` when fewer than 2 games |
+| `spikeCv` | `spikeStd / spikeMean`; `Infinity` when `spikeMean ≤ 0`; serialised as `null` in JSON |
+| `spikePerMinute` | `spikeMean / avgMinutes` |
+| `spikeP25/50/75/90` | Linear-interpolation percentiles (same algorithm as numpy's default) |
+
+**Percentile calculation**: Uses linear interpolation — `i = p/100 × (n−1)`, then interpolates between `sorted[floor(i)]` and `sorted[ceil(i)]`. Example: for 7 games with spike scores sorted `[21, 28, 30, 34, 34, 37, 46]`, p25 = `28 + 0.5×(30−28) = 29`.
+
+**Spike distribution bands**:
+
+| Band | Range | Meaning |
+|------|-------|---------|
+| `negative` | < 0 | Penalty-heavy game dragged score below floor |
+| `nil` | 0–5 | No meaningful event scoring |
+| `low` | 6–15 | Minor contribution (1 try assist or 1 line break) |
+| `moderate` | 16–30 | Solid event game (1 try or multiple assists) |
+| `high` | 31–50 | Strong event game (multiple tries or assists) |
+| `boom` | 51+ | Elite event game |
+
+Each band entry has `count` (number of games in that band) and `frequency` (count / total games, rounded to 4 decimal places). Frequencies sum to 1.0 ± 0.001.
+
+**How to read the distribution**: A player with 60% of games in `nil` and 20% in `boom` is a high-variance pick — great captaincy upside but unreliable for selection. A player with 70% in `moderate` and 20% in `high` is consistent and safe.
+
+---
+
+### Combined projections
+
+| Field | Formula | Meaning |
+|-------|---------|---------|
+| `projectedTotal` | `floorMean + spikeMean` | Expected score in a typical game |
+| `projectedFloor` | `floorMean + spikeP25` | Score in a quiet game (1-in-4 chance of going lower) |
+| `projectedCeiling` | `floorMean + spikeP90` | Score in a boom game (1-in-10 chance of exceeding this) |
+
+---
+
+### Sample metadata
+
+| Field | Threshold | Meaning |
+|-------|-----------|---------|
+| `gamesPlayed` | — | Number of eligible (isComplete=true) rounds used |
+| `lowSampleWarning` | `gamesPlayed < 6` | Projections are directionally useful but not statistically reliable |
+| `noUsableData` | `gamesPlayed === 0` | No eligible rounds exist — all fields are zero |
+
+---
+
+### Composite ranking score
+
+Used to rank players within a team. Only computed when `floorCv` is non-null (requires ≥ 2 eligible games).
+
+```
+compositeScore = w_floor × floorMean
+              + w_spike × spikeMean
+              + w_consistency × (1 − floorCv)
+              + w_reliableSpike × spikeP25
+```
+
+The `(1 − floorCv)` term rewards consistency — a player with floorCv=0.10 contributes `0.90 × w_consistency`, while one with floorCv=0.40 contributes only `0.60 × w_consistency`.
+
+Players with `noUsableData` or null `compositeScore` (< 2 eligible games) are excluded from `rankedPlayers` and counted in `excludedCount`.
+
+---
+
+### Ranking modes
+
+Each mode shifts the composite weights to emphasise a different Supercoach decision:
+
+| Mode | `w_floor` | `w_spike` | `w_consistency` | `w_reliableSpike` | Best for |
+|------|-----------|-----------|-----------------|-------------------|---------|
+| `composite` | 1.0 | 0.8 | 10.0 | 0.5 | General weekly value |
+| `captaincy` | 0.5 | 1.5 | 5.0 | 1.0 | Double-score pick — maximise ceiling |
+| `selection` | 1.5 | 0.5 | 15.0 | 0.3 | Team selection — maximise floor reliability |
+| `trade` | 1.0 | 0.8 | 10.0 | 0.5 | Same weights as composite, but excludes players with `spikeCv ≥ 1.0` or Infinity (removes high-variance trade targets) |
+
+**Captaincy**: Weights spike heavily and reduces the consistency penalty. A boom-or-bust player scores higher here than in composite — that is intentional.
+
+**Selection**: The consistency weight (15.0) dominates. A player with floorCv=0.10 vs 0.30 gets `10 × (0.30 − 0.10) = 2.0` extra points just from consistency, independent of mean score. Use this to find the player least likely to post a low score.
+
+**Trade**: Same formula as composite but applies a hard filter — any player with `spikeCv ≥ 1.0` or undefined (`Infinity`, i.e. spikeMean ≤ 0) is excluded entirely. This surfaces consistent scorers whose price is likely to rise predictably, rather than boom-bust players who are harder to time.
+
+---
+
+### How to use the stats
+
+**Finding a captain**: Use `mode=captaincy` and look at `projectedCeiling` (floorMean + spikeP90). Also check `spikeDistribution.boom.frequency` — a player appearing in the top 5 by captaincy score but with 0% boom games may not be the right pick.
+
+**Safe selection pick**: Use `mode=selection`. Sort by `compositeScore`. Cross-check `floorCv` directly — two players with the same composite score but different `floorCv` (e.g. 0.10 vs 0.25) have meaningfully different risk profiles.
+
+**Trade target**: Use `mode=trade`. These players have been filtered to exclude high-volatility scorers. Look for players with `lowSampleWarning: false` (≥ 6 games) and rising `floorPerMinute` as indicators of sustained improvement.
+
+**Reading `projectedFloor` vs `projectedTotal`**: The gap between these two (`spikeMean − spikeP25`) tells you how much event scoring the player typically contributes even in quiet games. A large gap means the player often contributes event scoring; a small gap means they are a reliable floor scorer.
+
+**Warning flags**:
+- `lowSampleWarning: true` — treat all values as directional only; standard deviations and CVs can be misleading with fewer than 6 games
+- `floorCv > 0.35` — floor is volatile; the player's base output varies significantly week to week (injury risk, role changes, opponent quality)
+- `spikeCv` serialised as `null` — spike mean is zero or negative; the player scores at or below their floor in most games
+
+---
+
 ## Supercoach Scoring Engine
 
 **Endpoint**: `GET /api/supercoach/:year/:round`
