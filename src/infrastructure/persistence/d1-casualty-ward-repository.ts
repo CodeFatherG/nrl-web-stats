@@ -140,4 +140,32 @@ export class D1CasualtyWardRepository implements CasualtyWardRepository {
 
     logger.info('Closed casualty ward entry', { id, endDate });
   }
+
+  async findRecentlyClosedByKey(
+    firstName: string,
+    lastName: string,
+    teamCode: string,
+    date: string
+  ): Promise<CasualtyWardEntry | null> {
+    const result = await this.db
+      .prepare(
+        `SELECT * FROM casualty_ward
+         WHERE first_name = ? AND last_name = ? AND team_code = ? AND end_date = ?
+         ORDER BY start_date DESC
+         LIMIT 1`
+      )
+      .bind(firstName, lastName, teamCode, date)
+      .first();
+
+    return result ? rowToEntry(result as Record<string, unknown>) : null;
+  }
+
+  async reopen(id: number): Promise<void> {
+    await this.db
+      .prepare(`UPDATE casualty_ward SET end_date = NULL, updated_at = datetime('now') WHERE id = ?`)
+      .bind(id)
+      .run();
+
+    logger.info('Reopened casualty ward entry', { id });
+  }
 }

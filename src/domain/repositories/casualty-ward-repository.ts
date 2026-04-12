@@ -25,4 +25,18 @@ export interface CasualtyWardRepository {
 
   /** Close an entry by setting its end date. */
   close(id: number, endDate: string): Promise<void>;
+
+  /**
+   * Find the most recent entry closed on `date` for a given player name + team.
+   * Used to detect source flap: a player removed then re-added within the same day.
+   */
+  findRecentlyClosedByKey(
+    firstName: string,
+    lastName: string,
+    teamCode: string,
+    date: string
+  ): Promise<CasualtyWardEntry | null>;
+
+  /** Re-open a closed entry by clearing its end date. */
+  reopen(id: number): Promise<void>;
 }

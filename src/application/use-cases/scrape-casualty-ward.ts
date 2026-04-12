@@ -110,35 +110,84 @@ export class ScrapeCasualtyWardUseCase {
       ) ?? null;
 
       if (existing) {
-        // Player already has an open record — check for updates
-        const needsUpdate =
-          existing.injury !== player.injury ||
-          existing.expectedReturn !== player.expectedReturn ||
-          (existing.playerId === null && resolvedPlayerId !== null);
+        const injuryChanged = existing.injury !== player.injury;
 
-        if (needsUpdate) {
-          await this.repository.update({
-            ...existing,
+        if (injuryChanged && existing.id !== null) {
+          // Different injury while still on the ward — close the old entry today
+          // and open a new one. This preserves the full injury history.
+          await this.repository.close(existing.id, currentDate);
+          const newEntry = createCasualtyWardEntry({
+            firstName: player.firstName,
+            lastName: player.lastName,
+            teamCode: player.teamCode,
             injury: player.injury,
             expectedReturn: player.expectedReturn,
+            startDate: currentDate,
             playerId: existing.playerId ?? resolvedPlayerId,
           });
+          await this.repository.insert(newEntry);
           updatedEntries++;
+        } else {
+          // Same injury — check whether expectedReturn or playerId need updating
+          const needsUpdate =
+            existing.expectedReturn !== player.expectedReturn ||
+            (existing.playerId === null && resolvedPlayerId !== null);
+
+          if (needsUpdate) {
+            await this.repository.update({
+              ...existing,
+              expectedReturn: player.expectedReturn,
+              playerId: existing.playerId ?? resolvedPlayerId,
+            });
+            updatedEntries++;
+          }
         }
         // Otherwise unchanged — no action
       } else {
-        // New player on casualty ward — create record
-        const entry = createCasualtyWardEntry({
-          firstName: player.firstName,
-          lastName: player.lastName,
-          teamCode: player.teamCode,
-          injury: player.injury,
-          expectedReturn: player.expectedReturn,
-          startDate: currentDate,
-          playerId: resolvedPlayerId,
-        });
-        await this.repository.insert(entry);
-        newEntries++;
+        // Check whether this player was closed today — if so, the source is flapping
+        // (removed then re-added the same player within a short window). Re-open the
+        // existing entry rather than creating a zero-duration duplicate.
+        const recentlyClosed = await this.repository.findRecentlyClosedByKey(
+          player.firstName,
+          player.lastName,
+          player.teamCode,
+          currentDate
+        );
+
+        const isSameInjury = recentlyClosed !== null &&
+          recentlyClosed.injury.toLowerCase().trim() === player.injury.toLowerCase().trim();
+
+        if (recentlyClosed && recentlyClosed.id !== null && isSameInjury) {
+          // Same player, same injury, closed today — source is flapping. Reopen.
+          await this.repository.reopen(recentlyClosed.id);
+          // Backfill playerId if it was missing
+          if (recentlyClosed.playerId === null && resolvedPlayerId !== null) {
+            await this.repository.update({
+              ...recentlyClosed,
+              endDate: null,
+              playerId: resolvedPlayerId,
+            });
+          }
+          logger.info('[CASUALTY-WARD] Reopened flapping entry', {
+            id: recentlyClosed.id,
+            firstName: player.firstName,
+            lastName: player.lastName,
+            teamCode: player.teamCode,
+          });
+        } else {
+          // Genuinely new player on casualty ward — create record
+          const entry = createCasualtyWardEntry({
+            firstName: player.firstName,
+            lastName: player.lastName,
+            teamCode: player.teamCode,
+            injury: player.injury,
+            expectedReturn: player.expectedReturn,
+            startDate: currentDate,
+            playerId: resolvedPlayerId,
+          });
+          await this.repository.insert(entry);
+          newEntries++;
+        }
       }
     }
 
