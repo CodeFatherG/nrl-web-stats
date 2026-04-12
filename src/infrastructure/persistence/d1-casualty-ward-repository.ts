@@ -75,12 +75,51 @@ export class D1CasualtyWardRepository implements CasualtyWardRepository {
   }
 
   async findByPlayerId(playerId: string): Promise<CasualtyWardEntry[]> {
-    const { results } = await this.db
+    // Primary: direct player_id match
+    const { results: direct } = await this.db
       .prepare('SELECT * FROM casualty_ward WHERE player_id = ? ORDER BY start_date DESC')
       .bind(playerId)
       .all();
 
-    return (results as Record<string, unknown>[]).map(rowToEntry);
+    // Fallback: name + team match for entries where player_id was never resolved.
+    // This happens when the scraper couldn't match the player at insert time (e.g. the
+    // player didn't exist in the players table yet, or was closed the same day).
+    const { results: nameBased } = await this.db
+      .prepare(`
+        SELECT cw.* FROM casualty_ward cw
+        JOIN players p ON p.id = ?
+        WHERE LOWER(TRIM(cw.first_name || ' ' || cw.last_name)) = LOWER(TRIM(p.name))
+          AND cw.team_code = p.team_code
+          AND cw.player_id IS NULL
+        ORDER BY cw.start_date DESC
+      `)
+      .bind(playerId)
+      .all();
+
+    // Self-heal: backfill player_id so future calls hit the fast path
+    const nameBasedEntries = (nameBased as Record<string, unknown>[]).map(rowToEntry);
+    for (const entry of nameBasedEntries) {
+      if (entry.id !== null) {
+        await this.db
+          .prepare("UPDATE casualty_ward SET player_id = ?, updated_at = datetime('now') WHERE id = ?")
+          .bind(playerId, entry.id)
+          .run();
+        entry.playerId = playerId;
+      }
+    }
+
+    const all = [
+      ...(direct as Record<string, unknown>[]).map(rowToEntry),
+      ...nameBasedEntries,
+    ];
+
+    // Deduplicate by id in case both queries matched the same row
+    const seen = new Set<number>();
+    return all.filter(e => {
+      if (e.id === null || seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
   }
 
   async findAll(): Promise<CasualtyWardEntry[]> {
