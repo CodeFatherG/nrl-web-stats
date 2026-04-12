@@ -22,6 +22,7 @@ export type RouteMatch =
   | { type: 'players' }
   | { type: 'player'; playerId: string }
   | { type: 'casualtyWard' }
+  | { type: 'compare'; playerIds: string[] }
   | { type: 'notFound'; path: string };
 
 /** Check if a team code is valid (case-insensitive) */
@@ -118,6 +119,16 @@ export function parseUrl(pathname: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
+  // /compare or /compare/:ids (comma-separated player IDs)
+  if (segments.length >= 1 && segments[0] === 'compare') {
+    if (segments.length === 1) {
+      return { type: 'compare', playerIds: [] };
+    }
+    const raw = segments[1]!;
+    const playerIds = raw.split(',').filter((id) => id.length > 0);
+    return { type: 'compare', playerIds };
+  }
+
   return { type: 'notFound', path };
 }
 
@@ -169,4 +180,10 @@ export function buildPlayersUrl(): string {
 /** Build URL for a specific player detail */
 export function buildPlayerUrl(playerId: string): string {
   return `/player/${playerId}`;
+}
+
+/** Build URL for the player comparison page */
+export function buildCompareUrl(playerIds: string[]): string {
+  if (playerIds.length === 0) return '/compare';
+  return `/compare/${playerIds.join(',')}`;
 }

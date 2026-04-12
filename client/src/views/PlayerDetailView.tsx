@@ -20,6 +20,7 @@ import {
   Divider,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
   getPlayer,
@@ -34,12 +35,13 @@ import type {
   PlayerProjectionResponse,
   SpikeBand,
 } from '../services/api';
-import { buildPlayersUrl } from '../utils/routes';
+import { buildPlayersUrl, buildCompareUrl, parseUrl } from '../utils/routes';
 import type { PlayerDetailResponse, PlayerPerformanceDetail, Team } from '../types';
 
 interface PlayerDetailViewProps {
   playerId: string;
   onBack: () => void;
+  onNavigate?: (url: string) => void;
   teams: Team[];
   year: number;
 }
@@ -272,7 +274,7 @@ const SPIKE_BANDS: Array<{ key: SpikeBand; label: string; color: string }> = [
 
 type ViewTab = 'overview' | 'stats' | 'supercoach' | 'injuries';
 
-export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetailViewProps) {
+export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: PlayerDetailViewProps) {
   const [player, setPlayer] = useState<PlayerDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -410,9 +412,37 @@ export function PlayerDetailView({ playerId, onBack, teams, year }: PlayerDetail
     return col.format ? col.format(val) : String(val);
   };
 
+  const handleCompare = () => {
+    if (!onNavigate) return;
+    const currentRoute = parseUrl(window.location.pathname);
+    const existingIds = currentRoute.type === 'compare' ? currentRoute.playerIds : [];
+    const newIds = existingIds.includes(playerId)
+      ? existingIds
+      : [...existingIds, playerId];
+    onNavigate(buildCompareUrl(newIds));
+  };
+
+  const isAlreadyComparing = (() => {
+    const currentRoute = parseUrl(window.location.pathname);
+    return currentRoute.type === 'compare' && currentRoute.playerIds.includes(playerId);
+  })();
+
   return (
     <Box>
-      <Button startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ mb: 2 }}>Back</Button>
+      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+        <Button startIcon={<ArrowBackIcon />} onClick={onBack}>Back</Button>
+        {onNavigate && (
+          <Button
+            startIcon={<CompareArrowsIcon />}
+            onClick={handleCompare}
+            variant={isAlreadyComparing ? 'outlined' : 'text'}
+            disabled={isAlreadyComparing}
+            color="secondary"
+          >
+            {isAlreadyComparing ? 'Comparing' : 'Compare'}
+          </Button>
+        )}
+      </Box>
 
       {/* ── Hero section ─────────────────────────────────────────── */}
       <Paper variant="outlined" sx={{ p: 2.5, mb: 2.5 }}>

@@ -13,8 +13,9 @@ import { MatchDetailView } from './views/MatchDetailView';
 import { PlayersSummaryView } from './views/PlayersSummaryView';
 import { PlayerDetailView } from './views/PlayerDetailView';
 import { CasualtyWardView } from './views/CasualtyWardView';
+import { CompareView } from './views/CompareView';
 import { useRouter } from './hooks/useRouter';
-import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, getValidTeamCodes } from './utils/routes';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, buildCompareUrl, getValidTeamCodes } from './utils/routes';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook, getSeasonPlayers } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak, PlayerSeasonSummary } from './types';
@@ -42,8 +43,14 @@ function App() {
     if (route.type === 'bye') return 'bye';
     if (route.type === 'players' || route.type === 'player') return 'player';
     if (route.type === 'casualtyWard') return 'casualtyWard';
+    if (route.type === 'compare') return 'compare';
     return 'round';
   });
+
+  // Comparison set state — initialised from route
+  const [comparisonPlayerIds, setComparisonPlayerIds] = useState<string[]>(() =>
+    route.type === 'compare' ? route.playerIds : []
+  );
 
   // Match detail view state — initialised from route
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(() =>
@@ -141,6 +148,11 @@ function App() {
       setSelectedPlayerId(route.playerId);
     } else if (route.type === 'casualtyWard') {
       setActiveTab('casualtyWard');
+      setSelectedMatchId(null);
+      setSelectedPlayerId(null);
+    } else if (route.type === 'compare') {
+      setActiveTab('compare');
+      setComparisonPlayerIds(route.playerIds);
       setSelectedMatchId(null);
       setSelectedPlayerId(null);
     }
@@ -356,9 +368,11 @@ function App() {
         navigate(buildPlayersUrl());
       } else if (tab === 'casualtyWard') {
         navigate(buildCasualtyWardUrl());
+      } else if (tab === 'compare') {
+        navigate(buildCompareUrl(comparisonPlayerIds));
       }
     },
-    [navigate, selectedTeamCode, roundViewMode, selectedRound, teams]
+    [navigate, selectedTeamCode, roundViewMode, selectedRound, teams, comparisonPlayerIds]
   );
 
   // Round view mode change handler — pushes URL
@@ -484,6 +498,15 @@ function App() {
           <PlayerDetailView
             playerId={selectedPlayerId}
             onBack={handlePlayerDetailBack}
+            onNavigate={(url) => {
+              const match = url.match(/^\/compare\/?(.*)/);
+              const ids = match?.[1]
+                ? match[1].split(',').filter(Boolean)
+                : [];
+              setComparisonPlayerIds(ids);
+              setActiveTab('compare');
+              navigate(url);
+            }}
             teams={teams}
             year={currentYear}
           />
@@ -580,6 +603,22 @@ function App() {
               <CasualtyWardView
                 teams={teams}
                 onPlayerClick={handlePlayerClick}
+              />
+            )}
+
+            {activeTab === 'compare' && (
+              <CompareView
+                playerIds={comparisonPlayerIds}
+                year={currentYear}
+                onNavigate={(url) => {
+                  // Parse the new player IDs from the URL and sync state
+                  const match = url.match(/^\/compare\/?(.*)/);
+                  const ids = match?.[1]
+                    ? match[1].split(',').filter(Boolean)
+                    : [];
+                  setComparisonPlayerIds(ids);
+                  navigate(url);
+                }}
               />
             )}
           </>

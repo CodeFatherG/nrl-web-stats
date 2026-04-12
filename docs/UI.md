@@ -248,6 +248,69 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - Click a player row to open/close the detail panel
 - Expand/collapse individual category accordions in the detail panel
 
+## Compare View
+
+**Purpose**: Side-by-side comparison of two or more NRL players across season statistics, Supercoach round scores, and projection analytics.
+
+**How to access**:
+- Select the **Compare** tab (compare arrows icon) in the main navigation bar
+- On any player's detail page, click the **Compare** button in the header to add that player to the comparison set and navigate to the Compare page
+
+**URL routes**:
+
+| URL | View |
+|-----|------|
+| `/compare` | Empty comparison page (shows search prompt) |
+| `/compare/:ids` | Comparison of players identified by comma-separated IDs |
+
+**URL state**: The comparison set is encoded in the URL path (e.g., `/compare/id1,id2,id3`). Adding/removing players updates the URL. Bookmarking, sharing, or back-navigating through browser history restores the exact same comparison set.
+
+**Components**:
+- `CompareView` in `client/src/views/CompareView.tsx` — main page
+- `PlayerSearchInput` in `client/src/components/PlayerSearchInput.tsx` — autocomplete player search
+- `CompareAnalyticsSummary` in `client/src/components/CompareAnalyticsSummary.tsx` — analytics cards
+- `CompareSeasonStatsTable` in `client/src/components/CompareSeasonStatsTable.tsx` — sortable season stats
+- `CompareRoundScoresTable` in `client/src/components/CompareRoundScoresTable.tsx` — sortable round scores
+- `CompareProjectionsSection` in `client/src/components/CompareProjectionsSection.tsx` — projection analytics
+
+**What you see**:
+
+**Empty state**: When no players have been added, a search icon, instruction text ("Add players to start comparing"), and search bar are displayed.
+
+**Player chips + search bar**: Each compared player appears as a chip with a remove (×) button. An autocomplete search bar lets users add further players by name.
+
+**1. Key Analytics Summary Cards** — one card per player showing:
+- Projected Score (floor mean + spike mean)
+- Projected Floor (floor mean + spike P25)
+- Projected Ceiling (floor mean + spike P90)
+- Current Supercoach price
+- Break even
+- Leader per metric highlighted in green (2+ players only)
+- Amber warning icon on projection metrics when player has <6 eligible games
+
+**2. Season Statistics Table** — stat categories as rows, players as columns:
+- Stats: Games Played, SC Avg, Tries, Run Metres, Tackles, Tackle Breaks, Line Breaks, NRL Points, Kicks, Kick Metres, Offloads, Errors, Penalties, Missed Tackles, Intercepts, Avg Minutes, Price, Break Even
+- Click a player column header to sort all rows by that player's value (descending first, toggle for ascending)
+- Null values displayed as "—" and sort to the bottom
+- Highest value per row highlighted in green (2+ players only)
+
+**3. Round Scores Table** — completed rounds as rows, players as columns:
+- Each cell shows that player's total Supercoach score for the round
+- **DNP** shown (muted text) when a player has no score for a round that another player played
+- Sortable by player column; DNP rows sort to the bottom
+
+**4. Projections Table** — projection model outputs as rows, players as columns:
+- Rows: Projected Score, Projected Floor, Projected Ceiling, Floor Mean, Spike Mean, Floor CV, Spike CV, Spike distribution band frequencies (Negative/Nil/Low/Moderate/High/Boom as %)
+- "Unavailable" shown in a player's column if their projection data failed to load
+- "No data" shown when player has no eligible games
+- Amber warning icon in column header when player has low sample size (<6 games)
+
+**Interactions**:
+- Add players via autocomplete search or the Compare button on individual player pages
+- Remove players via the × on their chip
+- Sort any table by clicking a player column header
+- Click browser back to restore the previous comparison state
+
 ## Visual Language
 
 - **Strength badges**: Green = easy, Amber = medium, Red = hard (based on p33/p67 percentile thresholds)
