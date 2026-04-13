@@ -43,6 +43,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - Cloudflare D1 (read-only; existing `supplementary_stats` and `match_performances` tables) (025-supercoach-player-projections)
 - TypeScript 5.x with strict mode + React 18, MUI 5.x (existing), Hono (backend — not modified) (026-player-comparison)
 - N/A — client-side only; URL path encodes comparison state (026-player-comparison)
+- TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) — no new dependencies (027-player-stats-updates)
+- Cloudflare D1 (SQLite) — no schema changes (027-player-stats-updates)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -109,9 +111,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 027-player-stats-updates: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) — no new dependencies
 - 026-player-comparison: Added TypeScript 5.x with strict mode + React 18, MUI 5.x (existing), Hono (backend — not modified)
 - 025-supercoach-player-projections: Added TypeScript 5.x with strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing) — no new dependencies
-- 024-supercoach-api-endpoints: Added TypeScript 5.x strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing), Miniflare (contract tests)
 
 
 <!-- MANUAL ADDITIONS START -->
