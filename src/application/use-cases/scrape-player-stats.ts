@@ -19,21 +19,24 @@ export interface ScrapePlayerStatsResult {
   created: number;
   updated: number;
   skipped: number;
+  skipReason?: 'supplementary-stats-present';
   warnings: Warning[];
 }
 
 export class ScrapePlayerStatsUseCase {
   constructor(
     private readonly playerStatsSource: PlayerStatsSource,
-    private readonly playerRepository: PlayerRepository
+    private readonly playerRepository: PlayerRepository,
+    private readonly supplementaryRepo: { isRoundCached(season: number, round: number): Promise<boolean> }
   ) {}
 
   async execute(year: number, round: number, force = false): Promise<ScrapePlayerStatsResult> {
-    // Check if round is already complete (skip unless forced)
+    // Skip if supplementary stats already exist for this round (revision window is closed)
+    // force=true overrides this lock
     if (!force) {
-      const isComplete = await this.playerRepository.isRoundComplete(year, round);
-      if (isComplete) {
-        logger.debug('Round already complete, skipping player stats scrape', { year, round });
+      const hasSuppStats = await this.supplementaryRepo.isRoundCached(year, round);
+      if (hasSuppStats) {
+        logger.debug('Round locked by supplementary stats, skipping player stats scrape', { year, round });
         return {
           year,
           round,
@@ -42,6 +45,7 @@ export class ScrapePlayerStatsUseCase {
           created: 0,
           updated: 0,
           skipped: 1,
+          skipReason: 'supplementary-stats-present' as const,
           warnings: [],
         };
       }

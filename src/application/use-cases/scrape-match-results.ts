@@ -322,3 +322,56 @@ export async function findRoundsNeedingPlayerStats(
 
   return roundsNeeding.sort((a, b) => a.year - b.year || a.round - b.round);
 }
+
+/**
+ * Find rounds that are in the player stats revision window:
+ * - All matches are completed and stats are fully scraped (is_complete=1)
+ * - Supplementary stats have NOT yet been published
+ *
+ * These rounds should be re-scraped on each cron cycle because nrl.com
+ * may continue to revise stats after initial publication, up until supp stats arrive.
+ */
+export async function findRoundsInPlayerStatsUpdateWindow(
+  matchRepository: MatchRepository,
+  playerRepository: PlayerRepository,
+  supplementaryRepo: { isRoundCached(season: number, round: number): Promise<boolean> }
+): Promise<Array<{ year: number; round: number }>> {
+  const loadedYears = await matchRepository.getLoadedYears();
+  if (loadedYears.length === 0) return [];
+
+  const roundsInWindow: Array<{ year: number; round: number }> = [];
+
+  for (const year of loadedYears) {
+    const matches = await matchRepository.findByYear(year);
+
+    // Group matches by round
+    const roundMatches = new Map<number, typeof matches>();
+    for (const match of matches) {
+      if (!roundMatches.has(match.round)) {
+        roundMatches.set(match.round, []);
+      }
+      roundMatches.get(match.round)!.push(match);
+    }
+
+    for (const [round, roundMatchList] of roundMatches) {
+      const completedMatchCount = roundMatchList.filter(m => m.status === MatchStatus.Completed).length;
+      if (completedMatchCount === 0) continue;
+
+      // Stats coverage must be complete
+      const scrapedMatchCount = await playerRepository.countDistinctMatchesInRound(year, round);
+      if (scrapedMatchCount < completedMatchCount) continue;
+
+      // All existing records must be is_complete=1 (no in-progress records)
+      const allRecordsComplete = await playerRepository.isRoundComplete(year, round);
+      if (!allRecordsComplete) continue;
+
+      // Supplementary stats must NOT be present (revision window is still open)
+      const hasSuppStats = await supplementaryRepo.isRoundCached(year, round);
+      if (hasSuppStats) continue;
+
+      roundsInWindow.push({ year, round });
+    }
+  }
+
+  return roundsInWindow.sort((a, b) => a.year - b.year || a.round - b.round);
+}

@@ -242,5 +242,13 @@ Configured via cron triggers in `wrangler.jsonc`:
 2. Identifies rounds needing result scraping (match scheduled time + 2-hour buffer has passed, status still Scheduled)
 3. Identifies rounds needing player stats (all matches Completed, no player stats yet in repository)
 4. Scrapes results first, then player stats for completed rounds
-5. Team list scraping: initial round scrape, 24h window updates, 90min window updates, then backfill of completed matches missing team lists
-6. Casualty ward scraping: fetches current snapshot, applies change detection to insert/close/update records
+5. **Player stats revision window re-scrape**: identifies rounds where stats are fully scraped but supplementary stats have not yet been published. nrl.com may revise player stats between game completion and supplementary stats publication (typically hours to a few days). The cron re-scrapes these rounds on every cycle until supp stats arrive and lock the round.
+6. Supplementary stats backfill: finds completed rounds missing supp stats and attempts to fetch them
+7. Team list scraping: initial round scrape, 24h window updates, 90min window updates, then backfill of completed matches missing team lists
+8. Casualty ward scraping: fetches current snapshot, applies change detection to insert/close/update records
+
+**Player Stats Update Window**:
+- A round enters the update window when: all matches are `Completed`, player stats coverage is complete (`is_complete=1` for all records), and no supplementary stats exist yet for the round.
+- The cron re-scrapes player stats for these rounds without `force=true`. The use case gate (`ScrapePlayerStatsUseCase`) checks supplementary stats presence — not the old `isRoundComplete` flag — so the scrape proceeds until supp stats arrive.
+- Once supplementary stats are published (any row in `supplementary_stats` for that season/round), the round is excluded from the update window and player stats are no longer automatically re-scraped.
+- **Manual override**: `POST /api/scrape/players` with `force: true` re-scrapes regardless of supplementary stats presence.

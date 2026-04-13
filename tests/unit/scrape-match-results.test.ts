@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats } from '../../src/application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsInPlayerStatsUpdateWindow } from '../../src/application/use-cases/scrape-match-results.js';
 import type { MatchResultSource, MatchResult } from '../../src/domain/ports/match-result-source.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../../src/domain/repositories/player-repository.js';
@@ -579,5 +579,146 @@ describe('findRoundsNeedingPlayerStats', () => {
     const rounds = await findRoundsNeedingPlayerStats(matchRepo, playerRepo);
 
     expect(rounds).toEqual([]);
+  });
+});
+
+describe('findRoundsInPlayerStatsUpdateWindow', () => {
+  function createCompletedMatch(year: number, round: number, homeCode: string, awayCode: string): Match {
+    return {
+      id: createMatchId(homeCode, awayCode, year, round),
+      year, round,
+      homeTeamCode: homeCode, awayTeamCode: awayCode,
+      homeStrengthRating: 700, awayStrengthRating: 600,
+      homeScore: 20, awayScore: 10,
+      status: MatchStatus.Completed,
+      scheduledTime: '2025-03-06T09:00:00Z',
+      stadium: null, weather: null,
+    };
+  }
+
+  function createMockPlayerRepo(overrides: {
+    countDistinctMatchesInRound?: number;
+    isRoundComplete?: boolean;
+  } = {}) {
+    return {
+      save: vi.fn(),
+      findById: vi.fn().mockResolvedValue(null),
+      findByTeam: vi.fn().mockResolvedValue([]),
+      findMatchPerformances: vi.fn().mockResolvedValue([]),
+      findSeasonAggregates: vi.fn().mockResolvedValue(null),
+      isRoundComplete: vi.fn().mockResolvedValue(overrides.isRoundComplete ?? true),
+      countDistinctMatchesInRound: vi.fn().mockResolvedValue(overrides.countDistinctMatchesInRound ?? 1),
+      findPerformancesByMatch: vi.fn().mockResolvedValue([]),
+    };
+  }
+
+  function createMockSuppRepo(isCached: boolean) {
+    return { isRoundCached: vi.fn().mockResolvedValue(isCached) };
+  }
+
+  it('returns empty when no completed matches', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([{
+      id: createMatchId('SYD', 'BRO', 2025, 1),
+      year: 2025, round: 1,
+      homeTeamCode: 'SYD', awayTeamCode: 'BRO',
+      homeStrengthRating: 700, awayStrengthRating: 600,
+      homeScore: null, awayScore: null,
+      status: MatchStatus.Scheduled,
+      scheduledTime: '2025-03-06T09:00:00Z',
+      stadium: null, weather: null,
+    }]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+
+    const rounds = await findRoundsInPlayerStatsUpdateWindow(
+      matchRepo, createMockPlayerRepo(), createMockSuppRepo(false)
+    );
+
+    expect(rounds).toEqual([]);
+  });
+
+  it('returns empty when stats coverage is incomplete', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([
+      createCompletedMatch(2025, 1, 'SYD', 'BRO'),
+      createCompletedMatch(2025, 1, 'MEL', 'PTH'),
+    ]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    // Only 1 of 2 matches scraped
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: true });
+
+    const rounds = await findRoundsInPlayerStatsUpdateWindow(
+      matchRepo, playerRepo, createMockSuppRepo(false)
+    );
+
+    expect(rounds).toEqual([]);
+  });
+
+  it('returns empty when records are not all is_complete=1', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([createCompletedMatch(2025, 1, 'SYD', 'BRO')]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: false });
+
+    const rounds = await findRoundsInPlayerStatsUpdateWindow(
+      matchRepo, playerRepo, createMockSuppRepo(false)
+    );
+
+    expect(rounds).toEqual([]);
+  });
+
+  it('returns empty when supplementary stats are already present', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([createCompletedMatch(2025, 1, 'SYD', 'BRO')]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: true });
+
+    const rounds = await findRoundsInPlayerStatsUpdateWindow(
+      matchRepo, playerRepo, createMockSuppRepo(true)
+    );
+
+    expect(rounds).toEqual([]);
+  });
+
+  it('returns round when all conditions are met (complete stats, no supp stats)', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([createCompletedMatch(2025, 1, 'SYD', 'BRO')]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: true });
+
+    const rounds = await findRoundsInPlayerStatsUpdateWindow(
+      matchRepo, playerRepo, createMockSuppRepo(false)
+    );
+
+    expect(rounds).toEqual([{ year: 2025, round: 1 }]);
+  });
+
+  it('returns same round on repeated calls until supp stats arrive (idempotent)', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([createCompletedMatch(2025, 1, 'SYD', 'BRO')]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: true });
+    const suppRepo = createMockSuppRepo(false);
+
+    const rounds1 = await findRoundsInPlayerStatsUpdateWindow(matchRepo, playerRepo, suppRepo);
+    const rounds2 = await findRoundsInPlayerStatsUpdateWindow(matchRepo, playerRepo, suppRepo);
+
+    expect(rounds1).toEqual([{ year: 2025, round: 1 }]);
+    expect(rounds2).toEqual([{ year: 2025, round: 1 }]);
+  });
+
+  it('excludes round once supp stats arrive (lock applied)', async () => {
+    const matchRepo = createMockMatchRepository();
+    matchRepo.findByYear.mockResolvedValue([createCompletedMatch(2025, 1, 'SYD', 'BRO')]);
+    (matchRepo as any).getLoadedYears = vi.fn().mockResolvedValue([2025]);
+    const playerRepo = createMockPlayerRepo({ countDistinctMatchesInRound: 1, isRoundComplete: true });
+
+    // Before supp stats: round is in window
+    const before = await findRoundsInPlayerStatsUpdateWindow(matchRepo, playerRepo, createMockSuppRepo(false));
+    expect(before).toEqual([{ year: 2025, round: 1 }]);
+
+    // After supp stats published: round is excluded
+    const after = await findRoundsInPlayerStatsUpdateWindow(matchRepo, playerRepo, createMockSuppRepo(true));
+    expect(after).toEqual([]);
   });
 });

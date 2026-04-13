@@ -51,6 +51,7 @@ describe('Player Stats API', () => {
     const db = await mf.getD1Database('DB');
     await db.exec('DELETE FROM match_performances');
     await db.exec('DELETE FROM players');
+    await db.exec('DELETE FROM supplementary_stats');
   });
 
   async function seedPlayer(db: D1Database, id: string, name: string, teamCode: string, position: string) {
@@ -184,10 +185,13 @@ describe('Player Stats API', () => {
       expect(data.error).toBe('Bad Request');
     });
 
-    it('returns 400 when round is already complete and force is false', async () => {
+    it('returns 400 when round is locked by supplementary stats and force is false', async () => {
       const db = await mf.getD1Database('DB');
-      await seedPlayer(db, '1001', 'Player A', 'CBR', 'Fullback');
-      await seedPerformance(db, '1001', 'match-1', 2025, 5, 'CBR', { isComplete: 1 });
+      // Seed supplementary stats for round 5 — this is the lock signal
+      await db.prepare(
+        `INSERT INTO supplementary_stats (player_name, season, round, last_touch, missed_goals, missed_field_goals, effective_offloads, ineffective_offloads, runs_over_8m, runs_under_8m, try_saves, kick_regather_break, held_up_in_goal)
+         VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`
+      ).bind('Smith, John', 2025, 5).run();
 
       const res = await mf.dispatchFetch('http://localhost/api/scrape/players', {
         method: 'POST',
@@ -197,7 +201,7 @@ describe('Player Stats API', () => {
       expect(res.status).toBe(400);
 
       const data = await res.json() as { message: string };
-      expect(data.message).toContain('already complete');
+      expect(data.message).toContain('locked by supplementary stats');
       expect(data.message).toContain('force: true');
     });
   });

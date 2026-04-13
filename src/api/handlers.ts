@@ -98,6 +98,8 @@ export interface HandlerDeps {
   createGetPlayerProjectionUseCase: (db: D1Database) => GetPlayerProjectionUseCase;
   /** Factory to create a per-request GetTeamProjectionRankingsUseCase from the DB binding */
   createGetTeamProjectionRankingsUseCase: (db: D1Database) => GetTeamProjectionRankingsUseCase;
+  /** Factory to create a per-request supplementary stats repository for lock checks */
+  createSupplementaryStatsRepository: (db: D1Database) => { isRoundCached(season: number, round: number): Promise<boolean> };
 }
 
 // Environment bindings type
@@ -762,15 +764,15 @@ export function triggerPlayerScrape(deps: HandlerDeps) {
 
       const { year, round, force } = parseResult.data;
 
-      // Check if round is already complete before scraping
+      // Check if round is locked by supplementary stats before scraping
       if (!force) {
-        const repo = deps.createPlayerRepository(c.env.DB);
-        const isComplete = await repo.isRoundComplete(year, round);
-        if (isComplete) {
+        const suppRepo = deps.createSupplementaryStatsRepository(c.env.DB);
+        const hasSuppStats = await suppRepo.isRoundCached(year, round);
+        if (hasSuppStats) {
           return errorResponse(
             c,
             'Bad Request',
-            `Round ${round} is already complete. Use force: true to re-scrape.`,
+            `Round ${round} player stats are locked by supplementary stats. Use force: true to override.`,
             400
           );
         }

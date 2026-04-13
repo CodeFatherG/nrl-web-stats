@@ -7,7 +7,7 @@ import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-matc
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsNeedingSupplementaryStats } from './application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsNeedingSupplementaryStats, findRoundsInPlayerStatsUpdateWindow } from './application/use-cases/scrape-match-results.js';
 import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
@@ -70,7 +70,7 @@ function initializeDeps(db?: D1Database): void {
     matchRepository,
     createPlayerRepository: createPlayerRepo,
     createScrapePlayerStatsUseCase: (reqDb: D1Database) =>
-      new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb)),
+      new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb), new D1SupplementaryStatsRepository(reqDb)),
     getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
     getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
     getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache),
@@ -113,6 +113,7 @@ function initializeDeps(db?: D1Database): void {
       );
       return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase);
     },
+    createSupplementaryStatsRepository: (reqDb: D1Database) => new D1SupplementaryStatsRepository(reqDb),
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -259,13 +260,15 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   });
 
   // Create per-request use cases with D1 binding
+  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
   const scrapePlayerStatsUseCase = new ScrapePlayerStatsUseCase(
     playerStatsSource,
-    new D1PlayerRepository(env.DB)
+    new D1PlayerRepository(env.DB),
+    suppRepo
   );
   const scrapeSupplementaryUseCase = new ScrapeSupplementaryStatsUseCase(
     supplementaryStatsSource,
-    new D1SupplementaryStatsRepository(env.DB)
+    suppRepo
   );
 
   for (const { year, round } of roundsToScrape) {
@@ -392,7 +395,6 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   }
 
   // Independent supplementary stats discovery
-  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
   const roundsNeedingSuppStats = await findRoundsNeedingSupplementaryStats(matchRepository, suppRepo);
 
   // Exclude rounds already handled above
@@ -427,6 +429,41 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
           round,
           error: suppError instanceof Error ? suppError.message : 'Unknown error',
           stack: suppError instanceof Error ? suppError.stack : undefined,
+        });
+      }
+    }
+  }
+
+  // Player stats revision window: re-scrape rounds that have complete stats but no supp stats yet.
+  // nrl.com may revise stats after game completion — we keep ingesting until supp stats lock the round.
+  const updateWindowRounds = await findRoundsInPlayerStatsUpdateWindow(matchRepository, playerRepo, suppRepo);
+  const updateWindowOnly = updateWindowRounds.filter(r => !allHandled.has(`${r.year}-${r.round}`));
+
+  logger.info('[CRON] Player stats update-window candidates', {
+    total: updateWindowRounds.length,
+    backfillCount: updateWindowOnly.length,
+    rounds: updateWindowOnly,
+  });
+
+  if (updateWindowOnly.length > 0) {
+    for (const { year, round } of updateWindowOnly) {
+      try {
+        logger.info('[CRON] Starting update-window player stats re-scrape', { year, round });
+        const updateResult = await scrapePlayerStatsUseCase.execute(year, round);
+        logger.info('[CRON] Update-window player stats re-scrape complete', {
+          year,
+          round,
+          playersProcessed: updateResult.playersProcessed,
+          matchesScraped: updateResult.matchesScraped,
+          updated: updateResult.updated,
+          skipped: updateResult.skipped,
+          skipReason: updateResult.skipReason,
+        });
+      } catch (updateError) {
+        logger.error('[CRON] Update-window player stats re-scrape failed (will retry next cycle)', {
+          year,
+          round,
+          error: updateError instanceof Error ? updateError.message : 'Unknown error',
         });
       }
     }

@@ -52,6 +52,12 @@ function createMockRepository(): PlayerRepository & {
   };
 }
 
+function createMockSupplementaryRepo(isCached: boolean) {
+  return {
+    isRoundCached: vi.fn().mockResolvedValue(isCached),
+  };
+}
+
 describe('ScrapePlayerStatsUseCase', () => {
   let mockSource: PlayerStatsSource;
   let mockRepo: ReturnType<typeof createMockRepository>;
@@ -68,7 +74,7 @@ describe('ScrapePlayerStatsUseCase', () => {
         createMockPlayerStats({ playerId: '1002', playerName: 'Player B' }),
       ];
       mockSource = createMockSource({ success: true, data: stats, warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 1);
 
@@ -86,7 +92,7 @@ describe('ScrapePlayerStatsUseCase', () => {
         createMockPlayerStats({ playerId: '1003', matchId: 'match-2' }),
       ];
       mockSource = createMockSource({ success: true, data: stats, warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 1);
 
@@ -106,7 +112,7 @@ describe('ScrapePlayerStatsUseCase', () => {
 
       const stats = [createMockPlayerStats({ playerId: '1001', playerName: 'New Name', position: 'Fullback' })];
       mockSource = createMockSource({ success: true, data: stats, warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 1);
 
@@ -121,7 +127,7 @@ describe('ScrapePlayerStatsUseCase', () => {
 
     it('returns year and round in result', async () => {
       mockSource = createMockSource({ success: true, data: [], warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 3);
 
@@ -132,7 +138,7 @@ describe('ScrapePlayerStatsUseCase', () => {
     it('passes through warnings from source', async () => {
       const warnings = [{ type: 'UNMAPPED_TEAM', message: 'test warning', context: {} }];
       mockSource = createMockSource({ success: true, data: [], warnings });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 1);
 
@@ -141,23 +147,37 @@ describe('ScrapePlayerStatsUseCase', () => {
   });
 
   describe('idempotent behaviour', () => {
-    it('skips completed rounds unless force is true', async () => {
-      vi.mocked(mockRepo.isRoundComplete).mockResolvedValue(true);
+    it('skips when supplementary stats are present (non-force)', async () => {
       mockSource = createMockSource({ success: true, data: [], warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(true));
 
       const result = await useCase.execute(2025, 1);
 
       expect(result.skipped).toBe(1);
+      expect(result.skipReason).toBe('supplementary-stats-present');
       expect(result.playersProcessed).toBe(0);
       expect(mockSource.fetchPlayerStats).not.toHaveBeenCalled();
     });
 
-    it('re-scrapes completed rounds when force is true', async () => {
+    it('does not skip when supplementary stats are absent (update window)', async () => {
+      // Even if isRoundComplete would return true, the gate is now supp stats presence
       vi.mocked(mockRepo.isRoundComplete).mockResolvedValue(true);
       const stats = [createMockPlayerStats()];
       mockSource = createMockSource({ success: true, data: stats, warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
+
+      const result = await useCase.execute(2025, 1);
+
+      expect(result.skipped).toBe(0);
+      expect(result.skipReason).toBeUndefined();
+      expect(result.playersProcessed).toBe(1);
+      expect(mockSource.fetchPlayerStats).toHaveBeenCalledWith(2025, 1);
+    });
+
+    it('re-scrapes when force is true, even with supplementary stats present', async () => {
+      const stats = [createMockPlayerStats()];
+      mockSource = createMockSource({ success: true, data: stats, warnings: [] });
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(true));
 
       const result = await useCase.execute(2025, 1, true);
 
@@ -170,7 +190,7 @@ describe('ScrapePlayerStatsUseCase', () => {
       // First scrape
       const stats = [createMockPlayerStats({ playerId: '1001', tries: 1 })];
       mockSource = createMockSource({ success: true, data: stats, warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       await useCase.execute(2025, 1);
       expect(mockRepo.savedPlayers).toHaveLength(1);
@@ -180,7 +200,7 @@ describe('ScrapePlayerStatsUseCase', () => {
       vi.mocked(mockRepo.isRoundComplete).mockResolvedValue(false);
       const stats2 = [createMockPlayerStats({ playerId: '1001', tries: 2 })];
       const source2 = createMockSource({ success: true, data: stats2, warnings: [] });
-      const useCase2 = new ScrapePlayerStatsUseCase(source2, mockRepo);
+      const useCase2 = new ScrapePlayerStatsUseCase(source2, mockRepo, createMockSupplementaryRepo(false));
 
       await useCase2.execute(2025, 1);
 
@@ -192,14 +212,14 @@ describe('ScrapePlayerStatsUseCase', () => {
   describe('error handling', () => {
     it('throws when source returns failure', async () => {
       mockSource = createMockSource({ success: false, error: 'Network error' });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       await expect(useCase.execute(2025, 1)).rejects.toThrow('Failed to fetch player stats');
     });
 
     it('handles empty stats from source gracefully', async () => {
       mockSource = createMockSource({ success: true, data: [], warnings: [] });
-      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo);
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, createMockSupplementaryRepo(false));
 
       const result = await useCase.execute(2025, 1);
 
@@ -207,6 +227,57 @@ describe('ScrapePlayerStatsUseCase', () => {
       expect(result.matchesScraped).toBe(0);
       expect(result.created).toBe(0);
       expect(result.updated).toBe(0);
+    });
+  });
+
+  describe('idempotency in the update window', () => {
+    it('running execute() twice in the update window produces consistent state (no duplicates)', async () => {
+      const stats = [createMockPlayerStats({ playerId: '1001', tries: 1 })];
+      const mockSuppRepo = createMockSupplementaryRepo(false);
+      mockSource = createMockSource({ success: true, data: stats, warnings: [] });
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, mockSuppRepo);
+
+      // First run
+      const result1 = await useCase.execute(2025, 1);
+      expect(result1.skipped).toBe(0);
+      expect(result1.playersProcessed).toBe(1);
+      expect(mockRepo.savedPlayers).toHaveLength(1);
+
+      // Second run — player already exists, supp stats still absent
+      vi.mocked(mockRepo.findById).mockResolvedValue(mockRepo.savedPlayers[0]);
+      const result2 = await useCase.execute(2025, 1);
+      expect(result2.skipped).toBe(0);
+      expect(result2.playersProcessed).toBe(1);
+      // Still 1 player (upserted), not 2
+      expect(mockRepo.savedPlayers).toHaveLength(1);
+    });
+
+    it('does not skip on repeated runs when supp stats are absent', async () => {
+      const stats = [createMockPlayerStats()];
+      const mockSuppRepo = createMockSupplementaryRepo(false);
+      mockSource = createMockSource({ success: true, data: stats, warnings: [] });
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, mockSuppRepo);
+
+      for (let i = 0; i < 3; i++) {
+        const result = await useCase.execute(2025, 1);
+        expect(result.skipped).toBe(0);
+        expect(result.skipReason).toBeUndefined();
+      }
+    });
+
+    it('skips on all runs once supp stats arrive', async () => {
+      const mockSuppRepo = createMockSupplementaryRepo(true);
+      mockSource = createMockSource({ success: true, data: [], warnings: [] });
+      useCase = new ScrapePlayerStatsUseCase(mockSource, mockRepo, mockSuppRepo);
+
+      const result1 = await useCase.execute(2025, 1);
+      const result2 = await useCase.execute(2025, 1);
+
+      expect(result1.skipped).toBe(1);
+      expect(result1.skipReason).toBe('supplementary-stats-present');
+      expect(result2.skipped).toBe(1);
+      expect(result2.skipReason).toBe('supplementary-stats-present');
+      expect(mockSource.fetchPlayerStats).not.toHaveBeenCalled();
     });
   });
 });
