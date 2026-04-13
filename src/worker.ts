@@ -197,8 +197,11 @@ app.get('*', async (c) => {
   // Try to serve from ASSETS binding if available
   if (c.env?.ASSETS) {
     try {
-      const response = await c.env.ASSETS.fetch(c.req.raw);
-      if (response.status !== 404) {
+      // Strip query params for asset lookup — static files don't use them,
+      // and passing them can cause non-404 errors that would bypass the SPA fallback
+      const assetRequest = new Request(new URL(url.pathname, url.origin).toString());
+      const response = await c.env.ASSETS.fetch(assetRequest);
+      if (response.ok) {
         return response;
       }
     } catch {
