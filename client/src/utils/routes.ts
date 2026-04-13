@@ -128,11 +128,10 @@ export function parseUrl(url: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
-  // /compare?ids=id1,id2,id3  (query param encoding avoids comma issues in path)
+  // /compare?id=id1&id=id2  (repeated params — no separator character needed)
   if (segments.length === 1 && segments[0] === 'compare') {
     const params = new URLSearchParams(search);
-    const raw = params.get('ids') ?? '';
-    const playerIds = raw.split(',').filter((id) => id.length > 0);
+    const playerIds = params.getAll('id').filter((id) => id.length > 0);
     return { type: 'compare', playerIds };
   }
 
@@ -192,5 +191,6 @@ export function buildPlayerUrl(playerId: string): string {
 /** Build URL for the player comparison page */
 export function buildCompareUrl(playerIds: string[]): string {
   if (playerIds.length === 0) return '/compare';
-  return `/compare?ids=${playerIds.join(',')}`;
+  const params = new URLSearchParams(playerIds.map((id) => ['id', id]));
+  return `/compare?${params.toString()}`;
 }
