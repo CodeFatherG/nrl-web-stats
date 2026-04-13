@@ -414,7 +414,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
 
   const handleCompare = () => {
     if (!onNavigate) return;
-    const currentRoute = parseUrl(window.location.pathname);
+    const currentRoute = parseUrl(window.location.pathname + window.location.search);
     const existingIds = currentRoute.type === 'compare' ? currentRoute.playerIds : [];
     const newIds = existingIds.includes(playerId)
       ? existingIds
@@ -423,7 +423,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
   };
 
   const isAlreadyComparing = (() => {
-    const currentRoute = parseUrl(window.location.pathname);
+    const currentRoute = parseUrl(window.location.pathname + window.location.search);
     return currentRoute.type === 'compare' && currentRoute.playerIds.includes(playerId);
   })();
 

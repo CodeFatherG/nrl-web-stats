@@ -41,10 +41,19 @@ export function getValidTeamCodes(): string[] {
 }
 
 /**
- * Parse a URL pathname into a RouteMatch.
+ * Parse a URL (pathname or pathname+search) into a RouteMatch.
  * Returns the matched route with extracted and validated params.
+ *
+ * The compare route uses a query parameter to avoid comma encoding issues:
+ *   /compare?ids=id1,id2,id3
+ * All other routes use path segments only.
  */
-export function parseUrl(pathname: string): RouteMatch {
+export function parseUrl(url: string): RouteMatch {
+  // Split pathname from query string
+  const qIndex = url.indexOf('?');
+  const pathname = qIndex === -1 ? url : url.slice(0, qIndex);
+  const search = qIndex === -1 ? '' : url.slice(qIndex);
+
   // Normalise: strip trailing slash (except root)
   const path = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
   const segments = path.split('/').filter(Boolean);
@@ -119,12 +128,10 @@ export function parseUrl(pathname: string): RouteMatch {
     return { type: 'notFound', path };
   }
 
-  // /compare or /compare/:ids (comma-separated player IDs)
-  if (segments.length >= 1 && segments[0] === 'compare') {
-    if (segments.length === 1) {
-      return { type: 'compare', playerIds: [] };
-    }
-    const raw = segments[1]!;
+  // /compare?ids=id1,id2,id3  (query param encoding avoids comma issues in path)
+  if (segments.length === 1 && segments[0] === 'compare') {
+    const params = new URLSearchParams(search);
+    const raw = params.get('ids') ?? '';
     const playerIds = raw.split(',').filter((id) => id.length > 0);
     return { type: 'compare', playerIds };
   }
@@ -185,5 +192,5 @@ export function buildPlayerUrl(playerId: string): string {
 /** Build URL for the player comparison page */
 export function buildCompareUrl(playerIds: string[]): string {
   if (playerIds.length === 0) return '/compare';
-  return `/compare/${playerIds.join(',')}`;
+  return `/compare?ids=${playerIds.join(',')}`;
 }

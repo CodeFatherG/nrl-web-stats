@@ -20,7 +20,7 @@ export interface UseRouterResult {
  */
 export function useRouter(): UseRouterResult {
   const [route, setRoute] = useState<RouteMatch>(() =>
-    parseUrl(window.location.pathname)
+    parseUrl(window.location.pathname + window.location.search)
   );
   const [isPopState, setIsPopState] = useState(false);
   const isPopStateRef = useRef(false);
@@ -40,7 +40,7 @@ export function useRouter(): UseRouterResult {
     const handlePopState = () => {
       isPopStateRef.current = true;
       setIsPopState(true);
-      setRoute(parseUrl(window.location.pathname));
+      setRoute(parseUrl(window.location.pathname + window.location.search));
     };
 
     window.addEventListener('popstate', handlePopState);
