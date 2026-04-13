@@ -15,7 +15,7 @@ import { PlayerDetailView } from './views/PlayerDetailView';
 import { CasualtyWardView } from './views/CasualtyWardView';
 import { CompareView } from './views/CompareView';
 import { useRouter } from './hooks/useRouter';
-import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, buildCompareUrl, getValidTeamCodes } from './utils/routes';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, buildCompareUrl, parseUrl, getValidTeamCodes } from './utils/routes';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook, getSeasonPlayers } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak, PlayerSeasonSummary } from './types';
@@ -499,10 +499,8 @@ function App() {
             playerId={selectedPlayerId}
             onBack={handlePlayerDetailBack}
             onNavigate={(url) => {
-              const match = url.match(/^\/compare\/?(.*)/);
-              const ids = match?.[1]
-                ? match[1].split(',').filter(Boolean)
-                : [];
+              const r = parseUrl(url);
+              const ids = r.type === 'compare' ? r.playerIds : [];
               setComparisonPlayerIds(ids);
               setActiveTab('compare');
               navigate(url);
@@ -611,11 +609,8 @@ function App() {
                 playerIds={comparisonPlayerIds}
                 year={currentYear}
                 onNavigate={(url) => {
-                  // Parse the new player IDs from the URL and sync state
-                  const match = url.match(/^\/compare\/?(.*)/);
-                  const ids = match?.[1]
-                    ? match[1].split(',').filter(Boolean)
-                    : [];
+                  const r = parseUrl(url);
+                  const ids = r.type === 'compare' ? r.playerIds : [];
                   setComparisonPlayerIds(ids);
                   navigate(url);
                 }}
