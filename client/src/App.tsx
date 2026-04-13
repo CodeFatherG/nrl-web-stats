@@ -502,6 +502,7 @@ function App() {
               const r = parseUrl(url);
               const ids = r.type === 'compare' ? r.playerIds : [];
               setComparisonPlayerIds(ids);
+              setSelectedPlayerId(null);
               setActiveTab('compare');
               navigate(url);
             }}
