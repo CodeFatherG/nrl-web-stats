@@ -83,7 +83,9 @@ function buildSeasonStats(detail: PlayerDetailResponse, year: number): SeasonSta
   const sum = <K extends keyof typeof perfs[0]>(key: K): number =>
     perfs.reduce((acc, p) => acc + (Number(p[key]) || 0), 0);
 
-  const latestPerf = [...perfs].sort((a, b) => b.round - a.round)[0];
+  const sortedByRoundDesc = [...perfs].sort((a, b) => b.round - a.round);
+  // Use the most recent performance that has supplementary stats (price may lag behind match stats)
+  const latestWithPrice = sortedByRoundDesc.find((p) => p.price !== null);
 
   return {
     gamesPlayed: perfs.length,
@@ -102,8 +104,8 @@ function buildSeasonStats(detail: PlayerDetailResponse, year: number): SeasonSta
     totalMissedTackles: sum('missedTackles'),
     totalInterceptions: sum('intercepts'),
     avgMinutesPlayed: perfs.length > 0 ? sum('minutesPlayed') / perfs.length : 0,
-    latestPrice: latestPerf?.price ?? null,
-    latestBreakEven: latestPerf?.breakEven ?? null,
+    latestPrice: latestWithPrice?.price ?? null,
+    latestBreakEven: latestWithPrice?.breakEven ?? null,
   };
 }
 
