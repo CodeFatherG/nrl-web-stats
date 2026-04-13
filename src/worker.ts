@@ -208,8 +208,13 @@ app.get('*', async (c) => {
       // Fall through to index.html
     }
     // SPA fallback - serve index.html for client-side routing
-    const indexRequest = new Request(new URL('/index.html', url.origin));
-    return c.env.ASSETS.fetch(indexRequest);
+    try {
+      const indexRequest = new Request(new URL('/index.html', url.origin).toString());
+      return await c.env.ASSETS.fetch(indexRequest);
+    } catch (err) {
+      logger.error('Failed to serve index.html', { error: String(err) });
+      return c.text('Failed to serve application', 500);
+    }
   }
 
   // Development fallback
