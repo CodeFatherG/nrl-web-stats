@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Container, AppBar, Toolbar, Typography, Box } from '@mui/material';
+import {
+  Container, AppBar, Toolbar, Typography, Box
+} from '@mui/material';
 import { LoadingState } from './components/LoadingState';
 import { ErrorState } from './components/ErrorState';
 import { NoDataState } from './components/NoDataState';
@@ -185,28 +187,32 @@ function App() {
     }
   }, [navigate]);
 
+  const fetchRankingsForYear = useCallback(async (year: number) => {
+    try {
+      const rankingsData = await getAllTeamsRanking(year);
+      setRankings(rankingsData);
+    } catch {
+      // Rankings are optional, don't fail if unavailable
+    }
+  }, []);
+
   const checkServerHealth = useCallback(async () => {
     setStatus('loading');
     setError(null);
 
     try {
       const health = await getHealth();
-      setLoadedYears(health.loadedYears);
+      // Sort descending so loadedYears[0] is always the most recent year
+      setLoadedYears([...health.loadedYears].sort((a, b) => b - a));
 
       if (health.loadedYears.length === 0) {
         setStatus('no-data');
       } else {
         const teamsResponse = await getTeams();
         setTeams(teamsResponse.teams);
-        // Fetch rankings for the first loaded year
         const year = health.loadedYears[0];
         if (year !== undefined) {
-          try {
-            const rankingsData = await getAllTeamsRanking(year);
-            setRankings(rankingsData);
-          } catch {
-            // Rankings are optional, don't fail if unavailable
-          }
+          await fetchRankingsForYear(year);
         }
         setStatus('ready');
       }
@@ -214,7 +220,7 @@ function App() {
       setError(err instanceof Error ? err.message : 'Failed to connect to server');
       setStatus('error');
     }
-  }, []);
+  }, [fetchRankingsForYear]);
 
   useEffect(() => {
     void checkServerHealth();
@@ -252,7 +258,7 @@ function App() {
       setTeamFormData(null);
 
       try {
-        const year = loadedYears[0]; // Use first loaded year
+        const year = loadedYears[0];
         const schedule = await getTeamSchedule(code, year);
         setTeamSchedule(schedule);
 
@@ -294,7 +300,7 @@ function App() {
       setMatchOutlookData(null);
 
       try {
-        const year = loadedYears[0]; // Use first loaded year
+        const year = loadedYears[0];
         if (year !== undefined) {
           const data = await getRound(year, round);
           setRoundData(data);
@@ -316,8 +322,8 @@ function App() {
     [loadedYears, navigate]
   );
 
-  const fetchSeasonSummary = useCallback(async () => {
-    const year = loadedYears[0];
+  const fetchSeasonSummary = useCallback(async (yearOverride?: number) => {
+    const year = yearOverride ?? loadedYears[0];
     if (year === undefined) return;
 
     setSeasonSummaryLoading(true);
@@ -486,9 +492,6 @@ function App() {
           <Typography variant="h6" component="h1" sx={{ flexGrow: 1 }}>
             NRL Schedule Dashboard
           </Typography>
-          <Typography variant="body2">
-            {loadedYears.length > 0 ? `${loadedYears.join(', ')} Season` : ''}
-          </Typography>
         </Toolbar>
       </AppBar>
 
@@ -508,6 +511,7 @@ function App() {
             }}
             teams={teams}
             year={currentYear}
+            loadedYears={loadedYears}
           />
         ) : selectedMatchId ? (
           <MatchDetailView
@@ -549,6 +553,8 @@ function App() {
                 streaks={teamStreaks}
                 formData={teamFormData}
                 onMatchClick={handleMatchClick}
+                year={currentYear}
+                loadedYears={loadedYears}
               />
             )}
 
@@ -576,6 +582,7 @@ function App() {
                 onRetry={fetchSeasonSummary}
                 onRoundClick={handleRoundClickFromCompact}
                 onMatchClick={handleMatchClick}
+                loadedYears={loadedYears}
               />
             )}
 
@@ -595,6 +602,7 @@ function App() {
                 teams={teams}
                 onPlayerClick={handlePlayerClick}
                 loading={playerSummaryLoading}
+                loadedYears={loadedYears}
               />
             )}
 

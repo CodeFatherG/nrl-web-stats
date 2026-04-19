@@ -25,6 +25,8 @@ describe('TeamScheduleView', () => {
     error: null,
     filters: defaultFilters,
     onFiltersChange: vi.fn(),
+    year: 2026,
+    loadedYears: [2026],
   };
 
   describe('initial state', () => {

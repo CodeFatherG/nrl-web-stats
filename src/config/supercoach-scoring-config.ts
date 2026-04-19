@@ -38,9 +38,11 @@ export type ScoringConfig = z.infer<typeof ScoringConfigSchema>;
 // Scoring table data (imported at build time)
 // ---------------------------------------------------------------------------
 
+import config2025 from './scoring-tables/2025.json';
 import config2026 from './scoring-tables/2026.json';
 
 const SCORING_TABLES: Record<number, unknown> = {
+  2025: config2025,
   2026: config2026,
 };
 

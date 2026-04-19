@@ -22,7 +22,8 @@ import {
   Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import { getCasualtyWard } from '../services/api';
+import { getCasualtyWard, getSeasonPlayers } from '../services/api';
+import { YearSelect } from '../components/YearSelect';
 import type { PlayerSeasonSummary, Team } from '../types';
 
 type SortKey = keyof PlayerSeasonSummary;
@@ -45,6 +46,7 @@ interface PlayersSummaryViewProps {
   teams: Team[];
   onPlayerClick: (playerId: string) => void;
   loading?: boolean;
+  loadedYears: number[];
 }
 
 interface ColumnDef {
@@ -77,13 +79,39 @@ export function PlayersSummaryView({
   teams,
   onPlayerClick,
   loading = false,
+  loadedYears,
 }: PlayersSummaryViewProps) {
+  const defaultYear = loadedYears[0] ?? new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(defaultYear);
+  const [altPlayers, setAltPlayers] = useState<PlayerSeasonSummary[] | null>(null);
+  const [altLoading, setAltLoading] = useState(false);
+
   const [sortKey, setSortKey] = useState<SortKey>('averageFantasyPoints');
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
   const [searchText, setSearchText] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [selectedPosition, setSelectedPosition] = useState<string>('');
   const [injuredPlayerIds, setInjuredPlayerIds] = useState<Set<string>>(new Set());
+
+  const handleYearChange = async (newYear: number) => {
+    setSelectedYear(newYear);
+    if (newYear === defaultYear) {
+      setAltPlayers(null);
+      return;
+    }
+    setAltLoading(true);
+    try {
+      const data = await getSeasonPlayers(newYear);
+      setAltPlayers(data.players);
+    } catch {
+      setAltPlayers([]);
+    } finally {
+      setAltLoading(false);
+    }
+  };
+
+  const displayPlayers = selectedYear === defaultYear ? players : (altPlayers ?? []);
+  const displayLoading = selectedYear === defaultYear ? loading : altLoading;
 
   useEffect(() => {
     getCasualtyWard()
@@ -107,12 +135,12 @@ export function PlayersSummaryView({
   }, [teams]);
 
   const positions = useMemo(() => {
-    const posSet = new Set(players.map(p => p.position));
+    const posSet = new Set(displayPlayers.map(p => p.position));
     return Array.from(posSet).sort();
-  }, [players]);
+  }, [displayPlayers]);
 
   const filteredAndSorted = useMemo(() => {
-    let result = players;
+    let result = displayPlayers;
 
     // Name search
     if (searchText.trim()) {
@@ -143,7 +171,7 @@ export function PlayersSummaryView({
     });
 
     return result;
-  }, [players, searchText, selectedTeam, selectedPosition, sortKey, sortDir]);
+  }, [displayPlayers, searchText, selectedTeam, selectedPosition, sortKey, sortDir]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -154,7 +182,7 @@ export function PlayersSummaryView({
     }
   };
 
-  if (loading) {
+  if (displayLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
         <CircularProgress />
@@ -164,9 +192,12 @@ export function PlayersSummaryView({
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Player Season Statistics
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+        <Typography variant="h5">
+          Player Season Statistics
+        </Typography>
+        <YearSelect loadedYears={loadedYears} value={selectedYear} onChange={handleYearChange} />
+      </Box>
 
       {/* Filters row */}
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>

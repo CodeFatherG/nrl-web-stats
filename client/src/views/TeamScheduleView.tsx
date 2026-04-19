@@ -1,9 +1,11 @@
-import { useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Box, CircularProgress, Alert } from '@mui/material';
 import { TeamSelector } from '../components/TeamSelector';
 import { TeamScheduleSummary } from '../components/TeamScheduleSummary';
 import { FixtureTable } from '../components/FixtureTable';
 import { FilterControls } from '../components/FilterControls';
+import { YearSelect } from '../components/YearSelect';
+import { getTeamSchedule, getTeamStreaks, getTeamForm } from '../services/api';
 import type {
   Team,
   TeamScheduleResponse,
@@ -24,6 +26,10 @@ interface TeamScheduleViewProps {
   error: string | null;
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
+  /** The year the parent-provided schedule data is for */
+  year: number;
+  /** All years available for switching */
+  loadedYears: number[];
   /** Rankings data for all teams */
   rankings?: AllTeamsRankingResponse | null;
   /** Streak analysis data for selected team */
@@ -39,11 +45,9 @@ function applyFilters(
   filters: FilterState
 ): ScheduleFixture[] {
   return fixtures.filter((f) => {
-    // Round range filter
     if (f.round < filters.roundStart || f.round > filters.roundEnd) {
       return false;
     }
-    // Venue filter (byes always pass venue filter)
     if (!f.isBye) {
       if (filters.venueFilter === 'home' && !f.isHome) return false;
       if (filters.venueFilter === 'away' && f.isHome) return false;
@@ -69,16 +73,69 @@ export function TeamScheduleView({
   error,
   filters,
   onFiltersChange,
+  year,
+  loadedYears,
   rankings,
   streaks,
   formData,
   onMatchClick,
 }: TeamScheduleViewProps) {
-  const filteredFixtures = schedule
-    ? applyFilters(schedule.schedule, filters)
+  const [selectedYear, setSelectedYear] = useState(year);
+  const [altSchedule, setAltSchedule] = useState<TeamScheduleResponse | null>(null);
+  const [altStreaks, setAltStreaks] = useState<Streak[]>([]);
+  const [altFormData, setAltFormData] = useState<FormTrajectoryResponse | null>(null);
+  const [altLoading, setAltLoading] = useState(false);
+  const [altError, setAltError] = useState<string | null>(null);
+
+  // When the team changes, reset to the default year
+  useEffect(() => {
+    setSelectedYear(year);
+    setAltSchedule(null);
+    setAltStreaks([]);
+    setAltFormData(null);
+    setAltError(null);
+  }, [selectedTeamCode, year]);
+
+  const handleYearChange = useCallback(async (newYear: number) => {
+    setSelectedYear(newYear);
+    if (newYear === year || !selectedTeamCode) {
+      setAltSchedule(null);
+      setAltStreaks([]);
+      setAltFormData(null);
+      setAltError(null);
+      return;
+    }
+    setAltLoading(true);
+    setAltError(null);
+    try {
+      const s = await getTeamSchedule(selectedTeamCode, newYear);
+      setAltSchedule(s);
+      try {
+        const sr = await getTeamStreaks(newYear, selectedTeamCode);
+        setAltStreaks(sr.streaks);
+      } catch { /* optional */ }
+      try {
+        const fr = await getTeamForm(newYear, selectedTeamCode);
+        setAltFormData(fr);
+      } catch { /* optional */ }
+    } catch (err) {
+      setAltError(err instanceof Error ? err.message : 'Failed to load schedule');
+    } finally {
+      setAltLoading(false);
+    }
+  }, [year, selectedTeamCode]);
+
+  const isAlt = selectedYear !== year;
+  const displaySchedule = isAlt ? altSchedule : schedule;
+  const displayStreaks  = isAlt ? altStreaks  : (streaks ?? []);
+  const displayFormData = isAlt ? altFormData : (formData ?? null);
+  const displayLoading  = isAlt ? altLoading  : loading;
+  const displayError    = isAlt ? altError    : error;
+
+  const filteredFixtures = displaySchedule
+    ? applyFilters(displaySchedule.schedule, filters)
     : [];
 
-  // Find the current team's ranking
   const teamRanking = rankings?.rankings.find(
     (r) => r.team.code === selectedTeamCode
   );
@@ -86,9 +143,7 @@ export function TeamScheduleView({
   const handleFixtureClick = useCallback(
     (fixture: ScheduleFixture) => {
       if (!onMatchClick || !selectedTeamCode || !fixture.opponent) return;
-      const teamA = selectedTeamCode;
-      const teamB = fixture.opponent;
-      const matchId = createMatchId(fixture.year, fixture.round, teamA, teamB);
+      const matchId = createMatchId(fixture.year, fixture.round, selectedTeamCode, fixture.opponent);
       onMatchClick(matchId);
     },
     [onMatchClick, selectedTeamCode]
@@ -96,57 +151,62 @@ export function TeamScheduleView({
 
   return (
     <Box>
-      <Box sx={{ mb: 3, maxWidth: 400 }}>
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, maxWidth: 600 }}>
         <TeamSelector
           teams={teams}
           selectedCode={selectedTeamCode}
-          onSelect={onTeamSelect}
+          onSelect={(code) => { onTeamSelect(code); }}
           disabled={loading}
+        />
+        <YearSelect
+          loadedYears={loadedYears}
+          value={selectedYear}
+          onChange={handleYearChange}
         />
       </Box>
 
-      {loading && (
+      {displayLoading && (
         <Box display="flex" justifyContent="center" py={4}>
           <CircularProgress />
         </Box>
       )}
 
-      {error && (
+      {displayError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {displayError}
         </Alert>
       )}
 
-      {!loading && !error && schedule && (
+      {!displayLoading && !displayError && displaySchedule && (
         <>
           <TeamScheduleSummary
-            team={schedule.team}
-            totalStrength={schedule.totalStrength}
-            byeRounds={schedule.byeRounds}
-            fixtureCount={schedule.schedule.length}
+            team={displaySchedule.team}
+            totalStrength={displaySchedule.totalStrength}
+            byeRounds={displaySchedule.byeRounds}
+            fixtureCount={displaySchedule.schedule.length}
             rank={teamRanking?.rank}
             totalTeams={rankings?.rankings.length}
             category={teamRanking?.category}
-            formSnapshots={formData?.snapshots}
+            formSnapshots={displayFormData?.snapshots}
           />
 
           <FilterControls
             filters={filters}
             onFiltersChange={onFiltersChange}
-            disabled={loading}
+            disabled={displayLoading}
             hasActiveFilters={hasActiveFilters(filters)}
           />
 
           <FixtureTable
             fixtures={filteredFixtures}
             teams={teams}
-            streaks={streaks}
+            streaks={displayStreaks}
             onFixtureClick={onMatchClick ? handleFixtureClick : undefined}
           />
         </>
       )}
 
-      {!loading && !error && !schedule && selectedTeamCode === null && (
+      {!displayLoading && !displayError && !displaySchedule && selectedTeamCode === null && (
         <Alert severity="info">
           Select a team from the dropdown above to view their schedule.
         </Alert>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { YearSelect } from '../components/YearSelect';
 import {
   Box,
   Typography,
@@ -44,6 +45,7 @@ interface PlayerDetailViewProps {
   onNavigate?: (url: string) => void;
   teams: Team[];
   year: number;
+  loadedYears: number[];
 }
 
 // --- Column definitions ---
@@ -274,7 +276,8 @@ const SPIKE_BANDS: Array<{ key: SpikeBand; label: string; color: string }> = [
 
 type ViewTab = 'overview' | 'stats' | 'supercoach' | 'injuries';
 
-export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: PlayerDetailViewProps) {
+export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year, loadedYears }: PlayerDetailViewProps) {
+  const [selectedYear, setSelectedYear] = useState(year);
   const [player, setPlayer] = useState<PlayerDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -302,8 +305,8 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
     Promise.all([
       getPlayer(playerId),
       getPlayerInjuryHistory(playerId).catch(() => ({ entries: [] as CasualtyWardEntry[] })),
-      getPlayerSupercoachSeason(year, playerId).catch(() => null),
-      getPlayerSupercoachProjection(year, playerId).catch(() => null),
+      getPlayerSupercoachSeason(selectedYear, playerId).catch(() => null),
+      getPlayerSupercoachProjection(selectedYear, playerId).catch(() => null),
     ])
       .then(([data, injuryData, sc, proj]) => {
         if (!cancelled) {
@@ -326,7 +329,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [playerId, year]);
+  }, [playerId, selectedYear]);
 
   const { totals, averages, performances, seasonData, gamesPlayed, latestPrice, latestBE, latestRound } = useMemo(() => {
     const empty = {
@@ -335,7 +338,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
       latestPrice: null as number | null, latestBE: null as number | null, latestRound: null as number | null,
     };
     if (!player) return empty;
-    const sd = player.seasons[String(year)];
+    const sd = player.seasons[String(selectedYear)];
     const perfs = sd?.performances ?? [];
     const gp = perfs.length;
 
@@ -358,7 +361,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
       latestBE: latest?.breakEven ?? null,
       latestRound: latest?.round ?? null,
     };
-  }, [player, year]);
+  }, [player, selectedYear]);
 
   const scByRound = useMemo(() => {
     if (!scData) return null;
@@ -429,7 +432,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
         <Button startIcon={<ArrowBackIcon />} onClick={onBack}>Back</Button>
         {onNavigate && (
           <Button
@@ -442,6 +445,9 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
             {isAlreadyComparing ? 'Comparing' : 'Compare'}
           </Button>
         )}
+        <Box sx={{ ml: 'auto' }}>
+          <YearSelect loadedYears={loadedYears} value={selectedYear} onChange={setSelectedYear} />
+        </Box>
       </Box>
 
       {/* ── Hero section ─────────────────────────────────────────── */}
@@ -453,7 +459,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
           <Chip label={teamName} size="small" color="primary" variant="outlined" />
           <Chip label={player.position} size="small" variant="outlined" />
           <Typography variant="body2" color="text.secondary">
-            {year} · {gamesPlayed} game{gamesPlayed !== 1 ? 's' : ''}
+            {selectedYear} · {gamesPlayed} game{gamesPlayed !== 1 ? 's' : ''}
           </Typography>
         </Box>
 
@@ -573,7 +579,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
 
           {performances.length === 0 && (
             <Typography variant="body1" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No match performances recorded for {year}.
+              No match performances recorded for {selectedYear}.
             </Typography>
           )}
         </Box>
@@ -584,7 +590,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
         <>
           {performances.length === 0 ? (
             <Typography variant="body1" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No match performances recorded for {year}.
+              No match performances recorded for {selectedYear}.
             </Typography>
           ) : (
             <TableContainer component={Paper} sx={{ maxHeight: 'calc(100vh - 340px)' }}>
@@ -892,7 +898,7 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year }: 
               </TableContainer>
             </>
           ) : (
-            <Alert severity="info">No Supercoach scoring data available for {year}.</Alert>
+            <Alert severity="info">No Supercoach scoring data available for {selectedYear}.</Alert>
           )}
         </Box>
       )}
