@@ -77,6 +77,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/supercoach/:year/team/:teamCode/rankings', handlers.getTeamProjectionRankings(deps));
   api.get('/supercoach/:year/team/:teamCode', handlers.getSupercoachByTeam(deps));
   api.get('/supercoach/:year/player/:playerId/projection', handlers.getPlayerProjection(deps));
+  api.get('/supercoach/:year/player/:playerId/contextual-projection', handlers.getContextualProjection(deps));
   api.get('/supercoach/:year/player/:playerId', handlers.getPlayerSupercoachSeason(deps));
   api.get('/supercoach/:year/:round', handlers.getSupercoachScores(deps));
 

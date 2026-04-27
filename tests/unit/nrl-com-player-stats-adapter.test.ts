@@ -300,9 +300,9 @@ expect(mapped.twoPointFieldGoals).toBe(statsPlayer.twoPointFieldGoals);
       const result = await adapter.fetchPlayerStats(2025, 1);
       if (!result.success) throw new Error('Expected success');
 
-      // matchId from fixture is 20251110110
+      // matchId is the domain format derived from team codes and round
       for (const player of result.data) {
-        expect(player.matchId).toBe('20251110110');
+        expect(player.matchId).toBe('2025-R1-CBR-NZL');
       }
     });
   });

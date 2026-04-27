@@ -460,3 +460,41 @@ export async function getPlayerSupercoachProjection(
 ): Promise<PlayerProjectionResponse> {
   return fetchApi<PlayerProjectionResponse>(`/supercoach/${year}/player/${encodeURIComponent(playerId)}/projection`);
 }
+
+export interface ContextualProjectionValues {
+  total: number;
+  floor: number;
+  ceiling: number;
+}
+
+/** Response from GET /api/supercoach/:year/player/:playerId/contextual-projection */
+export interface ContextualProjectionResult {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  position: string;
+  year: number;
+  baseProjection: ContextualProjectionValues;
+  adjustedProjection: ContextualProjectionValues;
+  adjustments: {
+    opponent: {
+      multiplier: number;
+      confidence: number;
+      sampleN: number;
+      defenseFactor: number;
+      defenseConfidence: number;
+      h2hRpi: number;
+      h2hConfidence: number;
+    };
+  };
+}
+
+export async function getContextualProjection(
+  year: number,
+  playerId: string,
+  opponent: string
+): Promise<ContextualProjectionResult> {
+  return fetchApi<ContextualProjectionResult>(
+    `/supercoach/${year}/player/${encodeURIComponent(playerId)}/contextual-projection?opponent=${encodeURIComponent(opponent)}`
+  );
+}

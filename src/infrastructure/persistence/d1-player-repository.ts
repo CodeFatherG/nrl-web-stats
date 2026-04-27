@@ -911,6 +911,29 @@ export class D1PlayerRepository implements PlayerRepository {
     return row?.match_count ?? 0;
   }
 
+  async findAllSeasonPerformancesSummary(season: number): Promise<Array<{
+    playerId: string;
+    matchId: string;
+    teamCode: string;
+    fantasyPointsTotal: number;
+  }>> {
+    const result = await this.db
+      .prepare(
+        `SELECT player_id, match_id, team_code, fantasy_points_total
+         FROM match_performances
+         WHERE season = ? AND is_complete = 1`
+      )
+      .bind(season)
+      .all<{ player_id: string; match_id: string; team_code: string; fantasy_points_total: number }>();
+
+    return (result.results ?? []).map(row => ({
+      playerId: row.player_id,
+      matchId: row.match_id,
+      teamCode: row.team_code,
+      fantasyPointsTotal: row.fantasy_points_total,
+    }));
+  }
+
   async findAllSeasonSummaries(season: number): Promise<PlayerSeasonSummary[]> {
     const result = await this.db
       .prepare(

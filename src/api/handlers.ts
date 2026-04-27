@@ -43,6 +43,7 @@ import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player
 import type { GetCompositionImpactUseCase } from '../application/use-cases/get-composition-impact.js';
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
+import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
   getLastScrapeTimes,
@@ -100,6 +101,8 @@ export interface HandlerDeps {
   createGetTeamProjectionRankingsUseCase: (db: D1Database) => GetTeamProjectionRankingsUseCase;
   /** Factory to create a per-request supplementary stats repository for lock checks */
   createSupplementaryStatsRepository: (db: D1Database) => { isRoundCached(season: number, round: number): Promise<boolean> };
+  /** Factory to create a per-request GetContextualProjectionUseCase from the DB binding */
+  createGetContextualProjectionUseCase: (db: D1Database) => GetContextualProjectionUseCase;
 }
 
 // Environment bindings type
@@ -1434,5 +1437,46 @@ export function getTeamProjectionRankings(deps: HandlerDeps) {
     };
 
     return c.json(serialized);
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/player/:playerId/contextual-projection?opponent=BRI
+ */
+export function getContextualProjection(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const playerId = c.req.param('playerId');
+    if (!playerId) {
+      return errorResponse(c, 'MISSING_PLAYER_ID', 'Player ID is required', 400);
+    }
+
+    const opponent = c.req.query('opponent');
+    if (!opponent) {
+      return errorResponse(c, 'MISSING_OPPONENT', 'opponent query parameter is required', 400);
+    }
+    if (!VALID_TEAM_CODES.includes(opponent.toUpperCase())) {
+      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${opponent}`, 400, VALID_TEAM_CODES);
+    }
+
+    // venue and weather accepted but not applied in feature 028
+    c.req.query('venue');
+    c.req.query('weather');
+
+    const useCase = deps.createGetContextualProjectionUseCase(c.env.DB);
+    const outcome = await useCase.execute(yearResult.data, playerId, opponent.toUpperCase());
+
+    if (outcome.kind === 'player_not_found') {
+      return errorResponse(c, 'PLAYER_NOT_FOUND', `Player not found: ${playerId}`, 404);
+    }
+    if (outcome.kind === 'no_projection') {
+      return errorResponse(c, 'PLAYER_PROJECTION_NOT_FOUND', `No projection data available for player: ${playerId}`, 404);
+    }
+
+    return c.json(outcome.result);
   };
 }

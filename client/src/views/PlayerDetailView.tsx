@@ -28,6 +28,8 @@ import {
   getPlayerInjuryHistory,
   getPlayerSupercoachSeason,
   getPlayerSupercoachProjection,
+  getTeamSchedule,
+  getContextualProjection,
 } from '../services/api';
 import type {
   CasualtyWardEntry,
@@ -35,7 +37,9 @@ import type {
   PlayerMatchSupercoach,
   PlayerProjectionResponse,
   SpikeBand,
+  ContextualProjectionResult,
 } from '../services/api';
+import type { ScheduleFixture } from '../types';
 import { buildPlayersUrl, buildCompareUrl, parseUrl } from '../utils/routes';
 import type { PlayerDetailResponse, PlayerPerformanceDetail, Team } from '../types';
 
@@ -285,6 +289,8 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year, lo
   const [injuries, setInjuries] = useState<CasualtyWardEntry[]>([]);
   const [scData, setScData] = useState<PlayerSeasonSupercoachResponse | null>(null);
   const [projection, setProjection] = useState<PlayerProjectionResponse | null>(null);
+  const [upcomingFixtures, setUpcomingFixtures] = useState<ScheduleFixture[]>([]);
+  const [contextualProjections, setContextualProjections] = useState<Map<number, ContextualProjectionResult>>(new Map());
   const [activeView, setActiveView] = useState<ViewTab>('overview');
 
   const teamNameMap = useMemo(() => {
@@ -300,6 +306,8 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year, lo
     setNotFound(false);
     setScData(null);
     setProjection(null);
+    setUpcomingFixtures([]);
+    setContextualProjections(new Map());
     setActiveView('overview');
 
     Promise.all([
@@ -314,6 +322,36 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year, lo
           setInjuries(injuryData.entries);
           setScData(sc);
           setProjection(proj);
+
+          // Fetch upcoming fixtures and contextual projections for the selected season.
+          const teamCode = data.teamCode;
+          getTeamSchedule(teamCode, selectedYear)
+            .then(scheduleData => {
+              if (cancelled) return;
+              const upcoming = scheduleData.schedule.filter(
+                f => !f.isComplete && !f.isBye && f.opponent !== null
+              );
+              setUpcomingFixtures(upcoming);
+              if (upcoming.length === 0) return;
+
+              // Fetch contextual projections for all upcoming fixtures in parallel
+              Promise.allSettled(
+                upcoming.map(f =>
+                  getContextualProjection(selectedYear, playerId, f.opponent!)
+                    .then(result => ({ round: f.round, result }))
+                )
+              ).then(results => {
+                if (cancelled) return;
+                const projMap = new Map<number, ContextualProjectionResult>();
+                for (const r of results) {
+                  if (r.status === 'fulfilled') {
+                    projMap.set(r.value.round, r.value.result);
+                  }
+                }
+                setContextualProjections(projMap);
+              });
+            })
+            .catch(() => {/* schedule unavailable — no upcoming rows shown */});
         }
       })
       .catch(err => {
@@ -687,6 +725,54 @@ export function PlayerDetailView({ playerId, onBack, onNavigate, teams, year, lo
                       </TableCell>
                     </TableRow>
                   ))}
+
+                  {/* Upcoming fixture projection rows */}
+                  {upcomingFixtures.map(fixture => {
+                    const proj = contextualProjections.get(fixture.round);
+                    const oppName = fixture.opponent ? (teamNameMap.get(fixture.opponent) ?? fixture.opponent) : '—';
+                    return (
+                      <TableRow key={`upcoming-${fixture.round}`} sx={{ bgcolor: '#fff8e1', opacity: 0.9 }}>
+                        {COLUMNS.map(col => {
+                          if (col.key === 'round') {
+                            return (
+                              <TableCell key={col.key} align="right" sx={{
+                                ...cellSx, position: 'sticky', left: 0, zIndex: 1, fontWeight: 600,
+                                bgcolor: '#fff8e1', color: 'text.secondary',
+                              }}>
+                                {fixture.round}
+                              </TableCell>
+                            );
+                          }
+                          if (col.key === 'opponentTeamCode') {
+                            return (
+                              <TableCell key={col.key} sx={{ ...cellSx, color: 'text.secondary' }}>
+                                <Typography variant="body2" fontSize="0.75rem" noWrap>{oppName}</Typography>
+                              </TableCell>
+                            );
+                          }
+                          if (col.key === '__sc') {
+                            if (!proj) {
+                              return <TableCell key={col.key} align="right" sx={{ ...cellSx, color: 'text.disabled' }}>—</TableCell>;
+                            }
+                            const { floor, total, ceiling } = proj.adjustedProjection;
+                            return (
+                              <TableCell key={col.key} align="right" sx={{ ...cellSx, fontWeight: 700, color: 'warning.dark' }}>
+                                <Tooltip title={`Floor: ${Math.round(floor)} · Avg: ${Math.round(total)} · Ceiling: ${Math.round(ceiling)}`} placement="top" arrow>
+                                  <span>{Math.round(total)}</span>
+                                </Tooltip>
+                              </TableCell>
+                            );
+                          }
+                          return <TableCell key={col.key} align="right" sx={{ ...cellSx, color: 'text.disabled' }}>—</TableCell>;
+                        })}
+                        <TableCell align="center" sx={cellSx}>
+                          <Tooltip title="Projected score for upcoming fixture">
+                            <Typography variant="caption" color="warning.dark" sx={{ fontSize: '0.6rem', fontWeight: 600 }}>PROJ</Typography>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
 
                   {/* Totals row */}
                   <TableRow sx={{ bgcolor: '#e3f2fd', '& td': { fontWeight: 600 } }}>

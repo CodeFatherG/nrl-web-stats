@@ -252,24 +252,27 @@ export class NrlComPlayerStatsAdapter implements PlayerStatsSource {
 
     const stats: PlayerMatchStats[] = [];
 
-    // Resolve both team codes upfront — required to compute the domain match ID.
-    // If either is unmapped we cannot produce a valid internal ID, so skip this match.
     const homeCode = resolveNrlComTeamId(match.homeTeam.teamId);
     const awayCode = resolveNrlComTeamId(match.awayTeam.teamId);
+    const nrlMatchId = String(match.matchId);
 
-    if (!homeCode || !awayCode) {
-      const nrlMatchId = String(match.matchId);
-      if (!homeCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.homeTeam.teamId}`, context: { teamId: match.homeTeam.teamId, nrlMatchId } });
-      if (!awayCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.awayTeam.teamId}`, context: { teamId: match.awayTeam.teamId, nrlMatchId } });
+    if (!homeCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.homeTeam.teamId}`, context: { teamId: match.homeTeam.teamId, nrlMatchId } });
+    if (!awayCode) matchWarnings.push({ type: 'UNMAPPED_TEAM', message: `Unknown nrl.com teamId ${match.awayTeam.teamId}`, context: { teamId: match.awayTeam.teamId, nrlMatchId } });
+
+    if (!homeCode && !awayCode) {
       return { stats: [], matchWarnings };
     }
 
-    const matchId = createMatchId(homeCode, awayCode, year, round);
+    // Use domain matchId when both teams are known; fall back to NRL numeric ID for partial matches
+    const matchId = homeCode && awayCode
+      ? createMatchId(homeCode, awayCode, year, round)
+      : nrlMatchId;
 
-    // Process both teams
+    // Process both teams (skip a side if its team code is unmapped)
     for (const side of ['homeTeam', 'awayTeam'] as const) {
       const team = match[side];
       const teamCode = side === 'homeTeam' ? homeCode : awayCode;
+      if (!teamCode) continue;
 
       // Build playerId → roster info lookup
       const rosterMap = new Map(

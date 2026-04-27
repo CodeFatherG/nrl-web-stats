@@ -64,4 +64,12 @@ export interface PlayerRepository {
 
   /** Get aggregated season summaries for all players with appearances in a season */
   findAllSeasonSummaries(season: number): Promise<PlayerSeasonSummary[]>;
+
+  /** Bulk fetch minimal performance data for building defensive profiles. One query per season. */
+  findAllSeasonPerformancesSummary(season: number): Promise<Array<{
+    playerId: string;
+    matchId: string;
+    teamCode: string;
+    fantasyPointsTotal: number;
+  }>>;
 }

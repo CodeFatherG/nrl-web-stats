@@ -111,9 +111,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 001-opponent-context-analytics: Added TypeScript 5.x with strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing) — no new dependencies
 - 027-player-stats-updates: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) — no new dependencies
 - 026-player-comparison: Added TypeScript 5.x with strict mode + React 18, MUI 5.x (existing), Hono (backend — not modified)
-- 025-supercoach-player-projections: Added TypeScript 5.x with strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing) — no new dependencies
 
 
 <!-- MANUAL ADDITIONS START -->

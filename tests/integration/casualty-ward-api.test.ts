@@ -64,6 +64,29 @@ class InMemoryCasualtyWardRepository implements CasualtyWardRepository {
       this.entries[idx] = { ...entry, endDate };
     }
   }
+
+  async findRecentlyClosedByKey(
+    firstName: string,
+    lastName: string,
+    teamCode: string,
+    date: string,
+  ): Promise<CasualtyWardEntry | null> {
+    return this.entries.find(
+      e =>
+        e.firstName.toLowerCase() === firstName.toLowerCase() &&
+        e.lastName.toLowerCase() === lastName.toLowerCase() &&
+        e.teamCode === teamCode &&
+        e.endDate === date,
+    ) ?? null;
+  }
+
+  async reopen(id: number): Promise<void> {
+    const entry = this.entries.find(e => e.id === id);
+    if (entry) {
+      const idx = this.entries.indexOf(entry);
+      this.entries[idx] = { ...entry, endDate: null };
+    }
+  }
 }
 
 describe('Casualty Ward Integration', () => {

@@ -1167,3 +1167,75 @@ Get ranked projection profiles for all players in a team.
 - `spikeCv` serialised as `null` in JSON when Infinity
 
 **Errors**: 400 (invalid year, team code, or mode)
+
+---
+
+### GET /api/supercoach/:year/player/:playerId/contextual-projection
+
+Get an opponent-adjusted Supercoach projection for a player.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `playerId` (string, required): Player ID
+
+**Query Parameters**:
+- `opponent` (string, required): Opposing team code (e.g. `BRO`, `MEL`). Missing → 400.
+- `venue` (string, optional): Reserved for feature 029 — accepted but ignored in current version.
+- `weather` (string, optional): Reserved for feature 029 — accepted but ignored in current version.
+
+**Response** (200):
+```json
+{
+  "playerId": "pen-halfback-1",
+  "playerName": "Nathan Cleary",
+  "teamCode": "PTH",
+  "position": "Halfback",
+  "year": 2026,
+  "baseProjection": {
+    "total": 77.0,
+    "floor": 65.0,
+    "ceiling": 95.0
+  },
+  "adjustedProjection": {
+    "total": 86.2,
+    "floor": 72.8,
+    "ceiling": 106.4
+  },
+  "adjustments": {
+    "opponent": {
+      "multiplier": 1.12,
+      "confidence": 0.8,
+      "sampleN": 3,
+      "defenseFactor": 1.2,
+      "defenseConfidence": 1.0,
+      "h2hRpi": 1.10,
+      "h2hConfidence": 1.0
+    }
+  }
+}
+```
+
+**Adjustments Fields**:
+| Field | Description |
+|-------|-------------|
+| `multiplier` | Combined post-confidence multiplier applied to base projection |
+| `confidence` | Combined confidence: `h2hConfidence × defenseConfidence` |
+| `sampleN` | Number of h2h games used |
+| `defenseFactor` | Team's raw defensive factor for this position: `teamMean / leagueMean` |
+| `defenseConfidence` | Confidence in defensive factor: `clamp(gamesCount / 3, 0, 1)` |
+| `h2hRpi` | Player's raw head-to-head RPI vs opponent: `h2hMean / overallMean` |
+| `h2hConfidence` | Confidence in h2h RPI: `clamp(h2hGameCount / 3, 0, 1)` |
+
+**Graceful Degradation**:
+- When `h2hConfidence = 0` (no h2h history): `multiplier = defenseFactor` (only defensive profile applies)
+- When `defenseConfidence = 0` (no games vs that opponent in defensive data): `multiplier = effectiveH2h` (only h2h applies)
+- When both confidences = 0: `multiplier = 1.0` (no adjustment — projection equals base)
+
+**Caching**: Defensive profile is cached per `${year}:${latestCompleteRound}` and shared across all players. Per-player result is cached separately. Cache invalidates naturally when a new round completes.
+
+**Errors**:
+- 400 `INVALID_YEAR`: year < 1998
+- 400 `MISSING_OPPONENT`: `opponent` query param absent
+- 400 `INVALID_TEAM_CODE`: `opponent` value not a valid NRL team code; response includes `validOptions` array
+- 404 `PLAYER_NOT_FOUND`: `playerId` does not exist
+- 404 `PLAYER_PROJECTION_NOT_FOUND`: player exists but has no Supercoach performance data to project from

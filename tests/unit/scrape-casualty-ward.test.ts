@@ -48,6 +48,8 @@ describe('ScrapeCasualtyWardUseCase', () => {
       findByPlayerId: vi.fn().mockResolvedValue([]),
       findAll: vi.fn().mockResolvedValue([]),
       close: vi.fn(),
+      findRecentlyClosedByKey: vi.fn().mockResolvedValue(null),
+      reopen: vi.fn(),
     };
     useCase = new ScrapeCasualtyWardUseCase(source, repository);
   });

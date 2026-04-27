@@ -158,6 +158,29 @@ export interface Player {
 }
 
 
+/** Generate a deterministic player ID from name and optional date of birth. */
+export function createPlayerId(name: string, dateOfBirth?: string | null): string {
+  const normalized = name.trim().replace(/\s+/g, ' ').toLowerCase().replace(/\s/g, '-');
+  return dateOfBirth ? `${normalized}-${dateOfBirth}` : normalized;
+}
+
+/** Create a Player aggregate with no performance history. */
+export function createPlayer(
+  name: string,
+  dateOfBirth: string | null,
+  teamCode: string,
+  position: string,
+): Player {
+  return {
+    id: createPlayerId(name, dateOfBirth),
+    name,
+    dateOfBirth,
+    teamCode,
+    position,
+    performances: [],
+  };
+}
+
 /** Add a performance record to a Player. Returns a new Player (immutable). */
 export function addPerformance(player: Player, performance: MatchPerformance): Player {
   return {

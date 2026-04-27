@@ -284,3 +284,66 @@ Each mode shifts the composite weights to emphasise a different Supercoach decis
 - **Score difference**: Compares the computed Supercoach score against the published `fantasyPointsTotal` from NRL.com. Flags a warning if the difference exceeds 3 points.
 
 **Output**: `RoundSupercoachSummary` with per-player scores (total + 6 category breakdowns), validation summary (total players, players with warnings, warning details), and `isComplete` flag indicating whether all matches in the round have been processed
+
+---
+
+## Contextual Projection Model (Feature 028)
+
+**Service**: `src/analytics/contextual-projection-service.ts`
+
+**Endpoint**: `GET /api/supercoach/:year/player/:playerId/contextual-projection?opponent=BRO`
+
+Adjusts the floor/spike base projection by a combined opponent multiplier composed of two independent sub-models.
+
+### Sub-Model 1: Opponent Defensive Profile
+
+Measures how many SC points a team concedes to each position per game, normalised against the league average.
+
+**Inputs**: All players' completed SC game scores from all loaded seasons.
+
+**Computation**:
+1. For each completed game, attribute the SC score to the opposing team (the defender)
+2. Group by `(opponentTeamCode, position)` — compute mean SC points conceded per group
+3. Compute league average per position as the mean of ALL individual game scores at that position
+4. `defenseFactor = teamMean / leagueMean` — values > 1.0 indicate soft defence, < 1.0 indicate hard defence
+5. `defenseConfidence = clamp(gamesCount / 3, 0, 1)` — attenuates factor toward neutral with fewer games
+
+**Multi-season pooling**: Games from all loaded seasons are included. More recent seasons receive higher recency weight: `weight = 1 + (season - minSeason) / max(maxSeason - minSeason, 1)` (linear range [1, 2]).
+
+### Sub-Model 2: Head-to-Head RPI
+
+Measures the player's personal historical performance against a specific opponent, relative to their own average.
+
+**Inputs**: The requesting player's completed SC game scores across all loaded seasons.
+
+**Computation**:
+1. Compute weighted overall mean: `sum(score × weight) / sum(weight)`
+2. Filter to games where `opponent === opponentCode`
+3. Compute weighted h2h mean from those games
+4. `rawRpi = h2hMean / overallMean` — values > 1.0 indicate the player scores above their average vs this opponent
+5. `h2hConfidence = clamp(h2hGameCount / 3, 0, 1)` — 0 when no h2h games, 1 when ≥ 3 games
+
+### Combined Multiplier
+
+Both sub-models are confidence-gated via linear interpolation before being combined:
+
+```
+effectiveH2h = lerp(1.0, rawRpi,       h2hConfidence)
+effectiveDef = lerp(1.0, defenseFactor, defenseConfidence)
+multiplier   = effectiveH2h × effectiveDef
+```
+
+Where `lerp(a, b, t) = a + (b - a) × t` and `MIN_SAMPLE_N = 3`.
+
+When confidence is 0, the lerp returns 1.0 (neutral — no adjustment). When confidence is 1, the full raw value is applied. Intermediate values attenuate the signal proportionally.
+
+### Cache Key Strategy
+
+- Defensive profile: `opponent-defense-profile:${year}` with version `${year}:${latestCompleteRound}`
+- Per-player result: `contextual-projection:${playerId}:${opponent}:${year}` with same version
+- Cache invalidates naturally when `latestCompleteRound` increases (a new round completes)
+- 10-minute TTL safety net via `AnalyticsCache`
+
+### Extensibility
+
+The `adjustments` object in the response uses named keys (`opponent`, and reserved `venue`/`weather` for feature 029). New context dimensions can be added as additional multipliers without changing the base projection or the opponent multiplier.

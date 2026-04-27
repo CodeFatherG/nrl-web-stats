@@ -110,37 +110,19 @@ export class ScrapeCasualtyWardUseCase {
       ) ?? null;
 
       if (existing) {
-        const injuryChanged = existing.injury !== player.injury;
+        const needsUpdate =
+          existing.injury !== player.injury ||
+          existing.expectedReturn !== player.expectedReturn ||
+          (existing.playerId === null && resolvedPlayerId !== null);
 
-        if (injuryChanged && existing.id !== null) {
-          // Different injury while still on the ward — close the old entry today
-          // and open a new one. This preserves the full injury history.
-          await this.repository.close(existing.id, currentDate);
-          const newEntry = createCasualtyWardEntry({
-            firstName: player.firstName,
-            lastName: player.lastName,
-            teamCode: player.teamCode,
+        if (needsUpdate) {
+          await this.repository.update({
+            ...existing,
             injury: player.injury,
             expectedReturn: player.expectedReturn,
-            startDate: currentDate,
             playerId: existing.playerId ?? resolvedPlayerId,
           });
-          await this.repository.insert(newEntry);
           updatedEntries++;
-        } else {
-          // Same injury — check whether expectedReturn or playerId need updating
-          const needsUpdate =
-            existing.expectedReturn !== player.expectedReturn ||
-            (existing.playerId === null && resolvedPlayerId !== null);
-
-          if (needsUpdate) {
-            await this.repository.update({
-              ...existing,
-              expectedReturn: player.expectedReturn,
-              playerId: existing.playerId ?? resolvedPlayerId,
-            });
-            updatedEntries++;
-          }
         }
         // Otherwise unchanged — no action
       } else {
