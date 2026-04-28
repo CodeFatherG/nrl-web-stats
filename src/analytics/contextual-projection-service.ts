@@ -55,47 +55,49 @@ export function buildOpponentDefenseProfile(
   year: number,
   latestCompleteRound: number,
 ): OpponentDefensiveProfile {
-  // Accumulate SC points conceded per (teamCode, position) pair
-  const concededScores = new Map<string, number[]>();
-  // Accumulate all SC scores per position for league average
-  const leagueScores = new Map<string, number[]>();
+  // Weighted accumulation: (weightedSum, totalWeight, gameCount) per key
+  const conceded = new Map<string, { wSum: number; wTotal: number; count: number }>();
+  const league   = new Map<string, { wSum: number; wTotal: number }>();
 
   for (const game of allGames) {
     const position = positions.get(game.playerId);
     if (!position) continue;
 
-    // League average accumulation
-    const posScores = leagueScores.get(position) ?? [];
-    posScores.push(game.totalScore);
-    leagueScores.set(position, posScores);
+    // League average accumulation (all games, weighted)
+    const pos = league.get(position) ?? { wSum: 0, wTotal: 0 };
+    pos.wSum   += game.totalScore * game.weight;
+    pos.wTotal += game.weight;
+    league.set(position, pos);
 
     // Per-team conceded accumulation: game.opponent conceded these points
-    const key = `${game.opponent}:${position}`;
-    const teamScores = concededScores.get(key) ?? [];
-    teamScores.push(game.totalScore);
-    concededScores.set(key, teamScores);
+    const key  = `${game.opponent}:${position}`;
+    const team = conceded.get(key) ?? { wSum: 0, wTotal: 0, count: 0 };
+    team.wSum   += game.totalScore * game.weight;
+    team.wTotal += game.weight;
+    team.count  += 1;
+    conceded.set(key, team);
   }
 
-  // Compute league averages per position
+  // Compute weighted league averages per position
   const leagueAvg = new Map<string, number>();
-  for (const [position, scores] of leagueScores.entries()) {
-    leagueAvg.set(position, scores.reduce((s, v) => s + v, 0) / scores.length);
+  for (const [position, acc] of league.entries()) {
+    leagueAvg.set(position, acc.wTotal > 0 ? acc.wSum / acc.wTotal : 0);
   }
 
   // Build profile entries
   const profiles = new Map<string, PositionDefenseEntry>();
-  for (const [key, scores] of concededScores.entries()) {
+  for (const [key, acc] of conceded.entries()) {
     const colonIdx = key.indexOf(':');
     const teamCode = key.slice(0, colonIdx);
     const position = key.slice(colonIdx + 1);
-    const mean = scores.reduce((s, v) => s + v, 0) / scores.length;
-    const avg = leagueAvg.get(position) ?? mean; // fallback: factor = 1.0
+    const mean = acc.wTotal > 0 ? acc.wSum / acc.wTotal : 0;
+    const avg  = leagueAvg.get(position) ?? mean; // fallback: factor = 1.0
     profiles.set(key, {
       teamCode,
       position,
       meanPointsConceded: mean,
       defenseFactor: avg > 0 ? mean / avg : 1.0,
-      gamesCount: scores.length,
+      gamesCount: acc.count,
     });
   }
 

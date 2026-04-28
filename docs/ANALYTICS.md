@@ -1,6 +1,6 @@
 # Analytics
 
-Five analytics capabilities are available, all computed on-demand from existing fixture, match, and player data. No persistent analytics storage — results are cached in-memory with version-based invalidation.
+Eight analytics capabilities are available, all computed on-demand from existing fixture, match, and player data. No persistent analytics storage — results are cached in-memory with version-based invalidation.
 
 ## Team Form Analysis
 
@@ -364,12 +364,12 @@ Measures the player's historical SC score in a given weather category relative t
 
 | Category | Raw string examples |
 |----------|---------------------|
-| `clear` | `"Clear"`, `"Fine"`, `"Sunny"` |
-| `cloudy` | `"Cloudy"`, `"Overcast"` |
-| `showers` | `"Showers"`, `"Passing Showers"` |
+| `clear` | `"Clear"`, `"Fine"`, `"Sunny"`, `"Mostly Clear"`, `"Clear Skies"` |
+| `cloudy` | `"Cloudy"`, `"Overcast"`, `"Mostly Cloudy"` |
+| `showers` | `"Showers"`, `"Passing Showers"`, `"Shower or two"`, `"Isolated Showers"`, `"Drizzle"`, `"Light Drizzle"` |
 | `rain` | `"Raining"`, `"Light Rain"` |
-| `heavy_rain` | `"Heavy Rain"`, `"Storms"` |
-| `windy` | `"Windy"`, `"Strong Wind"` |
+| `heavy_rain` | `"Heavy Rain"`, `"Thunderstorm"`, `"Thunderstorms"` |
+| `windy` | `"Windy"`, `"Strong Wind"`, `"Strong Winds"` |
 
 Games with null or unrecognised weather strings are excluded from the weather **numerator** only — they still count in the denominator. This keeps all three sub-models on a shared baseline (`mean(ALL games)`).
 

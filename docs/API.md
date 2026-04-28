@@ -1282,7 +1282,7 @@ List all canonical venue IDs with their display names and cities.
 {
   "venues": [
     { "id": "accor_stadium",   "name": "Accor Stadium",         "city": "Sydney" },
-    { "id": "allianz_stadium", "name": "Allianz Stadium",       "city": "Sydney" },
+    { "id": "allianz",         "name": "Allianz Stadium",       "city": "Sydney" },
     { "id": "cbus_super",      "name": "Cbus Super Stadium",    "city": "Gold Coast" },
     { "id": "suncorp",         "name": "Suncorp Stadium",       "city": "Brisbane" }
   ]
