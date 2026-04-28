@@ -203,14 +203,16 @@ function App() {
     try {
       const health = await getHealth();
       // Sort descending so loadedYears[0] is always the most recent year
-      setLoadedYears([...health.loadedYears].sort((a, b) => b - a));
-
-      if (health.loadedYears.length === 0) {
+      // Only use the most recent year for now to simplify state management
+      const mostRecentYear = [...health.loadedYears].sort((a, b) => b - a)[0];
+      
+      if (mostRecentYear === undefined) {
         setStatus('no-data');
       } else {
+        setLoadedYears([mostRecentYear]);
         const teamsResponse = await getTeams();
         setTeams(teamsResponse.teams);
-        const year = health.loadedYears[0];
+        const year = mostRecentYear;
         if (year !== undefined) {
           await fetchRankingsForYear(year);
         }
