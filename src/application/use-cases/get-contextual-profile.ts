@@ -1,6 +1,10 @@
 /**
- * GetContextualProjectionUseCase — builds a context-adjusted SC projection.
- * Features: 028-player-context-analytics-opponent, 029-venue-weather-analytics
+ * GetContextualProfileUseCase — returns multipliers for a player across every
+ * opponent, venue, and weather category in a single response.
+ *
+ * Builds player games and the defensive profile once, then fans out across all
+ * known teams / venues / weather categories. Weather multipliers are informational
+ * only — they are not applied to any projection value.
  */
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
@@ -10,38 +14,33 @@ import type { GetPlayerProjectionUseCase } from './get-player-projection.js';
 import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
 import type {
   ContextualEligibleGame,
-  ContextualProjectionResult,
+  ContextualProfileResult,
   OpponentDefensiveProfile,
   ProjectionValues,
-  VenueAdjustment,
-  WeatherAdjustment,
 } from '../../analytics/contextual-projection-types.js';
 import {
   buildOpponentDefenseProfile,
   computeOpponentMultiplier,
   computeVenueMultiplier,
   computeWeatherMultiplier,
-  applyMultipliers,
 } from '../../analytics/contextual-projection-service.js';
-import type { WeatherCategory } from '../../config/weather-normalisation.js';
+import { VALID_TEAM_CODES } from '../../models/team.js';
+import { VALID_VENUE_IDS } from '../../config/venue-normalisation.js';
+import { VALID_WEATHER_CATEGORIES } from '../../config/weather-normalisation.js';
 import { MatchStatus } from '../../domain/match.js';
 import { logger } from '../../utils/logger.js';
 
-export type ContextualProjectionOutcome =
-  | { kind: 'ok'; result: ContextualProjectionResult }
+export type ContextualProfileOutcome =
+  | { kind: 'ok'; result: ContextualProfileResult }
   | { kind: 'player_not_found' }
   | { kind: 'no_projection' };
 
-/**
- * Parse two team codes from a domain matchId (e.g. "2025-R1-CBR-NZL").
- * Returns null for numeric fallback IDs (unmapped teams).
- */
 function parseMatchIdTeams(matchId: string): [string, string] | null {
   const m = matchId.match(/^\d{4}-R\d+-([A-Z]+)-([A-Z]+)$/);
   return m ? [m[1]!, m[2]!] : null;
 }
 
-export class GetContextualProjectionUseCase {
+export class GetContextualProfileUseCase {
   constructor(
     private readonly playerRepository: PlayerRepository,
     private readonly supercoachUseCase: GetSupercoachScoresUseCase,
@@ -50,13 +49,7 @@ export class GetContextualProjectionUseCase {
     private readonly analyticsCache: AnalyticsCache,
   ) {}
 
-  async execute(
-    year: number,
-    playerId: string,
-    opponent?: string,
-    venue?: string,
-    weather?: WeatherCategory,
-  ): Promise<ContextualProjectionOutcome> {
+  async execute(year: number, playerId: string): Promise<ContextualProfileOutcome> {
     const player = await this.playerRepository.findById(playerId);
     if (!player) return { kind: 'player_not_found' };
 
@@ -70,18 +63,16 @@ export class GetContextualProjectionUseCase {
     const latestCompleteRound = completedRounds.length > 0 ? Math.max(...completedRounds) : 0;
 
     const cacheVersion = `${year}:${latestCompleteRound}`;
-    const perPlayerKey = `contextual-projection:${playerId}:${opponent ?? 'none'}:${venue ?? 'none'}:${weather ?? 'none'}:${year}`;
-    const cachedResult = this.analyticsCache.get<ContextualProjectionResult>(perPlayerKey, cacheVersion);
-    if (cachedResult) return { kind: 'ok', result: cachedResult };
+    const cacheKey = `contextual-profile:${playerId}:${year}`;
+    const cached = this.analyticsCache.get<ContextualProfileResult>(cacheKey, cacheVersion);
+    if (cached) return { kind: 'ok', result: cached };
 
     const loadedYears = await this.matchRepository.getLoadedYears();
 
-    // Build match context map (matchId → { stadium, weather }) for all loaded seasons.
-    // Used to attach venue/weather to each eligible game for RPI computation.
     const matchContext = new Map<string, { stadium: string | null; weather: string | null }>();
     for (const season of loadedYears) {
       const seasonMatches = season === year
-        ? matches // reuse already-fetched current-year matches
+        ? matches
         : await this.matchRepository.findByYear(season);
       for (const m of seasonMatches) {
         matchContext.set(m.id, { stadium: m.stadium, weather: m.weather });
@@ -96,45 +87,38 @@ export class GetContextualProjectionUseCase {
       ceiling: baseProfile.projectedCeiling,
     };
 
-    // Compute context adjustments — opponent and venue are applied to the projection;
-    // weather is informational only.
-    const adjustments: ContextualProjectionResult['adjustments'] = {};
-    const multipliers: number[] = [];
+    const defenseProfile = await this.getOrBuildDefenseProfile(year, latestCompleteRound, cacheVersion, loadedYears);
 
-    if (opponent) {
-      const defenseProfile = await this.getOrBuildDefenseProfile(year, latestCompleteRound, cacheVersion);
-      const opponentAdj = computeOpponentMultiplier(defenseProfile, player.position, opponent, playerGames);
-      adjustments.opponent = opponentAdj;
-      multipliers.push(opponentAdj.multiplier);
+    const opponents: ContextualProfileResult['opponents'] = {};
+    for (const teamCode of VALID_TEAM_CODES) {
+      if (teamCode === player.teamCode) continue; // skip own team
+      opponents[teamCode] = computeOpponentMultiplier(defenseProfile, player.position, teamCode, playerGames);
     }
 
-    if (venue) {
-      const venueAdj = computeVenueMultiplier(playerGames, venue);
-      adjustments.venue = venueAdj;
-      multipliers.push(venueAdj.multiplier);
+    const venues: ContextualProfileResult['venues'] = {};
+    for (const venueId of VALID_VENUE_IDS) {
+      venues[venueId] = computeVenueMultiplier(playerGames, venueId);
     }
 
-    if (weather) {
-      // Weather is informational — computed but not multiplied into the projection.
-      const weatherAdj = computeWeatherMultiplier(playerGames, weather);
-      adjustments.weather = weatherAdj;
+    const weather: ContextualProfileResult['weather'] = {};
+    for (const category of VALID_WEATHER_CATEGORIES) {
+      weather[category] = computeWeatherMultiplier(playerGames, category);
     }
 
-    const adjustedProjection = applyMultipliers(baseProjection, multipliers);
-
-    const result: ContextualProjectionResult = {
+    const result: ContextualProfileResult = {
       playerId: player.id,
       playerName: player.name,
       teamCode: player.teamCode,
       position: player.position,
       year,
       baseProjection,
-      adjustedProjection,
-      adjustments,
+      opponents,
+      venues,
+      weather,
     };
 
-    this.analyticsCache.set(perPlayerKey, result, cacheVersion);
-    logger.info('Computed contextual projection', { playerId, year, opponent, venue, weather });
+    this.analyticsCache.set(cacheKey, result, cacheVersion);
+    logger.info('Computed contextual profile', { playerId, year });
     return { kind: 'ok', result };
   }
 
@@ -142,16 +126,15 @@ export class GetContextualProjectionUseCase {
     year: number,
     latestCompleteRound: number,
     cacheVersion: string,
+    loadedYears: number[],
   ): Promise<OpponentDefensiveProfile> {
     const defenseKey = `opponent-defense-profile:${year}`;
     const cached = this.analyticsCache.get<OpponentDefensiveProfile>(defenseKey, cacheVersion);
     if (cached) return cached;
 
-    const loadedYears = await this.matchRepository.getLoadedYears();
     const minSeason = loadedYears.length > 0 ? Math.min(...loadedYears) : year;
     const maxSeason = loadedYears.length > 0 ? Math.max(...loadedYears) : year;
 
-    // Build position map: one query per season (O(seasons) not O(players))
     const positions = new Map<string, string>();
     for (const season of loadedYears) {
       const summaries = await this.playerRepository.findAllSeasonSummaries(season);
@@ -160,41 +143,31 @@ export class GetContextualProjectionUseCase {
       }
     }
 
-    // Bulk-fetch all completed performances per season — one D1 query per season.
-    // Uses fantasyPointsTotal (stored from nrl.com) as the SC score approximation.
-    // The defense factor is a ratio (teamMean / leagueMean), so consistent
-    // under-counting cancels out and factors remain accurate.
     const allGames: ContextualEligibleGame[] = [];
     for (const season of loadedYears) {
       const perfs = await this.playerRepository.findAllSeasonPerformancesSummary(season);
       const weight = 1 + (season - minSeason) / Math.max(maxSeason - minSeason, 1);
       for (const perf of perfs) {
         const teams = parseMatchIdTeams(perf.matchId);
-        if (!teams) continue; // skip numeric fallback IDs
+        if (!teams) continue;
         const [t1, t2] = teams;
         const opponent = t1 === perf.teamCode ? t2 : t2 === perf.teamCode ? t1 : null;
         if (!opponent) continue;
         allGames.push({
           playerId: perf.playerId,
-          round: 0, // not needed for defense profile aggregation
+          round: 0,
           totalScore: perf.fantasyPointsTotal,
           opponent,
           season,
           weight,
-          stadium: null, // not needed for defense profile aggregation
-          weather: null, // not needed for defense profile aggregation
+          stadium: null,
+          weather: null,
         });
       }
     }
 
     const profile = buildOpponentDefenseProfile(allGames, positions, year, latestCompleteRound);
     this.analyticsCache.set(defenseKey, profile, cacheVersion);
-    logger.info('Built opponent defense profile', {
-      year,
-      latestCompleteRound,
-      playerCount: positions.size,
-      gameCount: allGames.length,
-    });
     return profile;
   }
 

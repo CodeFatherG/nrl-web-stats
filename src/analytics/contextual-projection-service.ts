@@ -1,6 +1,6 @@
 /**
  * Pure analytics functions for the contextual player projection model.
- * Feature: 028-player-context-analytics-opponent
+ * Features: 028-player-context-analytics-opponent, 029-venue-weather-analytics
  *
  * All functions are pure (no I/O, no side effects).
  * Input joining and caching are handled in the use case layer.
@@ -13,7 +13,12 @@ import type {
   OpponentDefensiveProfile,
   PositionDefenseEntry,
   ProjectionValues,
+  VenueAdjustment,
+  WeatherAdjustment,
 } from './contextual-projection-types.js';
+import { VENUE_NORMALISATION } from '../config/venue-normalisation.js';
+import { WEATHER_NORMALISATION } from '../config/weather-normalisation.js';
+import type { WeatherCategory } from '../config/weather-normalisation.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -205,19 +210,146 @@ export function computeOpponentMultiplier(
   };
 }
 
+// ── Venue RPI ─────────────────────────────────────────────────────────────────
+
+/**
+ * Compute a player's venue RPI for a specific canonical stadium.
+ *
+ * rawRpi = weightedMean(games at stadium) / weightedMean(ALL games)
+ * Returns multiplier = 1.0 and confidence = 0 when no games exist at the stadium.
+ * Games with an unresolvable raw stadium string are excluded from the numerator only —
+ * they still count in the denominator so all three sub-models share a common baseline.
+ */
+export function computeVenueMultiplier(
+  playerGames: ContextualEligibleGame[],
+  stadiumId: string,
+): VenueAdjustment {
+  if (playerGames.length === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, stadiumId };
+  }
+
+  // Weighted overall mean — ALL games (shared baseline across sub-models)
+  let totalWeightedScore = 0;
+  let totalWeight = 0;
+  for (const g of playerGames) {
+    totalWeightedScore += g.totalScore * g.weight;
+    totalWeight += g.weight;
+  }
+  const overallMean = totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
+
+  if (overallMean === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, stadiumId };
+  }
+
+  // Weighted mean at the requested stadium (numerator only)
+  const venueGames = playerGames.filter(
+    g => g.stadium !== null && VENUE_NORMALISATION[g.stadium!] === stadiumId,
+  );
+  if (venueGames.length === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, stadiumId };
+  }
+
+  let venueWeightedScore = 0;
+  let venueWeight = 0;
+  for (const g of venueGames) {
+    venueWeightedScore += g.totalScore * g.weight;
+    venueWeight += g.weight;
+  }
+  const venueMean = venueWeight > 0 ? venueWeightedScore / venueWeight : overallMean;
+  const rawRpi = venueMean / overallMean;
+
+  const confidence = clampedConfidence(venueGames.length);
+  return {
+    multiplier: lerp(1.0, rawRpi, confidence),
+    confidence,
+    sampleN: venueGames.length,
+    stadiumId,
+  };
+}
+
+// ── Weather category RPI ──────────────────────────────────────────────────────
+
+/**
+ * Compute a player's weather category RPI for a specific canonical weather category.
+ *
+ * rawRpi = weightedMean(games in category) / weightedMean(ALL games)
+ * Returns multiplier = 1.0 and confidence = 0 when no games exist in the category.
+ * Games with null or unrecognised weather strings are excluded from the numerator only —
+ * they still count in the denominator so all three sub-models share a common baseline.
+ *
+ * NOTE: The returned multiplier is informational — it is NOT applied to the adjusted
+ * projection. No forecast data source is available for upcoming games.
+ */
+export function computeWeatherMultiplier(
+  playerGames: ContextualEligibleGame[],
+  category: WeatherCategory,
+): WeatherAdjustment {
+  if (playerGames.length === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, category };
+  }
+
+  // Weighted overall mean — ALL games (shared baseline across sub-models)
+  let totalWeightedScore = 0;
+  let totalWeight = 0;
+  for (const g of playerGames) {
+    totalWeightedScore += g.totalScore * g.weight;
+    totalWeight += g.weight;
+  }
+  const overallMean = totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
+
+  if (overallMean === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, category };
+  }
+
+  // Weighted mean for the requested category (numerator only)
+  const categoryGames = playerGames.filter(
+    g => g.weather !== null && WEATHER_NORMALISATION[g.weather!] === category,
+  );
+  if (categoryGames.length === 0) {
+    return { multiplier: 1.0, confidence: 0, sampleN: 0, category };
+  }
+
+  let catWeightedScore = 0;
+  let catWeight = 0;
+  for (const g of categoryGames) {
+    catWeightedScore += g.totalScore * g.weight;
+    catWeight += g.weight;
+  }
+  const catMean = catWeight > 0 ? catWeightedScore / catWeight : overallMean;
+  const rawRpi = catMean / overallMean;
+
+  const confidence = clampedConfidence(categoryGames.length);
+  return {
+    multiplier: lerp(1.0, rawRpi, confidence),
+    confidence,
+    sampleN: categoryGames.length,
+    category,
+  };
+}
+
 // ── Projection adjustment ─────────────────────────────────────────────────────
 
 /**
- * Scale each projection value by the opponent multiplier.
- * Applies uniformly to total, floor, and ceiling.
+ * Scale each projection value by an array of multipliers compounded together.
+ * Each multiplier is already confidence-blended before this call.
+ * An empty array of multipliers returns the base projection unchanged.
  */
+export function applyMultipliers(
+  base: ProjectionValues,
+  multipliers: number[],
+): ProjectionValues {
+  const combined = multipliers.reduce((acc, m) => acc * m, 1.0);
+  return {
+    total:   base.total   * combined,
+    floor:   base.floor   * combined,
+    ceiling: base.ceiling * combined,
+  };
+}
+
+/** @deprecated Use applyMultipliers instead. */
 export function applyOpponentAdjustment(
   base: ProjectionValues,
   adjustment: ContextualMultiplier,
 ): ProjectionValues {
-  return {
-    total:   base.total   * adjustment.multiplier,
-    floor:   base.floor   * adjustment.multiplier,
-    ceiling: base.ceiling * adjustment.multiplier,
-  };
+  return applyMultipliers(base, [adjustment.multiplier]);
 }

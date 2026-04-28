@@ -33,6 +33,7 @@ import { GetCompositionImpactUseCase } from './application/use-cases/get-composi
 import { GetPlayerProjectionUseCase } from './application/use-cases/get-player-projection.js';
 import { GetTeamProjectionRankingsUseCase } from './application/use-cases/get-team-projection-rankings.js';
 import { GetContextualProjectionUseCase } from './application/use-cases/get-contextual-projection.js';
+import { GetContextualProfileUseCase } from './application/use-cases/get-contextual-profile.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
@@ -126,6 +127,18 @@ function initializeDeps(db?: D1Database): void {
       );
       const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
       return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
+    },
+    createGetContextualProfileUseCase: (reqDb: D1Database) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const scUseCase = new GetSupercoachScoresUseCase(
+        playerRepo,
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
+      );
+      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
+      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
     },
   } satisfies HandlerDeps);
 

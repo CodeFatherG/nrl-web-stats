@@ -45,6 +45,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-28
 - N/A — client-side only; URL path encodes comparison state (026-player-comparison)
 - TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) — no new dependencies (027-player-stats-updates)
 - Cloudflare D1 (SQLite) — no schema changes (027-player-stats-updates)
+- TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Cloudflare D1 (SQLite) — no new dependencies (029-venue-weather-analytics)
+- Cloudflare D1 — new `stadiums` table; in-memory cache for RPI results (029-venue-weather-analytics)
 
 **Current Stack (Cloudflare Workers - Serverless Edge):**
 - TypeScript 5.x with strict mode
@@ -111,9 +113,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 029-venue-weather-analytics: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Cloudflare D1 (SQLite) — no new dependencies
+- 029-venue-weather-analytics: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 001-opponent-context-analytics: Added TypeScript 5.x with strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing) — no new dependencies
-- 027-player-stats-updates: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Vitest (testing) — no new dependencies
-- 026-player-comparison: Added TypeScript 5.x with strict mode + React 18, MUI 5.x (existing), Hono (backend — not modified)
 
 
 <!-- MANUAL ADDITIONS START -->

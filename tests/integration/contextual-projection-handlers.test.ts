@@ -1,6 +1,6 @@
 /**
  * Integration tests for contextual projection API handler.
- * Feature: 028-player-context-analytics-opponent
+ * Features: 028-player-context-analytics-opponent, 029-venue-weather-analytics
  *
  * Tests handler functions directly with mock use cases (no Miniflare/D1 required).
  */
@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { HandlerDeps } from '../../src/api/handlers.js';
-import { getContextualProjection } from '../../src/api/handlers.js';
+import { getContextualProjection, getVenues } from '../../src/api/handlers.js';
 import type { ContextualProjectionResult } from '../../src/analytics/contextual-projection-types.js';
 import type { GetContextualProjectionUseCase, ContextualProjectionOutcome } from '../../src/application/use-cases/get-contextual-projection.js';
 
@@ -80,6 +80,48 @@ const RESULT_ATTENUATED_H2H: ContextualProjectionResult = {
       h2hConfidence: 1 / 3,
     },
   },
+};
+
+// Result with venue adjustment (feature 029)
+const RESULT_WITH_VENUE: ContextualProjectionResult = {
+  playerId: 'pth-halfback-1',
+  playerName: 'PTH Halfback One',
+  teamCode: 'PTH',
+  position: 'Halfback',
+  year: 2026,
+  baseProjection: BASE_PROJECTION,
+  adjustedProjection: { total: 89.32, floor: 75.18, ceiling: 110.0 },
+  adjustments: {
+    opponent: FULL_ADJUSTMENT,
+    venue: { multiplier: 1.08, confidence: 1.0, sampleN: 5, stadiumId: 'suncorp' },
+  },
+};
+
+// Result with weather adjustment (informational only — adjustedProjection unchanged vs opponent-only)
+const RESULT_WITH_WEATHER: ContextualProjectionResult = {
+  playerId: 'pth-halfback-1',
+  playerName: 'PTH Halfback One',
+  teamCode: 'PTH',
+  position: 'Halfback',
+  year: 2026,
+  baseProjection: BASE_PROJECTION,
+  adjustedProjection: { total: 86.24, floor: 72.8, ceiling: 106.4 }, // same as RESULT_WITH_H2H — weather not applied
+  adjustments: {
+    opponent: FULL_ADJUSTMENT,
+    weather: { multiplier: 0.89, confidence: 0.67, sampleN: 2, category: 'rain' },
+  },
+};
+
+// Result with no context params — base projection returned unchanged
+const RESULT_NO_CONTEXT: ContextualProjectionResult = {
+  playerId: 'pth-halfback-1',
+  playerName: 'PTH Halfback One',
+  teamCode: 'PTH',
+  position: 'Halfback',
+  year: 2026,
+  baseProjection: BASE_PROJECTION,
+  adjustedProjection: BASE_PROJECTION,
+  adjustments: {},
 };
 
 // Second halfback — same defenseFactor/defenseConfidence as RESULT_WITH_H2H, different total (BRO = Brisbane Broncos)
@@ -244,15 +286,13 @@ describe('GET /api/supercoach/:year/player/:playerId/contextual-projection', () 
 
   // ── Validation: missing/invalid params ─────────────────────────────────────
 
-  it('returns 400 MISSING_OPPONENT when opponent param is absent', async () => {
-    const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
+  it('returns 200 when opponent param is absent (opponent is optional)', async () => {
+    const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_NO_CONTEXT }));
     const res = await app.request(
       '/api/supercoach/2026/player/pth-halfback-1/contextual-projection',
       undefined, MOCK_ENV as any,
     );
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toBe('MISSING_OPPONENT');
+    expect(res.status).toBe(200);
   });
 
   it('returns 400 INVALID_TEAM_CODE for unknown opponent code', async () => {
@@ -332,11 +372,90 @@ describe('GET /api/supercoach/:year/player/:playerId/contextual-projection', () 
     });
   });
 
-  // ── US3: venue/weather params accepted, not applied ───────────────────────
+  // ── 029: venue param validation ───────────────────────────────────────────
 
-  describe('US3: venue and weather params are accepted without error', () => {
-    it('returns 200 when venue and weather params are present', async () => {
+  describe('venue param validation (feature 029)', () => {
+    it('returns 400 INVALID_VENUE for unknown venue identifier', async () => {
       const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=moon_base',
+        undefined, MOCK_ENV as any,
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string; validOptions?: string[] };
+      expect(body.error).toBe('INVALID_VENUE');
+      expect(Array.isArray(body.validOptions)).toBe(true);
+      expect((body.validOptions?.length ?? 0)).toBeGreaterThan(0);
+    });
+
+    it('returns 200 for a known canonical venue identifier', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_VENUE }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp',
+        undefined, MOCK_ENV as any,
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('venue entry is present in adjustments when venue param is supplied', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_VENUE }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp',
+        undefined, MOCK_ENV as any,
+      );
+      const body = await res.json() as ContextualProjectionResult;
+      expect(body.adjustments.venue).toBeDefined();
+      expect(body.adjustments.venue?.stadiumId).toBe('suncorp');
+      expect(typeof body.adjustments.venue?.multiplier).toBe('number');
+    });
+  });
+
+  // ── 029: weather param validation ─────────────────────────────────────────
+
+  describe('weather param validation (feature 029)', () => {
+    it('returns 400 INVALID_WEATHER_CATEGORY for unknown weather string', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&weather=hail',
+        undefined, MOCK_ENV as any,
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string; validOptions?: string[] };
+      expect(body.error).toBe('INVALID_WEATHER_CATEGORY');
+      expect(Array.isArray(body.validOptions)).toBe(true);
+      expect(body.validOptions).toContain('rain');
+    });
+
+    it('returns 200 for all valid canonical weather categories', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_WEATHER }));
+      const categories = ['clear', 'cloudy', 'showers', 'rain', 'heavy_rain', 'windy'];
+      for (const cat of categories) {
+        const res = await app.request(
+          `/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&weather=${cat}`,
+          undefined, MOCK_ENV as any,
+        );
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('weather entry is present in adjustments when weather param is supplied', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_WEATHER }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&weather=rain',
+        undefined, MOCK_ENV as any,
+      );
+      const body = await res.json() as ContextualProjectionResult;
+      expect(body.adjustments.weather).toBeDefined();
+      expect(body.adjustments.weather?.category).toBe('rain');
+      expect(typeof body.adjustments.weather?.multiplier).toBe('number');
+    });
+  });
+
+  // ── 029: combined context + weather is informational ─────────────────────
+
+  describe('combined context: opponent + venue + weather (feature 029)', () => {
+    it('returns 200 with all three params', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_VENUE }));
       const res = await app.request(
         '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp&weather=rain',
         undefined, MOCK_ENV as any,
@@ -344,43 +463,103 @@ describe('GET /api/supercoach/:year/player/:playerId/contextual-projection', () 
       expect(res.status).toBe(200);
     });
 
-    it('response has no venue key in adjustments', async () => {
-      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
-      const res = await app.request(
-        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp&weather=rain',
-        undefined, MOCK_ENV as any,
-      );
-      const body = await res.json() as { adjustments: Record<string, unknown> };
-      expect('venue' in body.adjustments).toBe(false);
-    });
+    it('weather does not change adjustedProjection (informational only)', async () => {
+      // Both mock results represent the same opponent-only adjusted total — weather is informational
+      const app1 = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
+      const app2 = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_WEATHER }));
 
-    it('response has no weather key in adjustments', async () => {
-      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
-      const res = await app.request(
-        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp&weather=rain',
-        undefined, MOCK_ENV as any,
-      );
-      const body = await res.json() as { adjustments: Record<string, unknown> };
-      expect('weather' in body.adjustments).toBe(false);
-    });
-
-    it('adjustedProjection.total is identical with and without venue/weather params', async () => {
-      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
-
-      const [resWithParams, resWithout] = await Promise.all([
-        app.request(
-          '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&venue=suncorp&weather=rain',
+      const [resWithout, resWith] = await Promise.all([
+        app1.request(
+          '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO',
           undefined, MOCK_ENV as any,
         ),
-        app.request(
-          '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO',
+        app2.request(
+          '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO&weather=rain',
           undefined, MOCK_ENV as any,
         ),
       ]);
 
-      const b1 = await resWithParams.json() as ContextualProjectionResult;
-      const b2 = await resWithout.json() as ContextualProjectionResult;
+      const b1 = await resWithout.json() as ContextualProjectionResult;
+      const b2 = await resWith.json() as ContextualProjectionResult;
+      // Fixture results have identical adjustedProjection (mock enforces this)
       expect(b1.adjustedProjection.total).toBe(b2.adjustedProjection.total);
     });
+
+    it('opponent-only request is a valid 200 (regression against 028 baseline)', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_WITH_H2H }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection?opponent=BRO',
+        undefined, MOCK_ENV as any,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as ContextualProjectionResult;
+      expect(body.adjustments.opponent).toBeDefined();
+      expect(body.adjustments.venue).toBeUndefined();
+      expect(body.adjustments.weather).toBeUndefined();
+    });
+
+    it('no-context request returns base projection with empty adjustments', async () => {
+      const app = makeApp(makeMockUseCase({ kind: 'ok', result: RESULT_NO_CONTEXT }));
+      const res = await app.request(
+        '/api/supercoach/2026/player/pth-halfback-1/contextual-projection',
+        undefined, MOCK_ENV as any,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as ContextualProjectionResult;
+      expect(body.adjustments.opponent).toBeUndefined();
+      expect(body.adjustments.venue).toBeUndefined();
+      expect(body.adjustments.weather).toBeUndefined();
+    });
+  });
+});
+
+// ── GET /api/supercoach/venues ────────────────────────────────────────────────
+
+describe('GET /api/supercoach/venues', () => {
+  const MOCK_DB = {
+    prepare: () => ({
+      all: async () => ({
+        results: [
+          { id: 'suncorp', name: 'Suncorp Stadium', city: 'Brisbane' },
+          { id: 'accor_stadium', name: 'Accor Stadium', city: 'Sydney' },
+        ],
+      }),
+    }),
+  };
+  const VENUES_ENV = { DB: MOCK_DB, ASSETS: null, ENVIRONMENT: 'test' };
+
+  function makeVenuesApp(): Hono {
+    const app = new Hono();
+    app.get('/api/supercoach/venues', getVenues({} as HandlerDeps));
+    return app;
+  }
+
+  it('returns 200', async () => {
+    const res = await makeVenuesApp().request(
+      '/api/supercoach/venues',
+      undefined, VENUES_ENV as any,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('returns a venues array', async () => {
+    const res = await makeVenuesApp().request(
+      '/api/supercoach/venues',
+      undefined, VENUES_ENV as any,
+    );
+    const body = await res.json() as { venues: unknown[] };
+    expect(Array.isArray(body.venues)).toBe(true);
+    expect(body.venues.length).toBe(2);
+  });
+
+  it('each venue has id, name, and city fields', async () => {
+    const res = await makeVenuesApp().request(
+      '/api/supercoach/venues',
+      undefined, VENUES_ENV as any,
+    );
+    const body = await res.json() as { venues: Array<{ id: string; name: string; city: string | null }> };
+    const first = body.venues[0]!;
+    expect(typeof first.id).toBe('string');
+    expect(typeof first.name).toBe('string');
   });
 });

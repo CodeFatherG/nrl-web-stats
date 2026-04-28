@@ -287,13 +287,13 @@ Each mode shifts the composite weights to emphasise a different Supercoach decis
 
 ---
 
-## Contextual Projection Model (Feature 028)
+## Contextual Projection Model (Features 028, 029)
 
 **Service**: `src/analytics/contextual-projection-service.ts`
 
-**Endpoint**: `GET /api/supercoach/:year/player/:playerId/contextual-projection?opponent=BRO`
+**Endpoint**: `GET /api/supercoach/:year/player/:playerId/contextual-projection`
 
-Adjusts the floor/spike base projection by a combined opponent multiplier composed of two independent sub-models.
+Adjusts the floor/spike base projection by a combined multiplier composed of independent context sub-models. All context dimensions (opponent, venue, weather) are optional. `adjustedProjection = baseProjection × opponentMultiplier × venueMultiplier`. The weather multiplier is computed and returned in `adjustments.weather` but is **not** applied to `adjustedProjection` (no forecast source is available for future games).
 
 ### Sub-Model 1: Opponent Defensive Profile
 
@@ -323,7 +323,7 @@ Measures the player's personal historical performance against a specific opponen
 4. `rawRpi = h2hMean / overallMean` — values > 1.0 indicate the player scores above their average vs this opponent
 5. `h2hConfidence = clamp(h2hGameCount / 3, 0, 1)` — 0 when no h2h games, 1 when ≥ 3 games
 
-### Combined Multiplier
+### Combined Opponent Multiplier
 
 Both sub-models are confidence-gated via linear interpolation before being combined:
 
@@ -337,13 +337,69 @@ Where `lerp(a, b, t) = a + (b - a) × t` and `MIN_SAMPLE_N = 3`.
 
 When confidence is 0, the lerp returns 1.0 (neutral — no adjustment). When confidence is 1, the full raw value is applied. Intermediate values attenuate the signal proportionally.
 
+### Sub-Model 3: Venue RPI
+
+Measures the player's historical SC score at a specific stadium relative to their overall mean.
+
+**Inputs**: The requesting player's completed SC game scores with stadium context from all loaded seasons.
+
+**Stadium normalisation**: Raw nrl.com stadium strings are mapped to canonical IDs via `src/config/venue-normalisation.ts`. Games with unrecognised or null stadium strings are excluded from the venue **numerator** only — they still count in the denominator. This keeps all three sub-models on a shared baseline (`mean(ALL games)`). The normalisation map covers all current NRL venues and common historic name variants (e.g. `"Lang Park"` → `suncorp`, `"Stadium Australia"` → `accor_stadium`).
+
+**Computation**:
+1. Compute weighted overall mean across **ALL** `playerGames` (shared baseline)
+2. Filter to games at `stadiumId` with a recognised venue string → compute weighted venue mean
+3. `rawVenueRpi = venueMean / overallMean`
+4. `venueConfidence = clamp(venueGames / 3, 0, 1)`
+5. `venueMultiplier = lerp(1.0, rawVenueRpi, venueConfidence)`
+
+**Applied to projection**: `venueMultiplier` is multiplied into `adjustedProjection` alongside the opponent multiplier.
+
+### Sub-Model 4: Weather Category RPI
+
+Measures the player's historical SC score in a given weather category relative to their overall mean.
+
+**Inputs**: The requesting player's completed SC game scores with weather context from all loaded seasons.
+
+**Weather normalisation**: Raw nrl.com weather strings are mapped to six canonical categories via `src/config/weather-normalisation.ts`:
+
+| Category | Raw string examples |
+|----------|---------------------|
+| `clear` | `"Clear"`, `"Fine"`, `"Sunny"` |
+| `cloudy` | `"Cloudy"`, `"Overcast"` |
+| `showers` | `"Showers"`, `"Passing Showers"` |
+| `rain` | `"Raining"`, `"Light Rain"` |
+| `heavy_rain` | `"Heavy Rain"`, `"Storms"` |
+| `windy` | `"Windy"`, `"Strong Wind"` |
+
+Games with null or unrecognised weather strings are excluded from the weather **numerator** only — they still count in the denominator. This keeps all three sub-models on a shared baseline (`mean(ALL games)`).
+
+**Computation**:
+1. Compute weighted overall mean across **ALL** `playerGames` (shared baseline)
+2. Filter to games matching `category` with a recognised weather string → compute weighted category mean
+3. `rawWeatherRpi = categoryMean / overallMean`
+4. `weatherConfidence = clamp(categoryGames / 3, 0, 1)`
+5. `weatherMultiplier = lerp(1.0, rawWeatherRpi, weatherConfidence)`
+
+**Informational only**: `weatherMultiplier` is returned in `adjustments.weather` but is **not** applied to `adjustedProjection`. Weather for future games cannot be forecasted at scrape time.
+
+### Applying Multipliers
+
+`applyMultipliers(base, multipliers[])` in `contextual-projection-service.ts` reduces all active multipliers into a single combined factor and scales `total`, `floor`, and `ceiling` uniformly:
+
+```
+combined = multipliers.reduce((acc, m) => acc * m, 1.0)
+adjustedProjection = { total: base.total * combined, floor: base.floor * combined, ceiling: base.ceiling * combined }
+```
+
+Only opponent and venue multipliers are included in the `multipliers[]` array. Weather is excluded.
+
 ### Cache Key Strategy
 
 - Defensive profile: `opponent-defense-profile:${year}` with version `${year}:${latestCompleteRound}`
-- Per-player result: `contextual-projection:${playerId}:${opponent}:${year}` with same version
+- Per-player result: `contextual-projection:${playerId}:${opponent??'none'}:${venue??'none'}:${weather??'none'}:${year}` with same version
 - Cache invalidates naturally when `latestCompleteRound` increases (a new round completes)
 - 10-minute TTL safety net via `AnalyticsCache`
 
 ### Extensibility
 
-The `adjustments` object in the response uses named keys (`opponent`, and reserved `venue`/`weather` for feature 029). New context dimensions can be added as additional multipliers without changing the base projection or the opponent multiplier.
+The `adjustments` object in the response uses named optional keys (`opponent`, `venue`, `weather`). New context dimensions can be added as additional multipliers in `applyMultipliers` without changing the base projection or existing sub-models.

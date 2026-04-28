@@ -44,6 +44,7 @@ import type { GetCompositionImpactUseCase } from '../application/use-cases/get-c
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
+import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
   getLastScrapeTimes,
@@ -63,6 +64,9 @@ import {
   calculateSeasonThresholds,
 } from '../database/rankings.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
+import { VALID_VENUE_IDS } from '../config/venue-normalisation.js';
+import { VALID_WEATHER_CATEGORIES } from '../config/weather-normalisation.js';
+import type { WeatherCategory } from '../config/weather-normalisation.js';
 import { cacheStore } from '../cache/store.js';
 import { createGetTeamScheduleUseCase } from '../application/use-cases/get-team-schedule.js';
 import { createGetSeasonSummaryUseCase } from '../application/use-cases/get-season-summary.js';
@@ -103,6 +107,8 @@ export interface HandlerDeps {
   createSupplementaryStatsRepository: (db: D1Database) => { isRoundCached(season: number, round: number): Promise<boolean> };
   /** Factory to create a per-request GetContextualProjectionUseCase from the DB binding */
   createGetContextualProjectionUseCase: (db: D1Database) => GetContextualProjectionUseCase;
+  /** Factory to create a per-request GetContextualProfileUseCase from the DB binding */
+  createGetContextualProfileUseCase: (db: D1Database) => GetContextualProfileUseCase;
 }
 
 // Environment bindings type
@@ -1455,20 +1461,70 @@ export function getContextualProjection(deps: HandlerDeps) {
       return errorResponse(c, 'MISSING_PLAYER_ID', 'Player ID is required', 400);
     }
 
-    const opponent = c.req.query('opponent');
-    if (!opponent) {
-      return errorResponse(c, 'MISSING_OPPONENT', 'opponent query parameter is required', 400);
-    }
-    if (!VALID_TEAM_CODES.includes(opponent.toUpperCase())) {
-      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${opponent}`, 400, VALID_TEAM_CODES);
+    const opponentRaw = c.req.query('opponent');
+    const opponent = opponentRaw ? opponentRaw.toUpperCase() : undefined;
+    if (opponent && !VALID_TEAM_CODES.includes(opponent)) {
+      return errorResponse(c, 'INVALID_TEAM_CODE', `Unknown team code: ${opponentRaw}`, 400, VALID_TEAM_CODES);
     }
 
-    // venue and weather accepted but not applied in feature 028
-    c.req.query('venue');
-    c.req.query('weather');
+    const venueRaw = c.req.query('venue');
+    if (venueRaw && !VALID_VENUE_IDS.includes(venueRaw)) {
+      return errorResponse(c, 'INVALID_VENUE', `Unknown venue: '${venueRaw}'. Valid venue IDs can be found at GET /api/supercoach/venues`, 400, [...VALID_VENUE_IDS]);
+    }
+    const venue = venueRaw ?? undefined;
+
+    const weatherRaw = c.req.query('weather');
+    if (weatherRaw && !(VALID_WEATHER_CATEGORIES as readonly string[]).includes(weatherRaw)) {
+      return errorResponse(c, 'INVALID_WEATHER_CATEGORY', `Unknown weather category: '${weatherRaw}'. Valid categories: ${VALID_WEATHER_CATEGORIES.join(', ')}`, 400, [...VALID_WEATHER_CATEGORIES]);
+    }
+    const weather = weatherRaw as WeatherCategory | undefined;
 
     const useCase = deps.createGetContextualProjectionUseCase(c.env.DB);
-    const outcome = await useCase.execute(yearResult.data, playerId, opponent.toUpperCase());
+    const outcome = await useCase.execute(yearResult.data, playerId, opponent, venue, weather);
+
+    if (outcome.kind === 'player_not_found') {
+      return errorResponse(c, 'PLAYER_NOT_FOUND', `Player not found: ${playerId}`, 404);
+    }
+    if (outcome.kind === 'no_projection') {
+      return errorResponse(c, 'PLAYER_PROJECTION_NOT_FOUND', `No projection data available for player: ${playerId}`, 404);
+    }
+
+    return c.json(outcome.result);
+  };
+}
+
+/**
+ * GET /api/supercoach/venues
+ * Returns all canonical stadium records for API param discovery and UI dropdowns.
+ */
+export function getVenues(_deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const result = await c.env.DB.prepare(
+      'SELECT id, name, city FROM stadiums ORDER BY name ASC',
+    ).all<{ id: string; name: string; city: string | null }>();
+
+    return c.json({ venues: result.results });
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/player/:playerId/contextual-profile
+ * Returns multipliers for every opponent, venue, and weather category in one response.
+ */
+export function getContextualProfile(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const playerId = c.req.param('playerId');
+    if (!playerId) {
+      return errorResponse(c, 'MISSING_PLAYER_ID', 'Player ID is required', 400);
+    }
+
+    const useCase = deps.createGetContextualProfileUseCase(c.env.DB);
+    const outcome = await useCase.execute(yearResult.data, playerId);
 
     if (outcome.kind === 'player_not_found') {
       return errorResponse(c, 'PLAYER_NOT_FOUND', `Player not found: ${playerId}`, 404);

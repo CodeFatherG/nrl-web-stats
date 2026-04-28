@@ -22,6 +22,7 @@ import { SCORING_CATEGORIES } from '../domain/supercoach-score.js';
 const PRIMARY_STAT_MAP: Record<string, keyof PrimaryScoringStats> = {
   tries: 'tries',
   goals: 'conversions',
+  penaltyGoals: 'penaltyGoals',
   onePointFieldGoals: 'onePointFieldGoals',
   twoPointFieldGoals: 'twoPointFieldGoals',
   tryAssists: 'tryAssists',

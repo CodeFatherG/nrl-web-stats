@@ -1172,16 +1172,16 @@ Get ranked projection profiles for all players in a team.
 
 ### GET /api/supercoach/:year/player/:playerId/contextual-projection
 
-Get an opponent-adjusted Supercoach projection for a player.
+Get a context-adjusted Supercoach projection for a player. All three context dimensions are optional — supply any combination of opponent, venue, and weather. `adjustedProjection` reflects opponent and venue multipliers; weather is informational only (no forecast source available).
 
 **Path Parameters**:
 - `year` (number, required): Season year (≥ 1998)
 - `playerId` (string, required): Player ID
 
 **Query Parameters**:
-- `opponent` (string, required): Opposing team code (e.g. `BRO`, `MEL`). Missing → 400.
-- `venue` (string, optional): Reserved for feature 029 — accepted but ignored in current version.
-- `weather` (string, optional): Reserved for feature 029 — accepted but ignored in current version.
+- `opponent` (string, optional): Opposing team code (e.g. `BRO`, `MEL`). Omit to skip opponent adjustment.
+- `venue` (string, optional): Canonical stadium ID (e.g. `suncorp`, `accor_stadium`). See `GET /api/supercoach/venues` for valid values.
+- `weather` (string, optional): Weather category — one of `clear`, `cloudy`, `showers`, `rain`, `heavy_rain`, `windy`. Returned in `adjustments.weather` but **not** applied to `adjustedProjection`.
 
 **Response** (200):
 ```json
@@ -1197,9 +1197,9 @@ Get an opponent-adjusted Supercoach projection for a player.
     "ceiling": 95.0
   },
   "adjustedProjection": {
-    "total": 86.2,
-    "floor": 72.8,
-    "ceiling": 106.4
+    "total": 89.3,
+    "floor": 75.4,
+    "ceiling": 110.1
   },
   "adjustments": {
     "opponent": {
@@ -1210,12 +1210,26 @@ Get an opponent-adjusted Supercoach projection for a player.
       "defenseConfidence": 1.0,
       "h2hRpi": 1.10,
       "h2hConfidence": 1.0
+    },
+    "venue": {
+      "multiplier": 1.03,
+      "confidence": 0.67,
+      "sampleN": 2,
+      "stadiumId": "suncorp"
+    },
+    "weather": {
+      "multiplier": 0.94,
+      "confidence": 0.33,
+      "sampleN": 1,
+      "category": "rain"
     }
   }
 }
 ```
 
-**Adjustments Fields**:
+`adjustments` only includes keys for the context dimensions that were requested. If no params are supplied, `adjustments` is an empty object `{}`.
+
+**Opponent Adjustment Fields** (`adjustments.opponent`):
 | Field | Description |
 |-------|-------------|
 | `multiplier` | Combined post-confidence multiplier applied to base projection |
@@ -1226,16 +1240,55 @@ Get an opponent-adjusted Supercoach projection for a player.
 | `h2hRpi` | Player's raw head-to-head RPI vs opponent: `h2hMean / overallMean` |
 | `h2hConfidence` | Confidence in h2h RPI: `clamp(h2hGameCount / 3, 0, 1)` |
 
-**Graceful Degradation**:
-- When `h2hConfidence = 0` (no h2h history): `multiplier = defenseFactor` (only defensive profile applies)
-- When `defenseConfidence = 0` (no games vs that opponent in defensive data): `multiplier = effectiveH2h` (only h2h applies)
-- When both confidences = 0: `multiplier = 1.0` (no adjustment — projection equals base)
+**Venue Adjustment Fields** (`adjustments.venue`):
+| Field | Description |
+|-------|-------------|
+| `multiplier` | Post-confidence venue multiplier applied to base projection |
+| `confidence` | `clamp(venueGames / 3, 0, 1)` |
+| `sampleN` | Number of historical games at this venue |
+| `stadiumId` | Canonical stadium ID as supplied in the request |
 
-**Caching**: Defensive profile is cached per `${year}:${latestCompleteRound}` and shared across all players. Per-player result is cached separately. Cache invalidates naturally when a new round completes.
+**Weather Adjustment Fields** (`adjustments.weather`):
+| Field | Description |
+|-------|-------------|
+| `multiplier` | Post-confidence weather multiplier (informational — **not** applied to `adjustedProjection`) |
+| `confidence` | `clamp(weatherGames / 3, 0, 1)` |
+| `sampleN` | Number of historical games in this weather category |
+| `category` | Weather category as supplied in the request |
+
+**Graceful Degradation**:
+- When a context dimension has no historical data (`sampleN = 0`): `multiplier = 1.0` (neutral — no adjustment)
+- When `sampleN < 3`: multiplier is attenuated toward 1.0 proportionally via confidence blending
+- When no context params are supplied: `adjustedProjection` equals `baseProjection`
+
+**Caching**: Defensive profile cached per `${year}:${latestCompleteRound}`, shared across all players. Per-player contextual result cached per `contextual-projection:${playerId}:${opponent??'none'}:${venue??'none'}:${weather??'none'}:${year}`. Invalidates when a new round completes.
 
 **Errors**:
 - 400 `INVALID_YEAR`: year < 1998
-- 400 `MISSING_OPPONENT`: `opponent` query param absent
 - 400 `INVALID_TEAM_CODE`: `opponent` value not a valid NRL team code; response includes `validOptions` array
+- 400 `INVALID_VENUE`: `venue` value not a recognised canonical stadium ID; response includes `validOptions` array
+- 400 `INVALID_WEATHER_CATEGORY`: `weather` value not one of the six valid categories; response includes `validOptions` array
 - 404 `PLAYER_NOT_FOUND`: `playerId` does not exist
 - 404 `PLAYER_PROJECTION_NOT_FOUND`: player exists but has no Supercoach performance data to project from
+
+---
+
+### GET /api/supercoach/venues
+
+List all canonical venue IDs with their display names and cities.
+
+**Response** (200):
+```json
+{
+  "venues": [
+    { "id": "accor_stadium",   "name": "Accor Stadium",         "city": "Sydney" },
+    { "id": "allianz_stadium", "name": "Allianz Stadium",       "city": "Sydney" },
+    { "id": "cbus_super",      "name": "Cbus Super Stadium",    "city": "Gold Coast" },
+    { "id": "suncorp",         "name": "Suncorp Stadium",       "city": "Brisbane" }
+  ]
+}
+```
+
+The `id` values in this response are the valid values for the `venue` query parameter on `GET /api/supercoach/:year/player/:playerId/contextual-projection`.
+
+**Errors**: None (returns empty array if no venues are seeded).

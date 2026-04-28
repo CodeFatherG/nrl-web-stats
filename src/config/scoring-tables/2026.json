@@ -3,6 +3,7 @@
   "stats": [
     { "statName": "tries", "displayName": "Tries", "points": 17, "category": "scoring", "source": "primary" },
     { "statName": "goals", "displayName": "Goals", "points": 4, "category": "scoring", "source": "primary" },
+    { "statName": "penaltyGoals", "displayName": "Penalty Goals", "points": 4, "category": "scoring", "source": "primary" },
     { "statName": "missedGoals", "displayName": "Missed Goals", "points": -2, "category": "scoring", "source": "supplementary" },
     { "statName": "onePointFieldGoals", "displayName": "Field Goals (1pt)", "points": 5, "category": "scoring", "source": "primary" },
     { "statName": "twoPointFieldGoals", "displayName": "2pt Field Goals", "points": 10, "category": "scoring", "source": "primary" },
