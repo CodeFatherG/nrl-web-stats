@@ -113,9 +113,9 @@ When modifying the codebase, update the relevant file in `docs/` to keep documen
 Include documentation updates in the same commit or PR as the code change. See Constitution Principle VII.
 
 ## Recent Changes
+- 030-player-movements-summary: Added `PlayerMovementsCache` (in-memory singleton, `"year:round"` keyed), `ComputePlayerMovementsUseCase` (derives expected team count from match fixtures), `GET /api/player-movements` endpoint, domain types in `src/domain/player-movements.ts`, and Summary tab in the React frontend
 - 029-venue-weather-analytics: Added TypeScript 5.x with strict mode + Hono (HTTP), Zod (validation), Cloudflare D1 (SQLite) — no new dependencies
 - 029-venue-weather-analytics: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
-- 001-opponent-context-analytics: Added TypeScript 5.x with strict mode + Hono (HTTP routing), Zod (input validation), Vitest (testing) — no new dependencies
 
 
 <!-- MANUAL ADDITIONS START -->

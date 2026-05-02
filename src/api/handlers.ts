@@ -45,6 +45,8 @@ import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-pl
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
 import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
+import type { PlayerMovementsCache } from '../analytics/player-movements-cache.js';
+import type { ComputePlayerMovementsUseCase } from '../application/use-cases/compute-player-movements.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
   getLastScrapeTimes,
@@ -109,6 +111,10 @@ export interface HandlerDeps {
   createGetContextualProjectionUseCase: (db: D1Database) => GetContextualProjectionUseCase;
   /** Factory to create a per-request GetContextualProfileUseCase from the DB binding */
   createGetContextualProfileUseCase: (db: D1Database) => GetContextualProfileUseCase;
+  /** In-memory cache for pre-computed player movements per round */
+  playerMovementsCache: PlayerMovementsCache;
+  /** Factory to create a per-request ComputePlayerMovementsUseCase from the DB binding */
+  createComputePlayerMovementsUseCase: (db: D1Database) => ComputePlayerMovementsUseCase;
 }
 
 // Environment bindings type
@@ -1254,6 +1260,16 @@ export function triggerTeamListScrape(deps: HandlerDeps) {
       const useCase = deps.createScrapeTeamListsUseCase(c.env.DB);
       const result = await useCase.execute(year, round);
 
+      if (round !== undefined) {
+        try {
+          const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
+          await computeUseCase.execute(year, round);
+        } catch (computeError) {
+          const msg = computeError instanceof Error ? computeError.message : String(computeError);
+          console.error(`Failed to compute player movements after team list scrape: ${msg}`);
+        }
+      }
+
       return c.json({
         success: result.success,
         scrapedCount: result.scrapedCount,
@@ -1534,5 +1550,68 @@ export function getContextualProfile(deps: HandlerDeps) {
     }
 
     return c.json(outcome.result);
+  };
+}
+
+// ============================================
+// Player Movements
+// ============================================
+
+const PlayerMovementsQuerySchema = z.object({
+  season: z.coerce.number().int().optional(),
+  round: z.coerce.number().int().optional(),
+});
+
+/**
+ * GET /api/player-movements - Return pre-computed player movements for a round
+ */
+export function getPlayerMovements(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    try {
+      const parseResult = PlayerMovementsQuerySchema.safeParse(c.req.query());
+      if (!parseResult.success) {
+        return errorResponse(c, 'INVALID_PARAMS', 'Invalid season or round parameter', 400);
+      }
+
+      const years = await deps.matchRepository.getLoadedYears();
+      const year: number | undefined = parseResult.data.season ?? years[0];
+      if (year === undefined) return c.json({ pending: true });
+
+      let round = parseResult.data.round;
+      if (round === undefined) {
+        const cached = deps.playerMovementsCache.getMostRecentCachedRound(year);
+        if (cached !== null) {
+          round = cached;
+        } else {
+          // Cache is cold (fresh deploy / isolate restart). Derive the current round
+          // from match data and compute on-demand to warm the cache.
+          const allMatches = await deps.matchRepository.findByYear(year);
+          const now = new Date();
+          const inProgressRounds = [...new Set(
+            allMatches.filter(m => m.status === 'InProgress').map(m => m.round)
+          )];
+          let derivedRound: number | undefined;
+          if (inProgressRounds.length > 0) {
+            derivedRound = Math.max(...inProgressRounds);
+          } else {
+            const pastRounds = allMatches
+              .filter(m => m.scheduledTime !== null && new Date(m.scheduledTime) <= now)
+              .map(m => m.round);
+            if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
+          }
+          if (derivedRound === undefined) return c.json({ pending: true });
+          round = derivedRound;
+
+          const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
+          await computeUseCase.execute(year, round);
+        }
+      }
+
+      const result = deps.playerMovementsCache.get(year, round);
+      return c.json(result ?? { pending: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'INTERNAL_ERROR', `Failed to get player movements: ${message}`, 500);
+    }
   };
 }

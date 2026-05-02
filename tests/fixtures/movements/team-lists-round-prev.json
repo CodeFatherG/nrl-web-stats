@@ -1,0 +1,210 @@
+[
+  {
+    "matchId": "2025-R9-BRO-NEW",
+    "teamCode": "BRO",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Reece Walsh", "position": "Fullback", "playerId": 101 },
+      { "jerseyNumber": 9, "playerName": "Billy Smith", "position": "Hooker", "playerId": 102 },
+      { "jerseyNumber": 14, "playerName": "Jordan Riki", "position": "Lock", "playerId": 103 },
+      { "jerseyNumber": 18, "playerName": "Kobe Hetherington", "position": "Second Row", "playerId": 104 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-BRO-NEW",
+    "teamCode": "NEW",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Kalyn Ponga", "position": "Fullback", "playerId": 201 },
+      { "jerseyNumber": 6, "playerName": "Jackson Hastings", "position": "Five-Eighth", "playerId": 202 },
+      { "jerseyNumber": 14, "playerName": "Jack Cogger", "position": "Halfback", "playerId": 203 },
+      { "jerseyNumber": 18, "playerName": "Adam Elliott", "position": "Second Row", "playerId": 204 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-SHA-STG",
+    "teamCode": "SHA",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Will Kennedy", "position": "Fullback", "playerId": 301 },
+      { "jerseyNumber": 7, "playerName": "Nicho Hynes", "position": "Halfback", "playerId": 302 },
+      { "jerseyNumber": 9, "playerName": "Tom Mitchell", "position": "Hooker", "playerId": 303 },
+      { "jerseyNumber": 14, "playerName": "Lachlan Ilias", "position": "Halfback", "playerId": 304 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-SHA-STG",
+    "teamCode": "STG",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Matt Dufty", "position": "Fullback", "playerId": 401 },
+      { "jerseyNumber": 9, "playerName": "Andrew McCullough", "position": "Hooker", "playerId": 402 },
+      { "jerseyNumber": 14, "playerName": "Ben Hunt", "position": "Halfback", "playerId": 403 },
+      { "jerseyNumber": 18, "playerName": "Mark Sargent", "position": "Centre", "playerId": 404 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-MEL-CBR",
+    "teamCode": "MEL",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Ryan Papenhuyzen", "position": "Fullback", "playerId": 501 },
+      { "jerseyNumber": 9, "playerName": "Harry Grant", "position": "Hooker", "playerId": 502 },
+      { "jerseyNumber": 14, "playerName": "Bronson Gagai", "position": "Wing", "playerId": 503 },
+      { "jerseyNumber": 18, "playerName": "Tyran Wishart", "position": "Fullback", "playerId": 504 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-MEL-CBR",
+    "teamCode": "CBR",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Xavier Savage", "position": "Fullback", "playerId": 601 },
+      { "jerseyNumber": 7, "playerName": "Jamal Fogarty", "position": "Halfback", "playerId": 602 },
+      { "jerseyNumber": 14, "playerName": "Tom Starling", "position": "Hooker", "playerId": 603 },
+      { "jerseyNumber": 18, "playerName": "Corey Horsburgh", "position": "Prop", "playerId": 604 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-PTH-PAR",
+    "teamCode": "PTH",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Dylan Edwards", "position": "Fullback", "playerId": 701 },
+      { "jerseyNumber": 9, "playerName": "Mitch Kenny", "position": "Hooker", "playerId": 702 },
+      { "jerseyNumber": 14, "playerName": "Scott Sorensen", "position": "Lock", "playerId": 703 },
+      { "jerseyNumber": 18, "playerName": "Izack Tago", "position": "Centre", "playerId": 704 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-PTH-PAR",
+    "teamCode": "PAR",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Clint Gutherson", "position": "Fullback", "playerId": 801 },
+      { "jerseyNumber": 9, "playerName": "Reed Mahoney", "position": "Hooker", "playerId": 802 },
+      { "jerseyNumber": 14, "playerName": "Ryan Matterson", "position": "Second Row", "playerId": 803 },
+      { "jerseyNumber": 18, "playerName": "Jacob Kiraz", "position": "Wing", "playerId": 804 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-SYD-STH",
+    "teamCode": "SYD",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "James Tedesco", "position": "Fullback", "playerId": 901 },
+      { "jerseyNumber": 9, "playerName": "Sam Verrills", "position": "Hooker", "playerId": 902 },
+      { "jerseyNumber": 14, "playerName": "Victor Radley", "position": "Lock", "playerId": 903 },
+      { "jerseyNumber": 18, "playerName": "Drew Hutchison", "position": "Second Row", "playerId": 904 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-SYD-STH",
+    "teamCode": "STH",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Latrell Mitchell", "position": "Fullback", "playerId": 1001 },
+      { "jerseyNumber": 9, "playerName": "Damien Cook", "position": "Hooker", "playerId": 1002 },
+      { "jerseyNumber": 14, "playerName": "Keaon Koloamatangi", "position": "Second Row", "playerId": 1003 },
+      { "jerseyNumber": 18, "playerName": "Cameron Murray", "position": "Lock", "playerId": 1004 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-GCT-NQC",
+    "teamCode": "GCT",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "AJ Brimson", "position": "Fullback", "playerId": 1101 },
+      { "jerseyNumber": 9, "playerName": "Erin Clark", "position": "Hooker", "playerId": 1102 },
+      { "jerseyNumber": 14, "playerName": "David Fifita", "position": "Second Row", "playerId": 1103 },
+      { "jerseyNumber": 18, "playerName": "Jayden Campbell", "position": "Fullback", "playerId": 1104 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-GCT-NQC",
+    "teamCode": "NQC",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Scott Drinkwater", "position": "Fullback", "playerId": 1201 },
+      { "jerseyNumber": 9, "playerName": "Reece Robson", "position": "Hooker", "playerId": 1202 },
+      { "jerseyNumber": 14, "playerName": "Tom Dearden", "position": "Halfback", "playerId": 1203 },
+      { "jerseyNumber": 18, "playerName": "Heilum Luki", "position": "Wing", "playerId": 1204 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-MNL-NZL",
+    "teamCode": "MNL",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Tom Trbojevic", "position": "Fullback", "playerId": 1301 },
+      { "jerseyNumber": 9, "playerName": "Lachlan Croker", "position": "Hooker", "playerId": 1302 },
+      { "jerseyNumber": 14, "playerName": "Tolu Koula", "position": "Wing", "playerId": 1303 },
+      { "jerseyNumber": 18, "playerName": "Haumole Olakau'atu", "position": "Second Row", "playerId": 1304 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-MNL-NZL",
+    "teamCode": "NZL",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Charnze Nicoll-Klokstad", "position": "Fullback", "playerId": 1401 },
+      { "jerseyNumber": 9, "playerName": "Wayde Egan", "position": "Hooker", "playerId": 1402 },
+      { "jerseyNumber": 14, "playerName": "Shaun Johnson", "position": "Halfback", "playerId": 1403 },
+      { "jerseyNumber": 18, "playerName": "Tohu Harris", "position": "Second Row", "playerId": 1404 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-BUL-WST",
+    "teamCode": "BUL",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Bronson Xerri", "position": "Centre", "playerId": 1501 },
+      { "jerseyNumber": 9, "playerName": "Jeremy Marshall-King", "position": "Hooker", "playerId": 1502 },
+      { "jerseyNumber": 14, "playerName": "Matt Burton", "position": "Halfback", "playerId": 1503 },
+      { "jerseyNumber": 18, "playerName": "Paul Vaughan", "position": "Prop", "playerId": 1504 }
+    ]
+  },
+  {
+    "matchId": "2025-R9-BUL-WST",
+    "teamCode": "WST",
+    "year": 2025,
+    "round": 9,
+    "scrapedAt": "2025-04-14T06:00:00.000Z",
+    "members": [
+      { "jerseyNumber": 1, "playerName": "Jahream Bula", "position": "Fullback", "playerId": 1601 },
+      { "jerseyNumber": 9, "playerName": "Jacob Liddle", "position": "Hooker", "playerId": 1602 },
+      { "jerseyNumber": 14, "playerName": "Aidan Sezer", "position": "Halfback", "playerId": 1603 },
+      { "jerseyNumber": 18, "playerName": "Stefano Utoikamanu", "position": "Prop", "playerId": 1604 }
+    ]
+  }
+]

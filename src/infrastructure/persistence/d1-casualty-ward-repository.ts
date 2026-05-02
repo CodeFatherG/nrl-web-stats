@@ -160,6 +160,19 @@ export class D1CasualtyWardRepository implements CasualtyWardRepository {
     return result ? rowToEntry(result as Record<string, unknown>) : null;
   }
 
+  async findRecentlyClosed(sinceDate: string): Promise<CasualtyWardEntry[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT * FROM casualty_ward
+         WHERE end_date IS NOT NULL AND end_date >= ?
+         ORDER BY end_date DESC`
+      )
+      .bind(sinceDate)
+      .all();
+
+    return (results as Record<string, unknown>[]).map(rowToEntry);
+  }
+
   async reopen(id: number): Promise<void> {
     await this.db
       .prepare(`UPDATE casualty_ward SET end_date = NULL, updated_at = datetime('now') WHERE id = ?`)

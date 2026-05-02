@@ -68,6 +68,9 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.post('/scrape/team-lists', handlers.triggerTeamListScrape(deps));
   api.post('/scrape/casualty-ward', handlers.triggerCasualtyWardScrape(deps));
 
+  // Player Movements
+  api.get('/player-movements', handlers.getPlayerMovements(deps));
+
   // Casualty Ward
   api.get('/casualty-ward', handlers.getCasualtyWard(deps));
   api.get('/casualty-ward/player/:playerId', handlers.getPlayerInjuryHistory(deps));

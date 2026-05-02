@@ -39,4 +39,7 @@ export interface CasualtyWardRepository {
 
   /** Re-open a closed entry by clearing its end date. */
   reopen(id: number): Promise<void>;
+
+  /** Returns all closed entries (endDate IS NOT NULL) with endDate >= sinceDate, ordered by endDate DESC. */
+  findRecentlyClosed(sinceDate: string): Promise<CasualtyWardEntry[]>;
 }

@@ -318,3 +318,30 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 - **Form sparkline**: Inline SVG trend line — green (trending up), red (trending down), grey (stable)
 - **Results**: Green = Win, Red = Loss, Grey = Draw
 - **Streak labels**: Green background = Soft Draw (favourable stretch), Red background = Rough Patch (difficult stretch)
+
+---
+
+## Summary Tab (`/summary`)
+
+The Summary tab provides a weekly player movement digest for Supercoach decision-making. It shows changes between the previous round's named 17 and the current round's named 17 across five collapsible sections.
+
+**Navigation**: Seventh tab in the tab bar (SummarizeIcon). URL: `/summary`.
+
+**States**:
+- **Loading**: `CircularProgress` spinner shown while fetching.
+- **Pending**: `Alert severity="info"` — "Team lists not yet complete for this round." Shown when not all teams have submitted team lists.
+- **No Previous Round**: `Alert severity="info"` — "No previous round data available for comparison." Shown for Round 1.
+- **Full result**: Five `Accordion` sections with count badges, populated tables.
+
+**Layout**: Five collapsible sections using MUI `Accordion`:
+1. **Dropped** — Players absent from this round's squad. Columns: Player (link), Team, Last #, Last Position, Cause (Chip: red = Injury, grey = Form).
+2. **Benched** — Players demoted from starters (1–17) to interchange (18+). Columns: Player (link), Team, Jersey, Position, Consecutive Rounds.
+3. **Promoted** — Players moved from bench or absent to starters. Columns: Player (link), Team, Jersey, Position, Returning from Injury.
+4. **Returning from Injury** — Players with a recently-closed casualty ward record back in the 17. Columns: Player (link), Team, Pre-Injury #, Pre-Injury Position, Current #, Current Position (with "Position Changed" warning chip when applicable).
+5. **Position Changed** — Players in the 17 for both rounds with a different listed position. Columns: Player (link), Team, Jersey, Old Position, New Position.
+
+**Expand/collapse behaviour**: Sections default to expanded on desktop (`md` breakpoint and above) and collapsed on mobile.
+
+**Player links**: Each player name is a `Link component="button"` that triggers `onPlayerClick(String(row.playerId))`, navigating to the PlayerDetailView.
+
+**Layout design**: The `Box` container is intentionally bare — no fixed columns or grid — so future sections (price changes, projections, breakeven leaderboards) can be appended without redesign.

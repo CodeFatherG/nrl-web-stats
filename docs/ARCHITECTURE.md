@@ -73,6 +73,16 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 - Batch upserts in 50-statement chunks (D1 batch limit)
 - Indexes on team_code, season, (team_code, season), (player_id, season), (season, round)
 
+**Player Movements Cache** (`src/analytics/player-movements-cache.ts`):
+- **Type**: In-memory Map singleton, instantiated once in `src/worker.ts` and shared across requests within the same isolate
+- **Keys**: `"year:round"` string (e.g. `"2025:10"`)
+- **Values**: `PlayerMovementsResult` — a fully-computed record including all five movement arrays (dropped, benched, promoted, returning from injury, position changed)
+- **Invalidation trigger**: `ComputePlayerMovementsUseCase.execute()` calls `cache.invalidate(year, round)` at the start of each run, ensuring stale data is not served during recomputation
+- **Computation trigger**: After every team-list scrape (`POST /api/team-list`) and in the scheduled cron handler, `ComputePlayerMovementsUseCase.execute(year, round)` is called. The use case computes results only when all playing teams for the round have submitted their lists — the expected team set is derived from match fixture data (`matchRepo.findByYearAndRound`), not a hardcoded constant
+- **Cold-start behaviour**: On a fresh isolate start, the cache is empty. The `GET /api/player-movements` handler returns `{ pending: true }` until the next computation completes (triggered by the next team-list scrape or cron cycle — at most ~1 hour delay)
+- **Round 1 edge case**: When `round === 1`, the use case stores a result with `noPreviousRound: true` and all movement arrays empty, since there is no prior round to compare against
+- **Relationship to other caches**: Follows the same in-memory singleton pattern as `AnalyticsCache` and `ResultCacheStore`, but has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised
+
 ## Scheduled Tasks
 
 | Cron | Timing (UTC) | Timing (AEST) | Action |

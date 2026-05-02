@@ -16,8 +16,9 @@ import { PlayersSummaryView } from './views/PlayersSummaryView';
 import { PlayerDetailView } from './views/PlayerDetailView';
 import { CasualtyWardView } from './views/CasualtyWardView';
 import { CompareView } from './views/CompareView';
+import { SummaryView } from './views/SummaryView';
 import { useRouter } from './hooks/useRouter';
-import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, buildCompareUrl, parseUrl, getValidTeamCodes } from './utils/routes';
+import { buildTeamUrl, buildRoundUrl, buildByeUrl, buildMatchUrl, buildHomeUrl, buildPlayersUrl, buildPlayerUrl, buildCasualtyWardUrl, buildCompareUrl, buildSummaryUrl, parseUrl, getValidTeamCodes } from './utils/routes';
 import { getHealth, scrapeYear, getTeams, getTeamSchedule, getTeamStreaks, getRound, getAllTeamsRanking, getSeasonSummary, getTeamForm, getMatchOutlook, getSeasonPlayers } from './services/api';
 import type { FormTrajectoryResponse, MatchOutlookResponse } from './services/api';
 import type { Team, TeamScheduleResponse, RoundResponse, StrengthThresholds, FilterState, ActiveTab, AllTeamsRankingResponse, SeasonSummaryResponse, RoundViewMode, Streak, PlayerSeasonSummary } from './types';
@@ -46,6 +47,7 @@ function App() {
     if (route.type === 'players' || route.type === 'player') return 'player';
     if (route.type === 'casualtyWard') return 'casualtyWard';
     if (route.type === 'compare') return 'compare';
+    if (route.type === 'summary') return 'summary';
     return 'round';
   });
 
@@ -155,6 +157,10 @@ function App() {
     } else if (route.type === 'compare') {
       setActiveTab('compare');
       setComparisonPlayerIds(route.playerIds);
+      setSelectedMatchId(null);
+      setSelectedPlayerId(null);
+    } else if (route.type === 'summary') {
+      setActiveTab('summary');
       setSelectedMatchId(null);
       setSelectedPlayerId(null);
     }
@@ -378,6 +384,8 @@ function App() {
         navigate(buildCasualtyWardUrl());
       } else if (tab === 'compare') {
         navigate(buildCompareUrl(comparisonPlayerIds));
+      } else if (tab === 'summary') {
+        navigate(buildSummaryUrl());
       }
     },
     [navigate, selectedTeamCode, roundViewMode, selectedRound, teams, comparisonPlayerIds]
@@ -626,6 +634,10 @@ function App() {
                   navigate(url);
                 }}
               />
+            )}
+
+            {activeTab === 'summary' && (
+              <SummaryView year={currentYear} onPlayerClick={handlePlayerClick} />
             )}
           </>
         )}

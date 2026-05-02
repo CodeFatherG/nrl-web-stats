@@ -34,6 +34,8 @@ import { GetPlayerProjectionUseCase } from './application/use-cases/get-player-p
 import { GetTeamProjectionRankingsUseCase } from './application/use-cases/get-team-projection-rankings.js';
 import { GetContextualProjectionUseCase } from './application/use-cases/get-contextual-projection.js';
 import { GetContextualProfileUseCase } from './application/use-cases/get-contextual-profile.js';
+import { playerMovementsCache } from './analytics/player-movements-cache.js';
+import { ComputePlayerMovementsUseCase } from './application/use-cases/compute-player-movements.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
@@ -140,6 +142,14 @@ function initializeDeps(db?: D1Database): void {
       const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
       return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
     },
+    playerMovementsCache,
+    createComputePlayerMovementsUseCase: (reqDb: D1Database) =>
+      new ComputePlayerMovementsUseCase(
+        new D1TeamListRepository(reqDb),
+        matchRepository,
+        new D1CasualtyWardRepository(reqDb),
+        playerMovementsCache
+      ),
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -557,6 +567,21 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
         skipped: tlResult.skippedCount,
         warnings: tlResult.warnings.length,
       });
+
+      try {
+        const computeUseCase = new ComputePlayerMovementsUseCase(
+          new D1TeamListRepository(env.DB),
+          matchRepository,
+          new D1CasualtyWardRepository(env.DB),
+          playerMovementsCache
+        );
+        await computeUseCase.execute(currentYear, nextRound);
+        logger.info('[CRON] Player movements computed', { year: currentYear, round: nextRound });
+      } catch (computeError) {
+        logger.error('[CRON] Player movements computation failed (will retry next cycle)', {
+          error: computeError instanceof Error ? computeError.message : 'Unknown error',
+        });
+      }
     }
 
     // Window-based updates: 24 hours and 90 minutes before kickoff

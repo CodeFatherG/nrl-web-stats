@@ -1292,3 +1292,124 @@ List all canonical venue IDs with their display names and cities.
 The `id` values in this response are the valid values for the `venue` query parameter on `GET /api/supercoach/:year/player/:playerId/contextual-projection`.
 
 **Errors**: None (returns empty array if no venues are seeded).
+
+
+---
+
+## Player Movements
+
+### GET /api/player-movements
+
+Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is computed and cached automatically when all playing teams have submitted their team lists for a round.
+
+**Query Parameters**:
+- `season` (optional, integer ≥ 1998) — Season year. Defaults to the most recently loaded year.
+- `round` (optional, integer 1–27) — Round number. Defaults to the most recently cached round for the season.
+
+**Response — Pending** (200): Returned when team lists for the current round are not yet complete.
+```json
+{ "pending": true }
+```
+
+**Response — No Previous Round** (200): Returned for Round 1 of a season (no prior round to compare against).
+```json
+{
+  "pending": false,
+  "noPreviousRound": true,
+  "season": 2025,
+  "round": 1,
+  "dropped": [],
+  "benched": [],
+  "promoted": [],
+  "returningFromInjury": [],
+  "positionChanged": []
+}
+```
+
+**Response — Full Result** (200):
+```json
+{
+  "pending": false,
+  "season": 2025,
+  "round": 10,
+  "dropped": [
+    {
+      "playerId": 102,
+      "playerName": "Billy Smith",
+      "teamCode": "BRO",
+      "matchId": "2025-R10-BRO-CBR",
+      "lastJersey": 9,
+      "lastPosition": "Hooker",
+      "cause": "Injury"
+    }
+  ],
+  "benched": [
+    {
+      "playerId": 103,
+      "playerName": "Jordan Riki",
+      "teamCode": "BRO",
+      "matchId": "2025-R10-BRO-CBR",
+      "currentJersey": 18,
+      "position": "Lock",
+      "consecutiveRoundsBenched": 1
+    }
+  ],
+  "promoted": [
+    {
+      "playerId": 104,
+      "playerName": "Kobe Hetherington",
+      "teamCode": "BRO",
+      "matchId": "2025-R10-BRO-CBR",
+      "currentJersey": 13,
+      "position": "Second Row",
+      "returningFromInjury": false
+    }
+  ],
+  "returningFromInjury": [
+    {
+      "playerId": 1205,
+      "playerName": "Valentine Holmes",
+      "teamCode": "NQC",
+      "matchId": "2025-R10-NEW-NQC",
+      "lastJersey": 3,
+      "lastPosition": "Wing",
+      "currentJersey": 3,
+      "currentPosition": "Wing",
+      "positionChanged": false
+    }
+  ],
+  "positionChanged": [
+    {
+      "playerId": 203,
+      "playerName": "Jack Cogger",
+      "teamCode": "NEW",
+      "matchId": "2025-R10-NEW-NQC",
+      "oldPosition": "Halfback",
+      "newPosition": "Five-Eighth",
+      "currentJersey": 14
+    }
+  ]
+}
+```
+
+**Field Descriptions**:
+- `dropped[].cause` — `"Injury"` if an open casualty ward entry exists for the player; `"Form"` otherwise.
+- `benched[].consecutiveRoundsBenched` — Number of consecutive rounds (≥ 1) the player has been at jersey 18+.
+- `promoted[].returningFromInjury` — `true` if a recently-closed casualty ward entry exists for the player.
+- `returningFromInjury[].positionChanged` — `true` if the pre-injury position differs from the current position (case-insensitive).
+- `positionChanged` — Only includes players in jerseys 1–17 in both rounds.
+
+**Classification Precedence**:
+- A player can appear in both `promoted` and `returningFromInjury` simultaneously.
+- `dropped`, `benched`, and `promoted` are mutually exclusive.
+- `positionChanged` and `returningFromInjury` can co-occur.
+
+**Computation Trigger**: The result is computed automatically after `POST /api/scrape/team-lists` when all teams playing in the round have submitted their lists. The number of expected teams is derived from the match schedule for that round (not a hardcoded constant), so bye weeks are handled automatically.
+
+**Cold Start**: In-memory cache — returns `{ pending: true }` after a worker cold start until the next scheduled cron or manual scrape trigger.
+
+**Errors**:
+- 400 `INVALID_PARAMS`: `season` or `round` is not a valid integer.
+- 500 `INTERNAL_ERROR`: Unexpected server error.
+
+See `specs/030-player-movements-summary/contracts/player-movements.md` for the full schema.

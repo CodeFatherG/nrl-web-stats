@@ -11,6 +11,7 @@ import type {
   MatchDetailResponse,
   PlayerSeasonResponse,
   PlayerDetailResponse,
+  PlayerMovementsResponse,
   ApiError,
 } from '../types';
 
@@ -497,4 +498,8 @@ export async function getContextualProjection(
   return fetchApi<ContextualProjectionResult>(
     `/supercoach/${year}/player/${encodeURIComponent(playerId)}/contextual-projection?opponent=${encodeURIComponent(opponent)}`
   );
+}
+
+export async function getPlayerMovements(season: number): Promise<PlayerMovementsResponse> {
+  return fetchApi<PlayerMovementsResponse>(`/player-movements?season=${season}`);
 }
