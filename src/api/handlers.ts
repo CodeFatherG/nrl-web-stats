@@ -1600,10 +1600,20 @@ export function getPlayerMovements(deps: HandlerDeps) {
             if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
           }
           if (derivedRound === undefined) return c.json({ pending: true });
-          round = derivedRound;
-
+          
           const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
-          await computeUseCase.execute(year, round);
+
+          // Try the upcoming round first — team lists drop before kickoff
+          const nextRound = derivedRound + 1;
+          await computeUseCase.execute(year, nextRound);
+  
+          if (deps.playerMovementsCache.get(year, nextRound)) {
+            round = nextRound;
+          } else {
+            // Team lists not yet complete for next round — fall back to latest played round
+            await computeUseCase.execute(year, derivedRound);
+            round = derivedRound;
+          }
         }
       }
 

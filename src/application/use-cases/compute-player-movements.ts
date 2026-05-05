@@ -51,8 +51,13 @@ export class ComputePlayerMovementsUseCase {
 
     const currentTeamLists = await this.teamListRepo.findByYearAndRound(year, round);
     const presentTeams = new Set(currentTeamLists.map(tl => tl.teamCode));
-    for (const team of expectedTeams) {
-      if (!presentTeams.has(team)) return;
+    const missingTeams = [...expectedTeams].filter(t => !presentTeams.has(t));
+    if (missingTeams.length > 0) {
+    console.warn(
+        `[PlayerMovements] R${round} ${year}: missing team lists for ${missingTeams.join(', ')}. ` +
+        `Expected ${expectedTeams.size} teams, have ${presentTeams.size}: [${[...presentTeams].join(', ')}]`
+    );
+    return;
     }
 
     if (round === 1) {
