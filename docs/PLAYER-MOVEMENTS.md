@@ -95,13 +95,13 @@ For each injured player from Phase 1:
 
 #### Cascade propagation
 
-For each vacated position in the queue, find all **named** (at a starting position) current players at that starting position and apply these rules to each:
+All vacancies at the same canonical position are grouped together and processed as a batch. Within each batch:
 
-1. **Skip if already in the covering map** — prevents loops and double-counting.
-2. **Skip if returning from injury** — a player who missed last round due to injury takes Priority 1 in Phase 3; their return is the primary story.
+1. **Collect candidate movers** — current named starting-position players at the vacated position who are not incumbents and not returning from injury.
+2. **Skip if returning from injury** — a player who missed last round due to injury takes Priority 1 in Phase 3; their return is the primary story, not cascade coverage.
 3. **Skip if an incumbent** — if the player held this exact position last round too, they haven't moved to cover anything. They are continuing their normal role and are not part of the cascade.
-4. **All others are movers** — they changed position to fill the vacated slot. Add them to the covering map, referencing the **original** injured player (not any intermediate mover).
-5. **Continue the cascade** — if the mover came from a different starting position, that position is now also vacant. Add it to the queue. If the mover came from a non-starting position (e.g. Interchange) or is new to the team, the cascade stops here.
+4. **Pair 1-to-1 by player ID** — vacancies and candidate movers are each sorted by player ID, then zipped: the lowest-ID mover covers the lowest-ID vacancy, the next-lowest covers the next-lowest, etc. This ensures no mover is attributed to more than one injury. Surplus movers (more movers than vacancies) are not added to the covering map and fall through to Phase 3.
+5. **Continue the cascade** — for each paired mover, if they came from a different starting position, that position is now vacant. Add it to the batch queue, referencing the **original** injured player. If the mover came from a non-starting position (e.g. Interchange) or is new to the team, the cascade stops here.
 
 **Why movers only, not incumbents:**
 
@@ -109,7 +109,7 @@ For each vacated position in the queue, find all **named** (at a starting positi
 
 **Multi-player positions (Prop, Wing, Centre, Second Row):**
 
-Each of these positions can have two named players (e.g. two props). The cascade checks **all** current named players at the vacated position slot — any one of them may be a mover. An incumbent prop and a newly-moved prop at the same position are handled independently.
+Each of these positions can have two named players (e.g. two props). The cascade collects **all** candidate movers at the vacated position and pairs them to vacancies 1-to-1 by sorted player ID. An incumbent and a newly-moved player at the same position are handled independently. When two players at the same position are both injured, their vacancies are batched together so each replacement is paired with exactly one injury — no replacement is credited with covering two injuries.
 
 **Example — Simple cover (new player):**
 > Billy Smith (#9 Hooker, BRO) is injured. Cory Paix is now at Hooker and was not in the previous team list. Paix is a mover (new to the team → `prevPosition = null`). → **Covering Injury** for Billy Smith. No further cascade (Paix had no prior position to vacate).
@@ -145,7 +145,7 @@ Players whose current position is not named (not a starting position and not Int
   - Is now at a non-named position (e.g. Reserve)
 - **Silently ignored** — otherwise (was already non-named or was not at a starting position last round)
 
-"Replaced by" is recorded if the current holder of that position slot was not previously named (non-named position or absent last round).
+"Replaced by" is recorded if the current holder of that position slot was not previously named (non-named position or absent last round). For positions with two named players (Wing, Prop, Centre, Second Row), players at the position are sorted by player ID; the benched player's rank among previous holders determines which current holder is their replacer (lowest-ID previous holder → lowest-ID current holder, etc.).
 
 **Example — Benched:**
 > Jordan Riki was Lock for BRO in round 9 (named starting position). He is now "Reserve" in round 10. → **Benched**, prevPosition=Lock, consecutiveRoundsBenched=1.
@@ -225,7 +225,7 @@ Reaches here when a player is named (position is a starting position or Intercha
 - A player who was at a **non-starting position** last round and is now at a starting position (e.g. interchange → starter)
 - A player who was at a **non-starting position** last round and remains at a non-starting position (e.g. new interchange player)
 
-"Replacing" is recorded if the previous named holder of this starting position no longer occupies that slot — they are absent (dropped/injured), demoted to a non-named position (benched), or have moved to a different position (still named but elsewhere). Players promoted to non-starting positions (Interchange, Reserve) never have a `replacingPlayerId` set. Only the most recent named holder of each position slot is considered — players who were Reserve in the previous round do not count as "the previous holder."
+"Replacing" is recorded if the previous named holder of this starting position no longer occupies that slot — they are absent (dropped/injured), demoted to a non-named position (benched), or have moved to a different position (still named but elsewhere). Players promoted to non-starting positions (Interchange, Reserve) never have a `replacingPlayerId` set. Only the most recent named holder of each position slot is considered — players who were Reserve in the previous round do not count as "the previous holder." For positions with two named players (Wing, Prop, Centre, Second Row), promoted players are sorted by player ID among all current holders at that position; each promoted player's rank determines which previous holder they are paired with (lowest-ID current → lowest-ID previous, etc.).
 
 **Example — Promoted from reserve, replacing:**
 > Jordan Riki (Lock) is now "Reserve". Kobe Hetherington was "Reserve" last round and is now Lock. → **Promoted**, replacingPlayerId = Jordan Riki.
@@ -278,6 +278,8 @@ Present, position named (starting or Interchange):
 
 **Multiple injuries in the same team:** Each injured player seeds the cascade independently. All cascade branches reference the **original** injured player that seeded them, not any intermediate mover in the chain.
 
-**Two players at the same position (Prop, Wing, Centre, Second Row):** The cascade checks all named holders of the vacated position. Incumbents (unchanged from last round) are skipped. Any mover (came from a different position) is added to the covering map and may trigger a further cascade step.
+**Two players at the same position (Prop, Wing, Centre, Second Row):** The cascade collects all candidate movers at the vacated position. Incumbents (unchanged from last round) are skipped. Movers are paired 1-to-1 with vacancies by sorted player ID. An incumbent and a newly-moved player at the same position are handled independently, and a mover may trigger a further cascade step for the position they vacated.
+
+**Both players at the same position injured/dropped/benched in the same week:** Vacancies and movers/arrivals at that position are sorted by player ID and paired positionally. The data source does not distinguish left from right (e.g. left wing vs right wing), so the pairing is arbitrary but deterministic — each vacancy is linked to at most one mover, and no replacement is credited with covering two injuries. The same slot-index pairing applies to `replacingPlayerId` (Promoted) and `replacedByPlayerId` (Benched) for multi-player positions.
 
 **Position label variants:** NRL data uses "Winger" and "2nd Row" interchangeably with "Wing" and "Second Row". All position comparisons and map lookups use the normalised canonical form. This prevents false position-change reports and ensures cascade lookups work across rounds where the label may vary.

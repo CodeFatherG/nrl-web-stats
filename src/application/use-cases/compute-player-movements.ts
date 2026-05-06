@@ -15,7 +15,7 @@ import { isStartingPosition, isNamedPosition, normalizePosition } from '../../do
 
 type MemberSnapshot = { jerseyNumber: number; playerName: string; position: string };
 type TeamMemberMap = Map<number, MemberSnapshot>; // playerId → snapshot
-type PositionMap = Map<string, { playerId: number } & MemberSnapshot>; // normalizePosition(position) → snapshot
+type PositionMap = Map<string, Array<{ playerId: number } & MemberSnapshot>>; // normalizePosition(position) → [snapshot, ...]
 
 type CoveringInfo = {
   coveringPlayerId: number;
@@ -179,17 +179,31 @@ export class ComputePlayerMovementsUseCase {
       }
 
       const coveringMap = new Map<number, CoveringInfo>();
-      const queue: Array<{ vacatedPosition: string; originalInjured: InjuredRecord }> = [];
 
+      // Group initial vacancies by canonical position so multi-slot positions are paired 1-to-1.
+      // This prevents both replacement players being attributed to the same injury when two
+      // players at the same position (e.g. both Wings) are injured in the same round.
+      const pendingVacancies = new Map<string, InjuredRecord[]>();
       for (const injuredRecord of teamInjured) {
         if (isStartingPosition(injuredRecord.lastPosition)) {
-          queue.push({ vacatedPosition: normalizePosition(injuredRecord.lastPosition), originalInjured: injuredRecord });
+          const pos = normalizePosition(injuredRecord.lastPosition);
+          const list = pendingVacancies.get(pos);
+          if (list) list.push(injuredRecord);
+          else pendingVacancies.set(pos, [injuredRecord]);
         }
       }
 
-      while (queue.length > 0) {
-        const { vacatedPosition, originalInjured } = queue.shift()!;
+      const toProcess: string[] = [...pendingVacancies.keys()];
 
+      while (toProcess.length > 0) {
+        const vacatedPosition = toProcess.shift()!;
+        const vacancies = pendingVacancies.get(vacatedPosition) ?? [];
+        pendingVacancies.delete(vacatedPosition); // consume to prevent stale re-pairing
+
+        if (vacancies.length === 0) continue;
+
+        // Collect candidate movers: not already in coveringMap, not an incumbent, not returning.
+        const candidates: Array<{ playerId: number } & MemberSnapshot> = [];
         for (const currPlayer of currByPos.get(vacatedPosition) ?? []) {
           if (coveringMap.has(currPlayer.playerId)) continue;
 
@@ -205,6 +219,20 @@ export class ComputePlayerMovementsUseCase {
           // to cover — they're just continuing in the same role. Only movers extend the cascade.
           if (prevPos === vacatedPosition) continue;
 
+          candidates.push(currPlayer);
+        }
+
+        // Sort both by playerId for deterministic 1-to-1 pairing.
+        // Surplus candidates (more movers than vacancies) fall through to Phase 3.
+        const sortedVacancies = vacancies.slice().sort((a, b) => a.playerId - b.playerId);
+        const sortedCandidates = candidates.slice().sort((a, b) => a.playerId - b.playerId);
+
+        const pairCount = Math.min(sortedVacancies.length, sortedCandidates.length);
+        for (let i = 0; i < pairCount; i++) {
+          const originalInjured = sortedVacancies[i];
+          const currPlayer = sortedCandidates[i];
+          const prevMemberData = prevMembers.get(currPlayer.playerId);
+          const prevPos = prevMemberData ? normalizePosition(prevMemberData.position) : null;
           const wasNamed = prevMemberData !== undefined && isNamedPosition(prevMemberData.position);
 
           coveringMap.set(currPlayer.playerId, {
@@ -216,9 +244,13 @@ export class ComputePlayerMovementsUseCase {
             prevPosition: wasNamed ? prevMemberData!.position : null,
           });
 
-          // Cascade: this player vacated their previous starting position — find who now holds it.
+          // Cascade: this mover vacated their previous starting position — add it as a new vacancy.
           if (prevPos !== null && isStartingPosition(prevMemberData!.position)) {
-            queue.push({ vacatedPosition: prevPos, originalInjured });
+            const cascadePos = prevPos;
+            const existing = pendingVacancies.get(cascadePos);
+            if (existing) existing.push(originalInjured);
+            else pendingVacancies.set(cascadePos, [originalInjured]);
+            if (!toProcess.includes(cascadePos)) toProcess.push(cascadePos);
           }
         }
       }
@@ -242,12 +274,22 @@ export class ComputePlayerMovementsUseCase {
       // Keys are canonical (normalizePosition) so "Winger"/"Wing" and "2nd Row"/"Second Row" unify.
       const currByPosition: PositionMap = new Map();
       for (const [pid, m] of currentMembers) {
-        if (isStartingPosition(m.position)) currByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
+        if (isStartingPosition(m.position)) {
+          const pos = normalizePosition(m.position);
+          const arr = currByPosition.get(pos);
+          if (arr) arr.push({ playerId: pid, ...m });
+          else currByPosition.set(pos, [{ playerId: pid, ...m }]);
+        }
       }
 
       const prevByPosition: PositionMap = new Map();
       for (const [pid, m] of prevMembers) {
-        if (isStartingPosition(m.position)) prevByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
+        if (isStartingPosition(m.position)) {
+          const pos = normalizePosition(m.position);
+          const arr = prevByPosition.get(pos);
+          if (arr) arr.push({ playerId: pid, ...m });
+          else prevByPosition.set(pos, [{ playerId: pid, ...m }]);
+        }
       }
 
       for (const [playerId, currMember] of currentMembers) {
@@ -263,9 +305,16 @@ export class ComputePlayerMovementsUseCase {
         if (!isNamed) {
           if (prevMember && wasStarting && wasNamed) {
             // Was at a starting position, now reserve → benched.
-            // "Replaced by" only if the new holder of this position was not previously named.
-            const currAtPos = currByPosition.get(normalizePosition(prevMember.position));
-            const replacer = currAtPos !== undefined && currAtPos.playerId !== playerId ? currAtPos : undefined;
+            // "Replaced by": find this player's slot index among previous holders (sorted by playerId),
+            // then pick the current holder at the same index. Handles multi-player positions correctly.
+            const posKey = normalizePosition(prevMember.position);
+            const prevSlotPlayers = (prevByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
+            const currSlotPlayers = (currByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
+            const slotIndex = prevSlotPlayers.findIndex(p => p.playerId === playerId);
+            const replacerCandidate = slotIndex >= 0 ? currSlotPlayers[slotIndex] : undefined;
+            const replacer = replacerCandidate !== undefined && replacerCandidate.playerId !== playerId
+              ? replacerCandidate
+              : undefined;
             benched.push({
               playerId,
               playerName: currMember.playerName,
@@ -353,12 +402,18 @@ export class ComputePlayerMovementsUseCase {
         // Priority 4: new to the named 17 or moving into a starting position from a non-starting role.
         // "Replacing" applies when the previous holder of this starting position has vacated the slot:
         // they are absent, demoted to reserve, or moved to a different position (still named but elsewhere).
-        const prevAtPos = isStarting ? prevByPosition.get(normalizePosition(currMember.position)) : undefined;
-        const prevHolder = prevAtPos !== undefined ? currentMembers.get(prevAtPos.playerId) : undefined;
-        const prevHolderLeft = prevAtPos !== undefined &&
-          (prevHolder === undefined ||                                                              // absent (dropped/injured)
-           !isNamedPosition(prevHolder.position) ||                                                // demoted to reserve (benched)
-           normalizePosition(prevHolder.position) !== normalizePosition(prevAtPos.position));      // moved to a different position
+        // For multi-player positions (Wing, Prop, Centre, Second Row) find the slot by sorting all
+        // current holders by playerId and pairing to the same-indexed previous holder.
+        const posKey2 = normalizePosition(currMember.position);
+        const currSlotArr = isStarting ? (currByPosition.get(posKey2) ?? []).slice().sort((a, b) => a.playerId - b.playerId) : [];
+        const prevSlotArr = isStarting ? (prevByPosition.get(posKey2) ?? []).slice().sort((a, b) => a.playerId - b.playerId) : [];
+        const mySlotIndex = currSlotArr.findIndex(p => p.playerId === playerId);
+        const prevAtSlot = mySlotIndex >= 0 ? prevSlotArr[mySlotIndex] : undefined;
+        const prevHolderInCurr = prevAtSlot !== undefined ? currentMembers.get(prevAtSlot.playerId) : undefined;
+        const prevHolderLeft = prevAtSlot !== undefined &&
+          (prevHolderInCurr === undefined ||                                                                 // absent (dropped/injured)
+           !isNamedPosition(prevHolderInCurr.position) ||                                                   // demoted to reserve (benched)
+           normalizePosition(prevHolderInCurr.position) !== normalizePosition(prevAtSlot.position));        // moved to a different position
         promoted.push({
           playerId,
           playerName: currMember.playerName,
@@ -366,8 +421,8 @@ export class ComputePlayerMovementsUseCase {
           matchId,
           currentJersey: currMember.jerseyNumber,
           position: currMember.position,
-          replacingPlayerId: prevHolderLeft ? prevAtPos!.playerId : null,
-          replacingPlayerName: prevHolderLeft ? prevAtPos!.playerName : null,
+          replacingPlayerId: prevHolderLeft ? prevAtSlot!.playerId : null,
+          replacingPlayerName: prevHolderLeft ? prevAtSlot!.playerName : null,
         });
       }
     }

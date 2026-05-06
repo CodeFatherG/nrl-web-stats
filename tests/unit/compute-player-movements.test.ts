@@ -299,3 +299,135 @@ describe('ComputePlayerMovementsUseCase', () => {
     expect(result!.benched).toHaveLength(0);
   });
 });
+
+// ─── Multi-slot position pairing tests ───────────────────────────────────────
+// These use programmatic fixtures to isolate the two-players-same-position edge cases.
+
+function makeMinimalMatch(id: string, round: number, home: string, away: string): Match {
+  return {
+    id, year: 2025, round, homeTeamCode: home, awayTeamCode: away,
+    homeStrengthRating: null, awayStrengthRating: null,
+    homeScore: null, awayScore: null, status: 'Scheduled' as const,
+    scheduledTime: '2025-04-21T10:00:00.000Z', stadium: null, weather: null,
+  };
+}
+
+describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => {
+  // OPP team: one unchanged fullback — present in both rounds to satisfy expected-teams check
+  const oppPrev = { matchId: '2025-R10-TST-OPP', teamCode: 'OPP', year: 2025, round: 9,  scrapedAt: '', members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }] };
+  const oppCurr = { matchId: '2025-R10-TST-OPP', teamCode: 'OPP', year: 2025, round: 10, scrapedAt: '', members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }] };
+  const testMatches9  = [makeMinimalMatch('2025-R10-TST-OPP', 9,  'TST', 'OPP')];
+  const testMatches10 = [makeMinimalMatch('2025-R10-TST-OPP', 10, 'TST', 'OPP')];
+
+  // Test A: both wings injured — each replacement covers exactly one injury
+  it('pairs each replacement wing 1-to-1 with its own injury (not both to the first)', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [
+        { playerId: 2001, jerseyNumber: 2, playerName: 'Wing A', position: 'Wing' },
+        { playerId: 2002, jerseyNumber: 5, playerName: 'Wing B', position: 'Wing' },
+        { playerId: 2003, jerseyNumber: 19, playerName: 'Bench W1', position: 'Reserve' },
+        { playerId: 2004, jerseyNumber: 20, playerName: 'Bench W2', position: 'Reserve' },
+      ],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [
+        { playerId: 2003, jerseyNumber: 2,  playerName: 'Bench W1', position: 'Wing' },
+        { playerId: 2004, jerseyNumber: 5,  playerName: 'Bench W2', position: 'Wing' },
+      ],
+    };
+    const openCW: CasualtyWardEntry[] = [
+      { id: 1, playerId: '2001', playerName: 'Wing A', teamCode: 'TST', injury: 'Hamstring', expectedReturn: 'Round 12', reportedDate: '2025-04-14', closedDate: null },
+      { id: 2, playerId: '2002', playerName: 'Wing B', teamCode: 'TST', injury: 'Knee',      expectedReturn: 'Round 13', reportedDate: '2025-04-14', closedDate: null },
+    ];
+
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    const cwRepo2 = new InMemoryCasualtyWardRepo(openCW, []);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+
+    // Sorted by playerId: 2001 < 2002 (injuries), 2003 < 2004 (movers) → 2003→2001, 2004→2002
+    const w1 = result.coveringInjury.find(r => r.playerId === 2003);
+    const w2 = result.coveringInjury.find(r => r.playerId === 2004);
+    expect(w1).toBeDefined();
+    expect(w2).toBeDefined();
+    expect(w1!.coveringPlayerId).toBe(2001);
+    expect(w2!.coveringPlayerId).toBe(2002);
+  });
+
+  // Test B: both wings dropped — each promoted player replaces exactly one
+  it('pairs each promoted wing with its own dropped predecessor (not both with the same)', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [
+        { playerId: 3001, jerseyNumber: 2, playerName: 'Wing C', position: 'Wing' },
+        { playerId: 3002, jerseyNumber: 5, playerName: 'Wing D', position: 'Wing' },
+        { playerId: 3003, jerseyNumber: 19, playerName: 'Sub W1', position: 'Reserve' },
+        { playerId: 3004, jerseyNumber: 20, playerName: 'Sub W2', position: 'Reserve' },
+      ],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [
+        { playerId: 3003, jerseyNumber: 2, playerName: 'Sub W1', position: 'Wing' },
+        { playerId: 3004, jerseyNumber: 5, playerName: 'Sub W2', position: 'Wing' },
+      ],
+    };
+
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    const cwRepo2 = new InMemoryCasualtyWardRepo([], []);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+
+    // Sorted by playerId: 3001 < 3002 (prev wings), 3003 < 3004 (new wings) → 3003 replaces 3001, 3004 replaces 3002
+    const p1 = result.promoted.find(r => r.playerId === 3003);
+    const p2 = result.promoted.find(r => r.playerId === 3004);
+    expect(p1).toBeDefined();
+    expect(p2).toBeDefined();
+    expect(p1!.replacingPlayerId).toBe(3001);
+    expect(p2!.replacingPlayerId).toBe(3002);
+  });
+
+  // Test C: both wings benched — each benched player gets distinct replacedByPlayerId
+  it('assigns distinct replacedByPlayerId to each benched wing via slot-index pairing', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [
+        { playerId: 4001, jerseyNumber: 2, playerName: 'Wing E', position: 'Wing' },
+        { playerId: 4002, jerseyNumber: 5, playerName: 'Wing F', position: 'Wing' },
+        { playerId: 4003, jerseyNumber: 19, playerName: 'Res W1', position: 'Reserve' },
+        { playerId: 4004, jerseyNumber: 20, playerName: 'Res W2', position: 'Reserve' },
+      ],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [
+        { playerId: 4001, jerseyNumber: 19, playerName: 'Wing E', position: 'Reserve' },
+        { playerId: 4002, jerseyNumber: 20, playerName: 'Wing F', position: 'Reserve' },
+        { playerId: 4003, jerseyNumber: 2,  playerName: 'Res W1', position: 'Wing' },
+        { playerId: 4004, jerseyNumber: 5,  playerName: 'Res W2', position: 'Wing' },
+      ],
+    };
+
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    const cwRepo2 = new InMemoryCasualtyWardRepo([], []);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+
+    // Sorted by playerId: prev[0]=4001, prev[1]=4002; curr[0]=4003, curr[1]=4004
+    // → 4001 (slot 0) replaced by 4003; 4002 (slot 1) replaced by 4004
+    const b1 = result.benched.find(r => r.playerId === 4001);
+    const b2 = result.benched.find(r => r.playerId === 4002);
+    expect(b1).toBeDefined();
+    expect(b2).toBeDefined();
+    expect(b1!.replacedByPlayerId).toBe(4003);
+    expect(b2!.replacedByPlayerId).toBe(4004);
+  });
+});
