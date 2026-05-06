@@ -179,25 +179,26 @@ describe('ComputePlayerMovementsUseCase', () => {
     expect(result.dropped.find(r => r.playerName === 'Billy Smith')).toBeUndefined();
   });
 
-  // Benched: Jordan Riki (BRO) was #14 in round 9, now #18 in round 10
+  // Benched: Jordan Riki (BRO) was #13 in round 9, now #18 in round 10
   it('classifies Jordan Riki as benched with prevJersey and consecutiveRoundsBenched', async () => {
     await useCase.execute(2025, 10);
     const result = cache.get(2025, 10)!;
     const riki = result.benched.find(r => r.playerName === 'Jordan Riki');
     expect(riki).toBeDefined();
-    expect(riki!.prevJersey).toBe(14);
+    expect(riki!.prevJersey).toBe(13);
     expect(riki!.currentJersey).toBe(18);
     expect(riki!.consecutiveRoundsBenched).toBe(1);
   });
 
-  // Promoted: Kobe Hetherington (BRO) was #18 in round 9, now #13 in round 10 (not covering any injury)
-  it('classifies Kobe Hetherington as promoted with replacingPlayerId null', async () => {
+  // Promoted: Kobe Hetherington (BRO) was #18 in round 9, now #13 in round 10, replacing Jordan Riki
+  it('classifies Kobe Hetherington as promoted with replacingPlayerId set', async () => {
     await useCase.execute(2025, 10);
     const result = cache.get(2025, 10)!;
     const kobe = result.promoted.find(r => r.playerName === 'Kobe Hetherington');
     expect(kobe).toBeDefined();
     expect(kobe!.currentJersey).toBe(13);
-    expect(kobe!.replacingPlayerId).toBeNull(); // jersey #13 not held by a benched player last round
+    expect(kobe!.replacingPlayerId).toBe(103); // Jordan Riki moved from #13 to reserve
+    expect(kobe!.replacingPlayerName).toBe('Jordan Riki');
   });
 
   // Covering Injury: Cory Paix (BRO) fills #9 vacated by injured Billy Smith
@@ -219,15 +220,22 @@ describe('ComputePlayerMovementsUseCase', () => {
     expect(result.promoted.find(r => r.playerName === 'Cory Paix')).toBeUndefined();
   });
 
-  // Position Changed: Jack Cogger (NEW) #14 Halfback → Five-Eighth
-  it('classifies Jack Cogger as position changed', async () => {
+  // Position Changed: Jackson Hastings (NEW) #6 Halfback → Five-Eighth (starting position, both ≤ 13)
+  it('classifies Jackson Hastings as position changed', async () => {
     await useCase.execute(2025, 10);
     const result = cache.get(2025, 10)!;
-    const cogger = result.positionChanged.find(r => r.playerName === 'Jack Cogger');
-    expect(cogger).toBeDefined();
-    expect(cogger!.oldPosition).toBe('Halfback');
-    expect(cogger!.newPosition).toBe('Five-Eighth');
-    expect(cogger!.currentJersey).toBe(14);
+    const hastings = result.positionChanged.find(r => r.playerName === 'Jackson Hastings');
+    expect(hastings).toBeDefined();
+    expect(hastings!.oldPosition).toBe('Halfback');
+    expect(hastings!.newPosition).toBe('Five-Eighth');
+    expect(hastings!.currentJersey).toBe(6);
+  });
+
+  // Interchange position change is NOT reported
+  it('does not classify Jack Cogger (interchange) as position changed', async () => {
+    await useCase.execute(2025, 10);
+    const result = cache.get(2025, 10)!;
+    expect(result.positionChanged.find(r => r.playerName === 'Jack Cogger')).toBeUndefined();
   });
 
   // Same-position players NOT in positionChanged

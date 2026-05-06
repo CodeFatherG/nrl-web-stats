@@ -8,7 +8,7 @@
     "members": [
       { "jerseyNumber": 1, "playerName": "Reece Walsh", "position": "Fullback", "playerId": 101 },
       { "jerseyNumber": 9, "playerName": "Billy Smith", "position": "Hooker", "playerId": 102 },
-      { "jerseyNumber": 14, "playerName": "Jordan Riki", "position": "Lock", "playerId": 103 },
+      { "jerseyNumber": 13, "playerName": "Jordan Riki", "position": "Lock", "playerId": 103 },
       { "jerseyNumber": 18, "playerName": "Kobe Hetherington", "position": "Second Row", "playerId": 104 }
     ]
   },
@@ -20,8 +20,8 @@
     "scrapedAt": "2025-04-14T06:00:00.000Z",
     "members": [
       { "jerseyNumber": 1, "playerName": "Kalyn Ponga", "position": "Fullback", "playerId": 201 },
-      { "jerseyNumber": 6, "playerName": "Jackson Hastings", "position": "Five-Eighth", "playerId": 202 },
-      { "jerseyNumber": 14, "playerName": "Jack Cogger", "position": "Halfback", "playerId": 203 },
+      { "jerseyNumber": 6, "playerName": "Jackson Hastings", "position": "Halfback", "playerId": 202 },
+      { "jerseyNumber": 14, "playerName": "Jack Cogger", "position": "Interchange", "playerId": 203 },
       { "jerseyNumber": 18, "playerName": "Adam Elliott", "position": "Second Row", "playerId": 204 }
     ]
   },

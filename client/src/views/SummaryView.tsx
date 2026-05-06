@@ -164,8 +164,8 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
               <TableRow>
                 <TableCell sx={{ py: 0.5 }}>Player</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Was #</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Was Position</TableCell>
+                <TableCell sx={{ py: 0.5 }}>From</TableCell>
+                <TableCell sx={{ py: 0.5 }}>To</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Consecutive Rounds</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Replaced By</TableCell>
               </TableRow>
@@ -179,8 +179,8 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
                     </Link>
                   </TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.prevJersey}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.prevPosition}</TableCell>
+                  <TableCell sx={{ py: 0.5 }}>{row.currentPosition}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.consecutiveRoundsBenched}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>
                     {row.replacedByPlayerId !== null ? (
@@ -304,6 +304,8 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
               <TableRow>
                 <TableCell sx={{ py: 0.5 }}>Player</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Team</TableCell>
+                <TableCell sx={{ py: 0.5 }}>Injury</TableCell>
+                <TableCell sx={{ py: 0.5 }}>Rounds Out</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Pre-Injury #</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Pre-Injury Position</TableCell>
                 <TableCell sx={{ py: 0.5 }}>Current #</TableCell>
@@ -319,6 +321,8 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
                     </Link>
                   </TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
+                  <TableCell sx={{ py: 0.5 }}>{row.injury || '—'}</TableCell>
+                  <TableCell sx={{ py: 0.5 }}>{row.roundsOut > 0 ? row.roundsOut : '—'}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.lastJersey}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.lastPosition}</TableCell>
                   <TableCell sx={{ py: 0.5 }}>{row.currentJersey}</TableCell>
@@ -332,7 +336,7 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
               ))}
               {result.returningFromInjury.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary' }}>
+                  <TableCell colSpan={8} align="center" sx={{ color: 'text.secondary' }}>
                     No players returning from injury
                   </TableCell>
                 </TableRow>

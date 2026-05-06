@@ -21,6 +21,7 @@ export interface BenchedRecord extends MovementBase {
   prevJersey: number;
   prevPosition: string;
   currentJersey: number;
+  currentPosition: string;
   consecutiveRoundsBenched: number;
   replacedByPlayerId: number | null;
   replacedByPlayerName: string | null;
@@ -50,6 +51,8 @@ export interface ReturningFromInjuryRecord extends MovementBase {
   currentJersey: number;
   currentPosition: string;
   positionChanged: boolean;
+  injury: string;
+  roundsOut: number;
 }
 
 export interface PositionChangedRecord extends MovementBase {

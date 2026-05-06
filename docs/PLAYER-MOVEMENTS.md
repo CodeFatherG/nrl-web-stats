@@ -1,0 +1,279 @@
+# Player Movement Algorithm
+
+Explains how the system classifies changes between two consecutive round team lists into seven mutually-exclusive categories.
+
+---
+
+## Jersey number semantics
+
+Jersey numbers are used for **squad membership only** — they are not used to determine whether a player is a starter.
+
+| Jersey range | Meaning |
+|---|---|
+| 1–17 | Named in the squad ("named 17") |
+| 18+ | Reserve / extended squad — not in the named 17 |
+
+---
+
+## Starting position semantics
+
+**Starting status is determined by the player's position label, not their jersey number.**
+
+The nine starting positions are: Fullback, Wing, Centre, Five-Eighth, Halfback, Prop, Hooker, Second Row, Lock.
+
+- A player listed as jersey 17 **Lock** is classified as a starting-position player (the Lock slot) even though jersey 17 is typically interchange.
+- A player listed as jersey 13 **Interchange** is not a starting-position player.
+- A player listed as jersey 14 **Prop** is both named and at a starting position.
+
+### Position label normalisation
+
+NRL team list data uses variant spellings. These are normalised before any comparison or map lookup:
+
+| Raw label | Canonical form |
+|---|---|
+| Winger | Wing |
+| 2nd Row | Second Row |
+
+All other labels are lowercased and used as-is.
+
+---
+
+## Inputs
+
+For round **R**, the algorithm receives:
+
+- **Current team lists** — every team's named 17 (plus reserves) for round R
+- **Previous team lists** — the same for round R-1
+- **Open casualty ward entries** — injuries currently active (player absent or playing through)
+- **Recently-closed casualty ward entries** — injuries resolved since the previous round's matches
+
+---
+
+## Three-phase algorithm
+
+### Phase 1 — Identify absent named players
+
+Iterates every player in the **previous** team lists. If a player:
+
+- was in the **named 17** (jersey ≤ 17) in round R-1, **and**
+- is **completely absent** from the current team list,
+
+they are classified as:
+
+- **Injured** — if there is an open casualty ward entry for them
+- **Dropped** — otherwise (assumed form/selection)
+
+Players who were reserves (jersey 18+) in round R-1 are ignored; they were never named.
+
+**Example — Injured:**
+> Billy Smith was #9 Hooker for BRO in round 9. He is absent from round 10. His open CW entry says "Hamstring, return Round 12". → **Injured**.
+
+**Example — Dropped:**
+> Nicho Hynes was #7 Halfback for SHA in round 9. He is absent from round 10. No open CW entry. → **Dropped**.
+
+**Example — Reserve leaving silently:**
+> A player was jersey 20 in round 9 and is absent in round 10. Jersey 20 > 17, so they were never named. No movement recorded.
+
+**Example — Interchange player injured:**
+> Joe Roddy was jersey 17 "2nd Row" for CBR in round 9. He is absent from round 10 with a hand injury. He is classified as **Injured** (jersey 17 ≤ 17 = named). However, his injury does not seed the covering cascade (see Phase 2).
+
+---
+
+### Phase 2 — Build the covering-injury cascade (per team)
+
+For each team with at least one injured player, this phase determines which current players are covering the vacant position. The cascade is **entirely position-based** — jersey numbers play no role.
+
+#### Cascade seeding
+
+For each injured player from Phase 1:
+
+- If their last position was a **starting position** → seed the cascade with that canonical position as the vacated slot.
+- If their last position was not a starting position (e.g. "Interchange") → no cascade. An interchange player's absence does not create a starting-lineup vacancy.
+
+**Note:** A player like Joe Roddy (jersey 17 "2nd Row") **does** seed the cascade because "2nd Row" is a starting position. However, whether the cascade produces any results depends on who currently holds that position slot — see the incumbent rule below.
+
+#### Cascade propagation
+
+For each vacated position in the queue, find all **named** (jersey ≤ 17) current players at that starting position and apply these rules to each:
+
+1. **Skip if already in the covering map** — prevents loops and double-counting.
+2. **Skip if returning from injury** — a player who missed last round due to injury takes Priority 1 in Phase 3; their return is the primary story.
+3. **Skip if an incumbent** — if the player held this exact position last round too, they haven't moved to cover anything. They are continuing their normal role and are not part of the cascade.
+4. **All others are movers** — they changed position to fill the vacated slot. Add them to the covering map, referencing the **original** injured player (not any intermediate mover).
+5. **Continue the cascade** — if the mover came from a different starting position, that position is now also vacant. Add it to the queue. If the mover came from a non-starting position (e.g. Interchange) or is new to the team, the cascade stops here.
+
+**Why movers only, not incumbents:**
+
+> Simi Sasagi was jersey 12 "2nd Row" for CBR last round and is still jersey 12 "2nd Row" this round. Joe Roddy (jersey 17, "2nd Row") is injured. Because Sasagi's position hasn't changed, he is an incumbent — he is not covering Roddy; he's just continuing in his role. The cascade finds no movers at "second row" and produces no covering entries for this injury.
+
+**Multi-player positions (Prop, Wing, Centre, Second Row):**
+
+Each of these positions can have two named players (e.g. two props). The cascade checks **all** current named players at the vacated position slot — any one of them may be a mover. An incumbent prop and a newly-moved prop at the same position are handled independently.
+
+**Example — Simple cover (new player):**
+> Billy Smith (#9 Hooker, BRO) is injured. Cory Paix is now at Hooker and was not in the previous team list. Paix is a mover (new to the team → `prevPosition = null`). → **Covering Injury** for Billy Smith. No further cascade (Paix had no prior position to vacate).
+
+**Example — Cascade (position shift):**
+> Jack Wighton (#4 Centre, STH) is injured.
+> 1. Vacated position: "centre". Campbell Graham (was #5 Winger) is now at Centre — a mover. Added to covering map for Wighton. Graham vacated "wing".
+> 2. Vacated position: "wing". Edward Kosi is now at Wing and was not in the previous team list — a mover. Added to covering map for Wighton. Kosi is new to the team, cascade stops.
+>
+> Both Graham and Kosi show as **Covering Injury** for Jack Wighton.
+
+**Example — Interchange player injured (no cascade):**
+> Joe Roddy was jersey 17 "2nd Row" for CBR. The cascade seeds with "second row". The current named "2nd Row" players (e.g. jersey 11 and 12) were both at "2nd Row" last round — they are incumbents. The cascade produces no movers. **No covering entries** for Joe Roddy's injury.
+
+**Example — Interchange fills injury slot (cascade terminates):**
+> An interchange player (jersey 15 "Interchange") is now listed at jersey 10 "Prop" to cover an injured starter. They came from "Interchange" — not a starting position. They are added to the covering map but the cascade stops (no starting position was vacated by the interchange player).
+
+---
+
+### Phase 3 — Classify current members (strict priority order)
+
+For every player in the current team list, exactly one category is assigned. Priorities are evaluated top-down; the first match wins.
+
+---
+
+#### Pre-classification: Reserves (jersey > 17)
+
+Players currently at jersey > 17 are handled before the priority chain:
+
+- **Benched** — if all three conditions hold:
+  - Was **named** last round (jersey ≤ 17), **and**
+  - Was at a **starting position** (by position label) last round, **and**
+  - Is now reserve (jersey > 17)
+- **Silently ignored** — otherwise (was already reserve or was not at a starting position last round)
+
+"Replaced by" is recorded if the current holder of that position slot is a player who was not previously named (jersey > 17 or absent last round).
+
+**Example — Benched:**
+> Jordan Riki was jersey 13 Lock for BRO in round 9 (named, starting position). He is jersey 18 (reserve) in round 10. → **Benched**, prevPosition=Lock, consecutiveRoundsBenched=1.
+
+**Example — Reserve always-reserve (silently ignored):**
+> A player was jersey 18 "Wing" last round and is jersey 18 "Wing" this round. Jersey 18 > 17 means they were never named, so they are never benched regardless of position label.
+
+**Example — Named interchange to reserve (silently ignored):**
+> A player was jersey 16 "Interchange" last round and is jersey 19 this round. Their previous position ("Interchange") is not a starting position, so they are not benched.
+
+**Example — Why position, not jersey:**
+> Trent Loiero was jersey 17 Lock in round 9 (named, Lock is a starting position). He is jersey 13 Lock in round 10 (now named at a lower jersey). He is NOT benched because his current jersey is 13 (≤ 17 → named, not reserve). He continues to the priority chain below.
+
+---
+
+#### Priority 1 — Returning from injury
+
+Conditions (all must hold):
+
+- Was **absent** from the round R-1 team list (missed at least one game), **and**
+- Has an **open** or **recently-closed** casualty ward entry
+
+If they were present last round (played last week), they did not miss a game and are not "returning" — they fall through to lower priorities.
+
+Recorded fields include: the injury type, `roundsOut` (how many rounds missed, computed by walking back through team lists), pre-injury jersey and position, and current jersey and position (with a flag if the position changed).
+
+**Example — Returning (closed CW entry):**
+> Valentine Holmes missed rounds 7–9 with a knee injury. His CW entry was closed. He is named #3 Wing for NQC in round 10 and was absent from round 9. → **Returning from Injury**, roundsOut=3, injury="Knee".
+
+**Example — Playing through injury (not returning):**
+> A player has an open CW entry for a shoulder injury but appeared in both round 9 and round 10. They did not miss a game → not "returning"; falls through to positionChanged or unchanged.
+
+**Example — Returning to a different position:**
+> A player last played as Centre before their injury. They return as a Wing this round. → **Returning from Injury**, positionChanged=true.
+
+---
+
+#### Priority 2 — Covering an injury
+
+Condition: the player appears in the covering map built in Phase 2.
+
+**Example — Direct cover:**
+> Cory Paix is now at Hooker, covering Billy Smith (injured Hooker). → **Covering Injury**, showing Billy Smith as the player being covered, with `prevJersey=null` (Paix was not in the previous squad).
+
+**Example — Cascade cover (moved position):**
+> Campbell Graham moved from Wing to Centre to cover Jack Wighton. → **Covering Injury** for Wighton, with `prevPosition="Winger"` indicating he moved from Wing. Edward Kosi (filled Graham's vacated Wing slot) also shows as **Covering Injury** for Wighton.
+
+---
+
+#### Priority 3 — Position changed
+
+Conditions (all must hold):
+
+- Was **named** last round (jersey ≤ 17), **and**
+- Was at a **starting position** (by position label) last round, **and**
+- Is at a **starting position** (by position label) this round, **and**
+- The (normalised) position label changed between rounds
+
+If the player was at a **non-starting position** last round (e.g. "Interchange") and is now at a starting position, they fall through to **Priority 4** (Promoted) instead.
+
+**Example — Position changed:**
+> Jackson Hastings was jersey 6 "Halfback" for NEW in round 9 and is jersey 6 "Five-Eighth" in round 10. Both are starting positions, he was named both rounds. → **Position Changed**.
+
+**Example — Interchange player position change (not reported):**
+> A player was jersey 14 "Interchange" last round and is jersey 14 "Interchange" this round (different role label). "Interchange" is not a starting position — neither wasStarting nor isStarting. → Silently ignored.
+
+**Example — Non-starting to starting (falls to Promoted):**
+> A player was jersey 15 "Interchange" last round and is now jersey 6 "Five-Eighth". Their previous position was not a starting position. → Falls through to **Priority 4** (Promoted).
+
+---
+
+#### Priority 4 — Promoted
+
+Reaches here when a player is named (jersey ≤ 17) and none of the above priorities matched. This covers:
+
+- A player **new to the named 17** (was reserve jersey 18+ or absent last round)
+- A player who was at a **non-starting position** last round and is now at a starting position (e.g. interchange → starter)
+- A player who was at a **non-starting position** last round and remains at a non-starting position (e.g. new interchange player)
+
+"Replacing" is recorded if the previous named holder of this starting position (from `prevByPosition`) is now gone from the named 17 (absent or jersey > 17 this round). Only the most recent named holder (jersey ≤ 17) of each position slot is considered — reserves (jersey > 17) in the previous round do not count as "the previous holder."
+
+**Example — Promoted from reserve, replacing:**
+> Jordan Riki (jersey 13 Lock) is now benched (jersey 18). Kobe Hetherington was jersey 18 last round and is now jersey 13 Lock. → **Promoted**, replacingPlayerId = Jordan Riki.
+
+**Example — New to the squad:**
+> A player was absent last round and is now jersey 5 Wing. → **Promoted**, replacingPlayerId=null.
+
+**Example — Same player, different jersey (NOT promoted):**
+> Trent Loiero was jersey 17 Lock last round and is jersey 13 Lock this round. `wasNamed = true` (jersey 17 ≤ 17), `wasStarting = true` (Lock is a starting position). Priority 3 handles him: same position, no position change. → Silently ignored (no movement recorded).
+
+---
+
+## Mutual exclusivity
+
+Every player in the current round ends up in exactly one category or none (no notable movement). The priority chain guarantees this:
+
+```
+Absent from current list:
+  Open CW entry             → Injured              (Phase 1)
+  No CW entry               → Dropped              (Phase 1)
+
+Present, jersey > 17:
+  wasNamed AND wasStarting  → Benched
+  otherwise                 → (ignored)
+
+Present, jersey ≤ 17:
+  Missed last round AND CW  → Returning from Injury [Priority 1]
+  In covering map           → Covering Injury       [Priority 2]
+  wasNamed AND wasStarting
+    AND isStarting
+    AND position changed    → Position Changed      [Priority 3]
+  wasNamed AND !wasStarting
+    AND isStarting          → falls through to Promoted
+  wasNamed AND no change    → (ignored, continue)
+  otherwise                 → Promoted              [Priority 4]
+```
+
+---
+
+## Edge cases
+
+**Round 1:** No previous round data. All seven arrays are empty and `noPreviousRound: true` is set.
+
+**Partial team lists:** If any team expected to play in round R has not yet submitted their team list, the algorithm exits without writing to the cache. The API returns `{ pending: true }`.
+
+**Player named despite open CW entry:** If a player is named this round but has an open CW entry, they are classified as **Returning from Injury** only if they were absent last round (missed at least one game). The CW entry is left open — only the movements view treats them as returning.
+
+**Multiple injuries in the same team:** Each injured player seeds the cascade independently. All cascade branches reference the **original** injured player that seeded them, not any intermediate mover in the chain.
+
+**Two players at the same position (Prop, Wing, Centre, Second Row):** The cascade checks all named holders of the vacated position. Incumbents (unchanged from last round) are skipped. Any mover (came from a different position) is added to the covering map and may trigger a further cascade step.
+
+**Position label variants:** NRL data uses "Winger" and "2nd Row" interchangeably with "Wing" and "Second Row". All position comparisons and map lookups use the normalised canonical form. This prevents false position-change reports and ensures cascade lookups work across rounds where the label may vary.
