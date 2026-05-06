@@ -3,6 +3,8 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -26,6 +28,7 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<{ pending: true } | PlayerMovementsResult | null>(null);
+  const [hideInterchangePromotions, setHideInterchangePromotions] = useState(true);
   const cancelledRef = useRef(false);
 
 
@@ -250,6 +253,11 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
       </MovementSection>
 
       <MovementSection title="Promoted" count={result.promoted.length} defaultExpanded={false}>
+        <FormControlLabel
+          control={<Checkbox checked={hideInterchangePromotions} onChange={(e) => setHideInterchangePromotions(e.target.checked)} size="small" />}
+          label="Hide interchange promotions"
+          sx={{ mb: 1, ml: 2 }}
+        />
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
             <TableHead>
@@ -262,7 +270,9 @@ export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {result.promoted.map((row) => (
+              {result.promoted
+                .filter((row) => !hideInterchangePromotions || row.position.toLowerCase() !== 'interchange')
+                .map((row) => (
                 <TableRow key={`promoted-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
                   <TableCell sx={{ py: 0.5 }}>
                     <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
