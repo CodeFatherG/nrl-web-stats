@@ -231,6 +231,17 @@ describe('ComputePlayerMovementsUseCase', () => {
     expect(hastings!.currentJersey).toBe(6);
   });
 
+  // Promoted to slot vacated by a player who changed positions (not absent/benched)
+  it('classifies David Smith as promoted replacing Jackson Hastings who moved position', async () => {
+    await useCase.execute(2025, 10);
+    const result = cache.get(2025, 10)!;
+    const david = result.promoted.find(r => r.playerName === 'David Smith');
+    expect(david).toBeDefined();
+    expect(david!.position).toBe('Halfback');
+    expect(david!.replacingPlayerId).toBe(202); // Jackson Hastings vacated Halfback by moving to Five-Eighth
+    expect(david!.replacingPlayerName).toBe('Jackson Hastings');
+  });
+
   // Interchange position change is NOT reported
   it('does not classify Jack Cogger (interchange) as position changed', async () => {
     await useCase.execute(2025, 10);

@@ -34,6 +34,7 @@
     "members": [
       { "jerseyNumber": 1, "playerName": "Kalyn Ponga", "position": "Fullback", "playerId": 201 },
       { "jerseyNumber": 6, "playerName": "Jackson Hastings", "position": "Five-Eighth", "playerId": 202 },
+      { "jerseyNumber": 7, "playerName": "David Smith", "position": "Halfback", "playerId": 205 },
       { "jerseyNumber": 14, "playerName": "Jack Cogger", "position": "Interchange", "playerId": 203 },
       { "jerseyNumber": 18, "playerName": "Adam Elliott", "position": "Reserve", "playerId": 204 }
     ]

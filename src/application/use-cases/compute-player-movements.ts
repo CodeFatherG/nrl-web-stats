@@ -351,11 +351,14 @@ export class ComputePlayerMovementsUseCase {
         }
 
         // Priority 4: new to the named 17 or moving into a starting position from a non-starting role.
-        // "Replacing" only applies when the previous holder of this starting position is now gone/reserve.
+        // "Replacing" applies when the previous holder of this starting position has vacated the slot:
+        // they are absent, demoted to reserve, or moved to a different position (still named but elsewhere).
         const prevAtPos = isStarting ? prevByPosition.get(normalizePosition(currMember.position)) : undefined;
-        const prevHolderGone = prevAtPos !== undefined &&
-          (currentMembers.get(prevAtPos.playerId) === undefined ||
-           !isNamedPosition(currentMembers.get(prevAtPos.playerId)!.position));
+        const prevHolder = prevAtPos !== undefined ? currentMembers.get(prevAtPos.playerId) : undefined;
+        const prevHolderLeft = prevAtPos !== undefined &&
+          (prevHolder === undefined ||                                                              // absent (dropped/injured)
+           !isNamedPosition(prevHolder.position) ||                                                // demoted to reserve (benched)
+           normalizePosition(prevHolder.position) !== normalizePosition(prevAtPos.position));      // moved to a different position
         promoted.push({
           playerId,
           playerName: currMember.playerName,
@@ -363,8 +366,8 @@ export class ComputePlayerMovementsUseCase {
           matchId,
           currentJersey: currMember.jerseyNumber,
           position: currMember.position,
-          replacingPlayerId: prevHolderGone ? prevAtPos!.playerId : null,
-          replacingPlayerName: prevHolderGone ? prevAtPos!.playerName : null,
+          replacingPlayerId: prevHolderLeft ? prevAtPos!.playerId : null,
+          replacingPlayerName: prevHolderLeft ? prevAtPos!.playerName : null,
         });
       }
     }

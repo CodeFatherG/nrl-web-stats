@@ -225,13 +225,16 @@ Reaches here when a player is named (position is a starting position or Intercha
 - A player who was at a **non-starting position** last round and is now at a starting position (e.g. interchange → starter)
 - A player who was at a **non-starting position** last round and remains at a non-starting position (e.g. new interchange player)
 
-"Replacing" is recorded if the previous named holder of this starting position (from `prevByPosition`) is now gone from the named squad (absent or at a non-named position this round). Only the most recent named holder of each position slot is considered — players who were Reserve in the previous round do not count as "the previous holder."
+"Replacing" is recorded if the previous named holder of this starting position no longer occupies that slot — they are absent (dropped/injured), demoted to a non-named position (benched), or have moved to a different position (still named but elsewhere). Players promoted to non-starting positions (Interchange, Reserve) never have a `replacingPlayerId` set. Only the most recent named holder of each position slot is considered — players who were Reserve in the previous round do not count as "the previous holder."
 
 **Example — Promoted from reserve, replacing:**
 > Jordan Riki (Lock) is now "Reserve". Kobe Hetherington was "Reserve" last round and is now Lock. → **Promoted**, replacingPlayerId = Jordan Riki.
 
 **Example — New to the squad:**
 > A player was absent last round and is now Wing. → **Promoted**, replacingPlayerId=null.
+
+**Example — Previous holder changed positions:**
+> Jayden Campbell was Halfback last round and is now Five-Eighth (positionChanged). Zane Harrison is promoted to Halfback. → **Promoted**, replacingPlayerId = Jayden Campbell. Campbell vacated the Halfback slot even though he is still in the named 17.
 
 **Example — Same player, position unchanged (NOT promoted):**
 > Trent Loiero was jersey 17 Lock last round and is jersey 13 Lock this round. `wasNamed = true` (Lock is a named position), `wasStarting = true` (Lock is a starting position). Priority 3 handles him: same position, no position change. → Silently ignored (no movement recorded).
