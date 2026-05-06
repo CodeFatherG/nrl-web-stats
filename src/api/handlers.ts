@@ -1556,64 +1556,45 @@ export function getContextualProfile(deps: HandlerDeps) {
 // ============================================
 // Player Movements
 // ============================================
-
-const PlayerMovementsQuerySchema = z.object({
-  season: z.coerce.number().int().optional(),
-  round: z.coerce.number().int().optional(),
-});
-
 /**
  * GET /api/player-movements - Return pre-computed player movements for a round
  */
 export function getPlayerMovements(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     try {
-      const parseResult = PlayerMovementsQuerySchema.safeParse(c.req.query());
-      if (!parseResult.success) {
-        return errorResponse(c, 'INVALID_PARAMS', 'Invalid season or round parameter', 400);
-      }
-
-      const years = await deps.matchRepository.getLoadedYears();
-      const year: number | undefined = parseResult.data.season ?? years[0];
-      if (year === undefined) return c.json({ pending: true });
-
-      let round = parseResult.data.round;
-      if (round === undefined) {
-        const cached = deps.playerMovementsCache.getMostRecentCachedRound(year);
-        if (cached !== null) {
-          round = cached;
+      const year = (await deps.matchRepository.getLoadedYears())[0];
+      let round = deps.playerMovementsCache.getMostRecentCachedRound(year);
+      if (round === null) {
+        // Cache is cold (fresh deploy / isolate restart). Derive the current round
+        // from match data and compute on-demand to warm the cache.
+        const allMatches = await deps.matchRepository.findByYear(year);
+        const now = new Date();
+        const inProgressRounds = [...new Set(
+          allMatches.filter(m => m.status === 'InProgress').map(m => m.round)
+        )];
+        let derivedRound: number | undefined;
+        if (inProgressRounds.length > 0) {
+          derivedRound = Math.max(...inProgressRounds);
         } else {
-          // Cache is cold (fresh deploy / isolate restart). Derive the current round
-          // from match data and compute on-demand to warm the cache.
-          const allMatches = await deps.matchRepository.findByYear(year);
-          const now = new Date();
-          const inProgressRounds = [...new Set(
-            allMatches.filter(m => m.status === 'InProgress').map(m => m.round)
-          )];
-          let derivedRound: number | undefined;
-          if (inProgressRounds.length > 0) {
-            derivedRound = Math.max(...inProgressRounds);
-          } else {
-            const pastRounds = allMatches
-              .filter(m => m.scheduledTime !== null && new Date(m.scheduledTime) <= now)
-              .map(m => m.round);
-            if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
-          }
-          if (derivedRound === undefined) return c.json({ pending: true });
-          
-          const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
+          const pastRounds = allMatches
+            .filter(m => m.scheduledTime !== null && new Date(m.scheduledTime) <= now)
+            .map(m => m.round);
+          if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
+        }
+        if (derivedRound === undefined) return c.json({ pending: true });
+        
+        const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
 
-          // Try the upcoming round first — team lists drop before kickoff
-          const nextRound = derivedRound + 1;
-          await computeUseCase.execute(year, nextRound);
-  
-          if (deps.playerMovementsCache.get(year, nextRound)) {
-            round = nextRound;
-          } else {
-            // Team lists not yet complete for next round — fall back to latest played round
-            await computeUseCase.execute(year, derivedRound);
-            round = derivedRound;
-          }
+        // Try the upcoming round first — team lists drop before kickoff
+        const nextRound = derivedRound + 1;
+        await computeUseCase.execute(year, nextRound);
+
+        if (deps.playerMovementsCache.get(year, nextRound)) {
+          round = nextRound;
+        } else {
+          // Team lists not yet complete for next round — fall back to latest played round
+          await computeUseCase.execute(year, derivedRound);
+          round = derivedRound;
         }
       }
 

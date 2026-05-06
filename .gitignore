@@ -35,8 +35,10 @@ coverage/
 *.temp
 
 # Speckit - ignore feature specs but keep constitution
-.specify/memory/
+.claude
+.specify
 specs/*/
+!.specify/memory/constitution.md
 
 # Keep constitution if it exists
 !specs/constitution.md

@@ -266,10 +266,7 @@ export class ComputePlayerMovementsUseCase {
             // Was at a starting position, now reserve → benched.
             // "Replaced by" only if the new holder of this position was not previously named.
             const currAtPos = currByPosition.get(normalizePosition(prevMember.position));
-            const replacerIsNew = currAtPos !== undefined &&
-              currAtPos.playerId !== playerId &&
-              (prevMembers.get(currAtPos.playerId) === undefined ||
-               prevMembers.get(currAtPos.playerId)!.jerseyNumber > 17);
+            const replacer = currAtPos !== undefined && currAtPos.playerId !== playerId ? currAtPos : undefined;
             benched.push({
               playerId,
               playerName: currMember.playerName,
@@ -282,8 +279,8 @@ export class ComputePlayerMovementsUseCase {
               consecutiveRoundsBenched: await this.countConsecutiveBenchedRounds(
                 year, round, teamCode, playerId
               ),
-              replacedByPlayerId: replacerIsNew ? currAtPos!.playerId : null,
-              replacedByPlayerName: replacerIsNew ? currAtPos!.playerName : null,
+              replacedByPlayerId: replacer ? replacer.playerId : null,
+              replacedByPlayerName: replacer ? replacer.playerName : null,
             });
           }
           continue;

@@ -234,7 +234,7 @@ export class D1MatchRepository implements MatchRepository {
 
   async getLoadedYears(): Promise<number[]> {
     const { results } = await this.db
-      .prepare('SELECT DISTINCT year FROM matches ORDER BY year ASC')
+      .prepare('SELECT DISTINCT year FROM matches ORDER BY year DESC')
       .all();
     return results.map((r) => r.year as number);
   }

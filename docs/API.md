@@ -1302,10 +1302,6 @@ The `id` values in this response are the valid values for the `venue` query para
 
 Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is computed and cached automatically when all playing teams have submitted their team lists for a round.
 
-**Query Parameters**:
-- `season` (optional, integer ≥ 1998) — Season year. Defaults to the most recently loaded year.
-- `round` (optional, integer 1–27) — Round number. Defaults to the most recently cached round for the season.
-
 **Response — Pending** (200): Returned when team lists for the current round are not yet complete.
 ```json
 { "pending": true }
