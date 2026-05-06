@@ -2,9 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createTeamList,
   validateSquadMember,
-  isStarter,
-  isInterchange,
-  isReserve,
 } from '../../src/domain/team-list.js';
 import type { SquadMember } from '../../src/domain/team-list.js';
 import { NrlComTeamListAdapter } from '../../src/infrastructure/adapters/nrl-com-team-list-adapter.js';
@@ -153,44 +150,6 @@ describe('TeamList domain', () => {
     });
   });
 
-  describe('isStarter / isInterchange', () => {
-    it('returns true for starters (jersey 1-13)', () => {
-      expect(isStarter({ ...validMember, jerseyNumber: 1 })).toBe(true);
-      expect(isStarter({ ...validMember, jerseyNumber: 13 })).toBe(true);
-    });
-
-    it('returns false for interchange as starter', () => {
-      expect(isStarter({ ...validMember, jerseyNumber: 14 })).toBe(false);
-    });
-
-    it('returns true for interchange (jersey 14-17)', () => {
-      expect(isInterchange({ ...validMember, jerseyNumber: 14 })).toBe(true);
-      expect(isInterchange({ ...validMember, jerseyNumber: 17 })).toBe(true);
-    });
-
-    it('returns false for starters as interchange', () => {
-      expect(isInterchange({ ...validMember, jerseyNumber: 13 })).toBe(false);
-    });
-
-    it('returns false for reserves as interchange', () => {
-      expect(isInterchange({ ...validMember, jerseyNumber: 18 })).toBe(false);
-    });
-  });
-
-  describe('isReserve', () => {
-    it('returns true for reserves (jersey 18+)', () => {
-      expect(isReserve({ ...validMember, jerseyNumber: 18 })).toBe(true);
-      expect(isReserve({ ...validMember, jerseyNumber: 22 })).toBe(true);
-    });
-
-    it('returns false for interchange as reserve', () => {
-      expect(isReserve({ ...validMember, jerseyNumber: 17 })).toBe(false);
-    });
-
-    it('returns false for starters as reserve', () => {
-      expect(isReserve({ ...validMember, jerseyNumber: 1 })).toBe(false);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------

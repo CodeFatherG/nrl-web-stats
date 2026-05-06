@@ -86,17 +86,3 @@ export function createTeamList(data: {
   };
 }
 
-/** Check if a squad member is in the starting lineup (jersey 1-13) */
-export function isStarter(member: SquadMember): boolean {
-  return member.jerseyNumber >= 1 && member.jerseyNumber <= 13;
-}
-
-/** Check if a squad member is on the interchange bench (jersey 14-17) */
-export function isInterchange(member: SquadMember): boolean {
-  return member.jerseyNumber >= 14 && member.jerseyNumber <= 17;
-}
-
-/** Check if a squad member is a reserve (jersey 18+) */
-export function isReserve(member: SquadMember): boolean {
-  return member.jerseyNumber >= 18;
-}

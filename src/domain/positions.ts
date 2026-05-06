@@ -32,3 +32,16 @@ export function normalizePosition(position: string): string {
 export function isStartingPosition(position: string): boolean {
   return STARTING_POSITIONS.has(normalizePosition(position));
 }
+
+export function isInterchangePosition(position: string): boolean {
+  return normalizePosition(position) === 'interchange';
+}
+
+/**
+ * Returns true if the player is in the named 17-man squad.
+ * Named = starting position (jersey 1–13 semantics) OR interchange (jersey 14–17 semantics).
+ * "Reserve" or any unknown label → false.
+ */
+export function isNamedPosition(position: string): boolean {
+  return isStartingPosition(position) || isInterchangePosition(position);
+}

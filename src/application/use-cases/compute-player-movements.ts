@@ -11,7 +11,7 @@ import type {
   ReturningFromInjuryRecord,
   PositionChangedRecord,
 } from '../../domain/player-movements.js';
-import { isStartingPosition, normalizePosition } from '../../domain/positions.js';
+import { isStartingPosition, isNamedPosition, normalizePosition } from '../../domain/positions.js';
 
 type MemberSnapshot = { jerseyNumber: number; playerName: string; position: string };
 type TeamMemberMap = Map<number, MemberSnapshot>; // playerId → snapshot
@@ -117,7 +117,7 @@ export class ComputePlayerMovementsUseCase {
     const positionChanged: PositionChangedRecord[] = [];
 
     // Phase 1: absent named players → injured or dropped.
-    // "Named" means jersey ≤ 17 (squad membership is jersey-based).
+    // "Named" means position is a starting or interchange position.
     for (const teamCode of expectedTeams) {
       const currentMembers = currentByTeam.get(teamCode) ?? new Map<number, MemberSnapshot>();
       const prevMembers = prevByTeam.get(teamCode);
@@ -126,7 +126,7 @@ export class ComputePlayerMovementsUseCase {
       if (!prevMembers) continue;
 
       for (const [playerId, prevMember] of prevMembers) {
-        if (!currentMembers.has(playerId) && prevMember.jerseyNumber <= 17) {
+        if (!currentMembers.has(playerId) && isNamedPosition(prevMember.position)) {
           const cwInfo = openPlayerMap.get(String(playerId));
           if (cwInfo) {
             injured.push({
@@ -170,7 +170,7 @@ export class ComputePlayerMovementsUseCase {
       // Multi-player positions (prop, wing, centre, second row) collect all holders.
       const currByPos = new Map<string, Array<{ playerId: number } & MemberSnapshot>>();
       for (const [pid, m] of currentMembers) {
-        if (isStartingPosition(m.position) && m.jerseyNumber <= 17) {
+        if (isStartingPosition(m.position)) {
           const pos = normalizePosition(m.position);
           const list = currByPos.get(pos);
           if (list) list.push({ playerId: pid, ...m });
@@ -205,7 +205,7 @@ export class ComputePlayerMovementsUseCase {
           // to cover — they're just continuing in the same role. Only movers extend the cascade.
           if (prevPos === vacatedPosition) continue;
 
-          const wasNamed = prevMemberData !== undefined && prevMemberData.jerseyNumber <= 17;
+          const wasNamed = prevMemberData !== undefined && isNamedPosition(prevMemberData.position);
 
           coveringMap.set(currPlayer.playerId, {
             coveringPlayerId: originalInjured.playerId,
@@ -238,23 +238,22 @@ export class ComputePlayerMovementsUseCase {
 
       if (!prevMembers) continue;
 
-      // Position-keyed maps restricted to starting positions AND named squad (jersey ≤ 17).
-      // Reserves (jersey > 17) at a starting position label are not the "official" position holder.
+      // Position-keyed maps restricted to starting positions (which implies named).
       // Keys are canonical (normalizePosition) so "Winger"/"Wing" and "2nd Row"/"Second Row" unify.
       const currByPosition: PositionMap = new Map();
       for (const [pid, m] of currentMembers) {
-        if (isStartingPosition(m.position) && m.jerseyNumber <= 17) currByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
+        if (isStartingPosition(m.position)) currByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
       }
 
       const prevByPosition: PositionMap = new Map();
       for (const [pid, m] of prevMembers) {
-        if (isStartingPosition(m.position) && m.jerseyNumber <= 17) prevByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
+        if (isStartingPosition(m.position)) prevByPosition.set(normalizePosition(m.position), { playerId: pid, ...m });
       }
 
       for (const [playerId, currMember] of currentMembers) {
         const prevMember = prevMembers.get(playerId);
-        const isNamed    = currMember.jerseyNumber <= 17;        // in the named 17 (jersey-based)
-        const wasNamed   = prevMember !== undefined && prevMember.jerseyNumber <= 17;
+        const isNamed    = isNamedPosition(currMember.position); // in the named squad (position-based)
+        const wasNamed   = prevMember !== undefined && isNamedPosition(prevMember.position);
         const isStarting = isStartingPosition(currMember.position);
         const wasStarting = prevMember !== undefined && isStartingPosition(prevMember.position);
 
@@ -356,7 +355,7 @@ export class ComputePlayerMovementsUseCase {
         const prevAtPos = isStarting ? prevByPosition.get(normalizePosition(currMember.position)) : undefined;
         const prevHolderGone = prevAtPos !== undefined &&
           (currentMembers.get(prevAtPos.playerId) === undefined ||
-           currentMembers.get(prevAtPos.playerId)!.jerseyNumber > 17);
+           !isNamedPosition(currentMembers.get(prevAtPos.playerId)!.position));
         promoted.push({
           playerId,
           playerName: currMember.playerName,
@@ -396,8 +395,8 @@ export class ComputePlayerMovementsUseCase {
       const list = lists.find(tl => tl.teamCode === teamCode);
       if (!list) break;
       const member = list.members.find(m => m.playerId === playerId);
-      // Named in the squad (jersey ≤ 17) means not benched in that round
-      if (!member || member.jerseyNumber <= 17) break;
+      // Named in the squad (starting or interchange position) means not benched in that round
+      if (!member || isNamedPosition(member.position)) break;
       count++;
     }
     return count;
