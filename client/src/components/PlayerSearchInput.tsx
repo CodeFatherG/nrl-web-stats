@@ -16,6 +16,7 @@ export function PlayerSearchInput({
   disabled = false,
 }: PlayerSearchInputProps) {
   const [inputValue, setInputValue] = useState('');
+  const [value, setValue] = useState<PlayerSeasonSummary | null>(null);
 
   const options = allPlayers.filter((p) => !excludeIds.includes(p.playerId));
 
@@ -27,11 +28,15 @@ export function PlayerSearchInput({
         const q = state.inputValue.toLowerCase();
         return opts.filter((o) => o.playerName.toLowerCase().includes(q));
       }}
+      value={value}
       inputValue={inputValue}
-      onInputChange={(_event, value) => setInputValue(value)}
-      onChange={(_event, value) => {
-        if (value) {
-          onSelect(value.playerId);
+      onInputChange={(_event, newInput, reason) => {
+        if (reason !== 'reset') setInputValue(newInput);
+      }}
+      onChange={(_event, newValue) => {
+        if (newValue) {
+          onSelect(newValue.playerId);
+          setValue(null);
           setInputValue('');
         }
       }}
