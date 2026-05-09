@@ -1,402 +1,159 @@
-import { useState, useEffect, useRef } from 'react';
-import Alert from '@mui/material/Alert';
+import { type ReactNode, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTheme, useMediaQuery } from '@mui/material';
 import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
-import Link from '@mui/material/Link';
-import Paper from '@mui/material/Paper';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import Typography from '@mui/material/Typography';
-import { getPlayerMovements } from '../services/api';
-import { getTeamBackground } from '../utils/teamColors';
-import { MovementSection } from '../components/MovementSection';
-import type { CoveringInjuryRecord, InjuredRecord, PlayerMovementsResult } from '../types';
+import Grid from '@mui/material/Grid';
+import { useAppContext } from '../hooks/useAppContext';
+import { useMovementsQuery } from '../hooks/useMovementsQuery';
+import { PageHeader } from '../components/shared/PageHeader';
+import { SectionCard } from '../components/shared/SectionCard';
+import { DataTable } from '../components/shared/DataTable';
+import { SkeletonPage } from '../components/shared/SkeletonPage';
+import type {
+  InjuredRecord,
+  DroppedRecord,
+  BenchedRecord,
+  ReturningFromInjuryRecord,
+  CoveringInjuryRecord,
+  PromotedRecord,
+  PositionChangedRecord,
+} from '../types';
 
-interface SummaryViewProps {
-  year: number;
-  onPlayerClick: (playerId: string) => void;
+type AnyMovement = { playerId: number; playerName: string; teamCode: string };
+
+function makeColumns(extra?: { key: string; label: string; getValue: (r: AnyMovement) => string }[]) {
+  return [
+    { key: 'playerName', label: 'Player', align: 'left' as const, sortable: true,
+      getValue: (r: AnyMovement) => r.playerName,
+      renderCell: (r: AnyMovement) => <Typography variant="caption" fontWeight={600}>{r.playerName}</Typography> },
+    { key: 'teamCode', label: 'Team', align: 'center' as const,
+      renderCell: (r: AnyMovement) => <Typography variant="caption">{r.teamCode}</Typography> },
+    ...(extra ?? []).map(e => ({
+      key: e.key, label: e.label, align: 'left' as const,
+      renderCell: (r: AnyMovement) => <Typography variant="caption">{e.getValue(r)}</Typography>,
+    })),
+  ];
 }
 
-export function SummaryView({ year, onPlayerClick }: SummaryViewProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<{ pending: true } | PlayerMovementsResult | null>(null);
-  const [hideInterchangePromotions, setHideInterchangePromotions] = useState(true);
-  const cancelledRef = useRef(false);
+export function SummaryView() {
+  const { currentYear } = useAppContext();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const year = Number(searchParams.get('year') ?? currentYear);
+  const [hideInterchange, setHideInterchange] = useState(true);
 
+  const movementsQuery = useMovementsQuery(year);
 
-  useEffect(() => {
-    cancelledRef.current = false;
-    setLoading(true);
-    setError(null);
+  if (movementsQuery.isLoading) return <SkeletonPage variant="cards" />;
+  if (movementsQuery.isError) return <Alert severity="error">Failed to load player movements.</Alert>;
 
-    getPlayerMovements(year)
-      .then((result) => {
-        if (!cancelledRef.current) {
-          setData(result);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelledRef.current) {
-          setError(err instanceof Error ? err.message : 'Failed to load player movements');
-          setLoading(false);
-        }
-      });
+  const data = movementsQuery.data;
 
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [year]);
-
-  if (loading) {
+  if (!data || data.pending) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-        <CircularProgress />
+      <Box>
+        <PageHeader title="Summary" subtitle="Player Movements" />
+        <Alert severity="info">Round data is still being processed. Please check back later.</Alert>
       </Box>
     );
   }
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
-  if (!data || data.pending) {
-    return <Alert severity="info">Team lists not yet complete for this round.</Alert>;
-  }
-
   if (data.noPreviousRound) {
-    return <Alert severity="info">No previous round data available for comparison.</Alert>;
+    return (
+      <Box>
+        <PageHeader title="Summary" subtitle="Player Movements" />
+        <Alert severity="info">No previous round data available yet.</Alert>
+      </Box>
+    );
   }
 
-  const result = data;
+  // Promoted from interchange = previously jersey >=14 (we detect by replacingPlayerId presence vs. not)
+  const promotedFiltered = hideInterchange
+    ? data.promoted.filter(p => p.replacingPlayerId == null)
+    : data.promoted;
+
+  function renderSection<T extends AnyMovement>(
+    title: string,
+    items: T[],
+    extra?: { key: string; label: string; getValue: (r: T) => string }[],
+    actions?: ReactNode
+  ) {
+    if (items.length === 0) return null;
+    return (
+      <Grid item xs={12} sm={6} lg={4} key={title}>
+        <SectionCard
+          title={`${title} (${items.length})`}
+          actions={actions}
+        >
+          {isMobile ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {items.map(r => (
+                <Chip
+                  key={r.playerId}
+                  label={`${r.playerName} (${r.teamCode})`}
+                  size="small"
+                  variant="outlined"
+                  onClick={() => navigate(`/player/${r.playerId}`)}
+                />
+              ))}
+            </Box>
+          ) : (
+            <DataTable
+              columns={makeColumns(extra as { key: string; label: string; getValue: (r: AnyMovement) => string }[])}
+              rows={items as AnyMovement[]}
+              getRowKey={r => String(r.playerId)}
+              emptyMessage="None"
+              onRowClick={r => navigate(`/player/${r.playerId}`)}
+            />
+          )}
+        </SectionCard>
+      </Grid>
+    );
+  }
 
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Round {result.round} Movements
-      </Typography>
+      <PageHeader
+        title="Player Movements Summary"
+        subtitle={`Round ${data.round}, ${data.season}`}
+      />
 
-      <MovementSection title="Injured" count={result.injured.length} defaultExpanded={false}>
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Last #</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Last Position</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Injury</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Expected Return</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.injured.map((row: InjuredRecord) => (
-                <TableRow key={`injured-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.injury}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.expectedReturn}</TableCell>
-                </TableRow>
-              ))}
-              {result.injured.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary' }}>
-                    No injured players
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection title="Dropped" count={result.dropped.length} defaultExpanded={false}>
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Last #</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Last Position</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.dropped.map((row) => (
-                <TableRow key={`dropped-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastPosition}</TableCell>
-                </TableRow>
-              ))}
-              {result.dropped.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ color: 'text.secondary' }}>
-                    No dropped players
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection title="Benched" count={result.benched.length} defaultExpanded={false}>
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>From</TableCell>
-                <TableCell sx={{ py: 0.5 }}>To</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Consecutive Rounds</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Replaced By</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.benched.map((row) => (
-                <TableRow key={`benched-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.prevPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.consecutiveRoundsBenched}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    {row.replacedByPlayerId !== null ? (
-                      <Link component="button" onClick={() => onPlayerClick(String(row.replacedByPlayerId))}>
-                        {row.replacedByPlayerName}
-                      </Link>
-                    ) : '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {result.benched.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary' }}>
-                    No benched players
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection title="Covering Injury" count={result.coveringInjury.length} defaultExpanded={false}>
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Jersey</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Position</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Covering</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.coveringInjury.map((row: CoveringInjuryRecord) => (
-                <TableRow key={`covering-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                    {row.prevPosition && (
-                      <Chip label={`moved from ${row.prevPosition}`} size="small" color="warning" sx={{ ml: 1 }} />
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.coveringPlayerId))}>
-                      {row.coveringPlayerName}
-                    </Link>
-                    {' '}(#{row.coveringLastJersey} {row.coveringLastPosition})
-                  </TableCell>
-                </TableRow>
-              ))}
-              {result.coveringInjury.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary' }}>
-                    No injury cover changes
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection title="Promoted" count={result.promoted.length} defaultExpanded={false}>
-        <FormControlLabel
-          control={<Checkbox checked={hideInterchangePromotions} onChange={(e) => setHideInterchangePromotions(e.target.checked)} size="small" />}
-          label="Hide interchange promotions"
-          sx={{ mb: 1, ml: 2 }}
-        />
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Jersey</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Position</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Replacing</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.promoted
-                .filter((row) => !hideInterchangePromotions || row.position.toLowerCase() !== 'interchange')
-                .map((row) => (
-                <TableRow key={`promoted-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.position}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    {row.replacingPlayerId !== null ? (
-                      <Link component="button" onClick={() => onPlayerClick(String(row.replacingPlayerId))}>
-                        {row.replacingPlayerName}
-                      </Link>
-                    ) : '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {result.promoted.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary' }}>
-                    No promoted players
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection
-        title="Returning from Injury"
-        count={result.returningFromInjury.length}
-        defaultExpanded={false}
-      >
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Injury</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Rounds Out</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Pre-Injury #</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Pre-Injury Position</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Current #</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Current Position</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.returningFromInjury.map((row) => (
-                <TableRow key={`returning-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.injury || '—'}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.roundsOut > 0 ? row.roundsOut : '—'}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.lastPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    {row.currentPosition}
-                    {row.positionChanged && (
-                      <Chip label="Position Changed" color="warning" size="small" sx={{ ml: 1 }} />
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {result.returningFromInjury.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ color: 'text.secondary' }}>
-                    No players returning from injury
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
-
-      <MovementSection
-        title="Position Changed"
-        count={result.positionChanged.length}
-        defaultExpanded={false}
-      >
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ py: 0.5 }}>Player</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Team</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Jersey</TableCell>
-                <TableCell sx={{ py: 0.5 }}>Old Position</TableCell>
-                <TableCell sx={{ py: 0.5 }}>New Position</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {result.positionChanged.map((row) => (
-                <TableRow key={`position-${row.playerId}`} sx={{ backgroundColor: getTeamBackground(row.teamCode) }}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <Link component="button" onClick={() => onPlayerClick(String(row.playerId))}>
-                      {row.playerName}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.teamCode}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.currentJersey}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.oldPosition}</TableCell>
-                  <TableCell sx={{ py: 0.5 }}>{row.newPosition}</TableCell>
-                </TableRow>
-              ))}
-              {result.positionChanged.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary' }}>
-                    No position changes
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </MovementSection>
+      <Grid container spacing={2}>
+        {renderSection<InjuredRecord>('Injured', data.injured,
+          [{ key: 'injury', label: 'Injury', getValue: (r: InjuredRecord) => r.injury ?? '—' }]
+        )}
+        {renderSection<DroppedRecord>('Dropped', data.dropped)}
+        {renderSection<BenchedRecord>('Benched', data.benched,
+          [{ key: 'jersey', label: 'Jersey', getValue: (r: BenchedRecord) => `${r.prevJersey}→${r.currentJersey}` }]
+        )}
+        {renderSection<ReturningFromInjuryRecord>('Returning from Injury', data.returningFromInjury,
+          [{ key: 'injury', label: 'Injury', getValue: (r: ReturningFromInjuryRecord) => r.injury }]
+        )}
+        {renderSection<CoveringInjuryRecord>('Covering Injury', data.coveringInjury,
+          [{ key: 'covering', label: 'Covering', getValue: (r: CoveringInjuryRecord) => r.coveringPlayerName }]
+        )}
+        {renderSection<PromotedRecord>('Promoted', promotedFiltered,
+          [{ key: 'replacing', label: 'Replacing', getValue: (r: PromotedRecord) => r.replacingPlayerName ?? '—' }],
+          <FormControlLabel
+            control={<Checkbox size="small" checked={hideInterchange} onChange={e => setHideInterchange(e.target.checked)} />}
+            label={<Typography variant="caption">Hide interchange</Typography>}
+            sx={{ ml: 'auto' }}
+          />
+        )}
+        {renderSection<PositionChangedRecord>('Position Changed', data.positionChanged,
+          [
+            { key: 'from', label: 'From', getValue: (r: PositionChangedRecord) => r.oldPosition },
+            { key: 'to', label: 'To', getValue: (r: PositionChangedRecord) => r.newPosition },
+          ]
+        )}
+      </Grid>
     </Box>
   );
 }

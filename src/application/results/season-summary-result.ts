@@ -15,6 +15,7 @@ export interface RoundSummary {
   round: number;
   matches: MatchPairing[];
   byeTeams: string[];
+  hasTeamLists: boolean;
 }
 
 export interface SeasonSummaryResult {

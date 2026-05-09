@@ -1,347 +1,195 @@
 # UI Features
 
-The frontend is a React 18 + Material-UI 5.x single-page application served via Cloudflare Workers Sites.
+The frontend is a React 18 + Material-UI 5.x single-page application served via Cloudflare Workers Sites, built with React Router v6, TanStack Query v5 (server-state caching), and Recharts (charts).
 
 ## Navigation
 
-The app has a top navigation bar showing "NRL Schedule Dashboard" and the loaded season years. Six main tabs control the primary view:
+The app has a responsive layout with:
+- **Sidebar** (desktop/tablet): permanent 240px drawer on `lg+`, collapsed 64px icon-only on `sm–lg`, hidden on `xs`
+- **Top bar**: logo, year selector (bookmarkable `?year=N` param), dark mode toggle
+- **Bottom navigation** (mobile only, `xs`): 5 primary items + "More" drawer for secondary views
 
-- **Round Overview** — view matches by round (detailed or compact mode)
-- **Team Schedule** — view a single team's full season
-- **Bye Overview** — grid of bye schedules across all teams
-- **Players** — browse all players' season statistics with sortable, searchable summary table
-- **Casualty Ward** — view currently injured players grouped by expected return
-- **Supercoach** — view computed Supercoach scores per round
+### Primary Navigation
+| Label | Path |
+|-------|------|
+| Dashboard | `/` |
+| Round | `/round` or `/round/{N}` |
+| Teams | `/team/{CODE}` |
+| Players | `/players` |
+| Supercoach | `/supercoach` or `/supercoach/{N}` |
 
-When in the Round Overview tab, toggle buttons switch between **Detailed** (single round list) and **Compact** (9×3 season grid) modes.
-
-Clicking any match from any view opens the **Match Detail View**, which replaces the tab content with a back button to return.
+### Secondary Navigation (sidebar lower / "More" drawer on mobile)
+| Label | Path |
+|-------|------|
+| Summary | `/summary` |
+| Casualty Ward | `/casualty-ward` |
+| Compare | `/compare` or `/compare/{id1,id2,...}` |
+| Bye Overview | `/bye` |
 
 ## URL Routes
 
-Every view has a shareable, bookmarkable URL. Navigating directly to any URL loads the correct view with all data.
+Every view has a shareable, bookmarkable URL. Navigating directly to any URL loads the correct view.
 
 | URL | View | Parameters |
 |-----|------|------------|
-| `/` | Season Overview (compact round grid) | None |
-| `/round/{N}` | Round Overview (detailed mode) | `N`: round number, integer 1–27 |
-| `/team/{CODE}` | Team Schedule | `CODE`: 3-letter team code (case-insensitive), e.g., `BRO`, `MEL`, `SYD` |
-| `/bye` | Bye Overview | None |
-| `/match/{ID}` | Match Detail | `ID`: match identifier string |
-| `/players` | Players Season Summary | None |
-| `/player/{ID}` | Player Detail | `ID`: player identifier string |
-| `/casualty-ward` | Casualty Ward | None |
-| `/supercoach` | Supercoach Scores (latest round) | None |
-| `/supercoach/{N}` | Supercoach Scores for round N | `N`: round number, integer 1–27 |
+| `/` | Dashboard (season overview) | `?year=N` |
+| `/round` | Round view (auto-detects current round) | `?year=N` |
+| `/round/{N}` | Round N detail | `N`: round number, `?year=N` |
+| `/teams` | Redirects to first team | — |
+| `/team/{CODE}` | Team schedule | `CODE`: 3-letter team code |
+| `/players` | Player browser | `?year=N` |
+| `/player/{ID}` | Player detail | `ID`: player identifier |
+| `/match/{ID}` | Match detail | `ID`: match identifier |
+| `/supercoach` | Supercoach (auto-detects current round) | `?year=N` |
+| `/supercoach/{N}` | Supercoach round N | `N`: round number |
+| `/compare` | Player compare (empty) | — |
+| `/compare/{ids}` | Compare players | `ids`: comma-separated player IDs |
+| `/summary` | Player movements summary | `?year=N` |
+| `/casualty-ward` | Casualty ward | — |
+| `/bye` | Bye schedule overview | `?year=N` |
 
-**URL synchronisation**: All navigation actions (clicking tabs, selecting a team or round, opening a match) update the browser URL. Browser back/forward buttons navigate through view history correctly.
+## Dark Mode
 
-**Invalid URLs**: Unrecognised paths show an inline error with a link to the Season Overview. Specific errors are shown for invalid team codes (with a list of valid codes) and out-of-range round numbers.
+Toggle between light and dark themes via the button in the top bar. Preference is persisted in `localStorage` across sessions.
 
-## Team Schedule View
+## Year Selection
 
-**Purpose**: View a single team's complete season schedule with difficulty ratings and streak analysis.
+A year selector in the top bar changes the active season. Selecting a year updates the `?year=N` URL parameter and refetches all data for that year via React Query's cache.
 
-**How to access**: Select the **Team Schedule** tab, or navigate directly to `/team/{CODE}` (e.g., `/team/BRO` for Brisbane Broncos).
+## Dashboard View (`/`)
 
-**How to use**:
-1. Select a team from the dropdown selector (or use a direct URL)
-2. The view loads the team's schedule, streak analysis, and form trajectory
+**Purpose**: Season-level overview — current round status, key stats, and the compact season grid.
 
-**What you see**:
-- **Summary card**: Team name with inline form sparkline (trend line), total fixtures, bye count, total schedule strength, average strength per match, rank among all teams (e.g., "Rank: 5/16"), strength category badge, and bye round chips
-- **Filter controls**: Round range slider (1–27) and venue toggle (All/Home/Away)
-- **Fixture table**: Round, date, opponent, venue (Home/Away badge), stadium, strength rating badge (colour-coded: green=easy, amber=medium, red=hard), result (W/L/D with score), weather. Streak column shows "Soft Draw" (green) or "Rough Patch" (red) labels spanning multiple rows
+**Features**:
+- Current round hero card (most recent incomplete or in-progress round)
+- Season stat strip (rounds played, total rounds, matches played)
+- Player movements alert (links to `/summary` if movements detected)
+- Full season compact grid — click any round to open `/round/{N}`; click any match to open `/match/{ID}`
 
-**Interactions**:
-- Filter by round range or venue type
-- Click any non-bye match row to open Match Detail View
-- Bye rows shown with reduced opacity and no click action
+## Round View (`/round/{N}`)
 
-## Round Overview View (Detailed Mode)
+**Purpose**: Detailed view of a single round's matches.
 
-**Purpose**: View all matches in a single round with outlook predictions.
+**Features**:
+- Round stepper (prev/next round arrows)
+- Grid of match cards (responsive: 1 column mobile, 2 sm, 3 md)
+- Each card shows teams, score/time, strength badges, weather, and outlook label
+- Bye teams listed below matches
+- Auto-redirects `/round` → `/round/{current}` on load
 
-**How to access**: Select the **Round Overview** tab in Detailed mode, or navigate directly to `/round/{N}` (e.g., `/round/5`).
+## Team View (`/team/{CODE}`)
 
-**How to use**:
-1. Choose a round from the dropdown (1–27), or use a direct URL
-2. Ensure **Detailed** mode is selected (list icon)
+**Purpose**: A single team's complete season schedule with filters.
 
-**What you see**:
-- **Round header**: "Round X — YYYY Season" with match count
-- **Match cards grid** (3 columns): Each card shows date/time, stadium, home team with strength badge, "vs" divider, away team with strength badge, score (if completed), weather, and outlook badge (Easy/Competitive/Tough/Upset Alert with tooltip showing composite score)
-- **Bye teams list**: All teams with byes shown as chips at the bottom
+**Features**:
+- Team selector chip grid (click to switch team)
+- Form sparkline + classification label
+- Round range and venue (H/A/All) filter controls
+- Sortable schedule table: Round, Opponent, H/A, Strength, Date, Stadium, Result
+- Mobile: hides stadium, date, H/A columns via `hideOnMobile`
 
-**Interactions**:
-- Change round via dropdown
-- Click any match card to open Match Detail View
-
-## Compact Season View (Compact Mode)
-
-**Purpose**: See the entire season at a glance in a 9×3 grid (27 rounds).
-
-**How to access**: Navigate to `/` (home), or select the **Round Overview** tab and switch to **Compact** mode (grid icon).
-
-**What you see**:
-- **9×3 grid**: Each cell represents one round (R1–R27)
-- **Per cell**: Round number header, then compact match entries showing home strength badge, team abbreviations (e.g., "BRO v MEL"), and away strength badge
-- Strength badges are colour-coded using the same green/amber/red scheme
-
-**Interactions**:
-- Click a round cell to switch to detailed view for that round
-- Click a specific match within a cell to open Match Detail View
-
-## Bye Overview View
-
-**Purpose**: Visualise bye distribution across all teams and rounds to identify scheduling patterns.
-
-**How to access**: Select the **Bye Overview** tab, or navigate directly to `/bye`.
-
-**How to use**:
-1. Optionally adjust the round range slider to focus on a specific part of the season
-
-**What you see**:
-- **Round range filter**: Slider with markers at rounds 1, 14, 27
-- **Bye grid table**: Rows = 17 teams (sorted alphabetically), Columns = rounds (filtered by slider). Bye cells show a "no entry" indicator. Column headers colour-coded by bye concentration (light to dark blue — more byes = darker). Row headers coloured by strength effect
-- **Significant bye statistics**: Table showing only rounds with >2 byes. Two rows per round: "Affected Teams" (red, teams with byes) and "Unaffected Teams" (green, teams playing). Team codes shown as clickable chips
-
-**Interactions**:
-- Click a team name (row header) to highlight all their byes across the season (green highlight)
-- Click a round number (column header) to highlight all byes in that round
-- Highlighting is mutually exclusive — only one row OR one column highlighted at a time
-- Click team chips in the statistics table to highlight across both tables
-- Clear Filters resets range and clears all highlights
-
-## Match Detail View
-
-**Purpose**: View full match information including player statistics for both teams.
-
-**How to access**: Click any match from Team Schedule View, Round Overview, or Compact Season View. Or navigate directly to `/match/{ID}`.
-
-**What you see**:
-- **Back button**: Returns to the previous view
-- **Match header**: Round and year, outlook badge (if available), "Match In Progress" warning (if applicable)
-- **Teams display**: Home team (left) and away team (right) with strength rating badges. Score displayed in centre if match is completed, or "vs" if not started
-- **Match info**: Formatted date/time, stadium name, weather conditions
-- **Team lists** (when available): Side-by-side display of home and away team lineups, showing jersey number, player name, and position. Starters (1–13) are separated from interchange (14–17) with a visual divider. Each player name is clickable to navigate to their player detail page. Shows "scraped at" timestamp below each team list. Hidden when team list data is null.
-- **Player statistics** (only for completed/in-progress matches): Two tables (one per team) with 45+ stat columns organised into grouped categories:
-  - **Player**: Name (sticky column), Position, Minutes, Stint One
-  - **Scoring**: Tries, Try Assists, Goals, Conversions, Points, Field Goals
-  - **Running**: All Runs, Run Metres, Hit Ups, Line Breaks, Offloads, Post-Contact Metres
-  - **Passing**: Receipts, Passes, Dummy Half Runs, Pass-to-Run Ratio
-  - **Defence**: Tackles, Missed Tackles, Tackle Efficiency, Intercepts, One-on-One stats
-  - **Kicking**: Kicks, Kick Metres, Bombs, Grubbers, 40/20s, 20/40s
-  - **Discipline**: Errors, Handling Errors, Penalties, Sin Bins, Send Offs
-
-**Interactions**:
-- Click any column header to sort the table ascending/descending (default: sorted by minutes played)
-- Scroll horizontally to see all stat columns (player name column stays sticky on the left)
-- Click a player name to navigate to their Player Detail page
-- Click "Back to overview" to return to the previous view
-
-## Players Summary View
-
-**Purpose**: Browse all players' aggregated season statistics in a sortable, searchable, filterable table.
-
-**How to access**: Select the **Players** tab in the main navigation bar, or navigate directly to `/players`.
-
-**Components**:
-- `PlayersSummaryView` in `client/src/views/PlayersSummaryView.tsx`
-
-**What you see**:
-- **Search field**: Text input to filter players by name (case-insensitive substring match)
-- **Team filter**: Dropdown to show only players from a specific team ("All Teams" to clear)
-- **Position filter**: Dropdown to show only players at a specific position ("All Positions" to clear), dynamically populated from the current player data
-- **Player count**: Shows total number of matching players
-- **Summary table**: Columns — Player Name (clickable, sticky left), Team, Position, Games Played, Tries, Run Metres, Tackles, Points, Avg Fantasy Points, Tackle Breaks, Line Breaks
-- **Loading spinner**: Shown while data is being fetched
-- **Empty state**: Message when no players match the current filters
-
-**Interactions**:
-- Type in the search field to filter by player name
-- Select a team from the dropdown to filter by team
-- Select a position from the dropdown to filter by position
-- All three filters combine (name AND team AND position)
-- Click any column header to sort ascending/descending (default: average fantasy points, descending)
-- Click a player name to navigate to their Player Detail page
-
-## Player Detail View
-
-**Purpose**: View a player's round-by-round performance breakdown for the current season, with totals and averages.
-
-**How to access**: Click a player name from the Players Summary View or from the Match Detail View player stats table. Or navigate directly to `/player/{ID}`.
-
-**Components**:
-- `PlayerDetailView` in `client/src/views/PlayerDetailView.tsx`
-
-**What you see**:
-- **Back button**: Returns to the previous view
-- **Player header**: Player name (h4), team name chip, position chip, season label with games played count
-- **Season totals**: Summary line showing total tries, run metres, tackles, goals, and fantasy points
-- **Round-by-round table**: One row per match performance with columns grouped by category — Match, Scoring, Running, Passing, Defence, Kicking, Discipline, and Supercoach. The Supercoach group includes supplementary stats (LT, MG, MF, eOL, iOL, R8+, R8-, KB, HG) plus **Price** (formatted as currency, e.g., "$523,400") and **Break Even** (signed integer). Null values display as "—".
-- **Totals row** (blue background): Sums of all numeric columns (Price and Break Even excluded from totals/averages)
-- **Averages row** (green background, italic): Per-game averages (totals / games played)
-- **Incomplete match indicator**: Rows for incomplete matches shown with reduced opacity (0.6) and a warning icon with tooltip "Partial data — stats may be incomplete"
-- **Injury history** (when available): Table showing the player's injury records from the casualty ward, with columns for Injury, Expected Return, Start Date, End Date, and Status. Status shows "Current" (red chip) for active injuries or "Recovered" (green chip) for past injuries.
-- **Player not found**: When navigating to a non-existent player ID, shows "Player not found" with a link back to the Players tab
-
-**Interactions**:
-- Click "Back" to return to the previous view (uses browser history, falls back to `/players`)
-
-## Casualty Ward View
-
-**Purpose**: View all currently injured players, grouped by their expected return timeline.
-
-**How to access**: Select the **Casualty Ward** tab (hospital icon) in the main navigation bar, or navigate directly to `/casualty-ward`.
-
-**Components**:
-- `CasualtyWardView` in `client/src/views/CasualtyWardView.tsx`
-
-**What you see**:
-- **Title**: "Casualty Ward (N players)" showing total count of currently injured players
-- **Grouped sections**: One section per expected return value (e.g., "Round 10", "TBC", "Indefinite", "Next Season"), each with a count chip
-- **Per section table**: Columns — Player (clickable if linked to player record), Team, Injury, Since (start date). Rows sorted alphabetically by last name within each group
-
-**Group ordering**: Round N (sorted numerically) → TBC → Indefinite → Next Season → Other
-
-**Interactions**:
-- Click a player name (when linked) to navigate to their Player Detail page with injury history
-
-## Supercoach View
-
-**Purpose**: Display computed Supercoach scores per round, showing category breakdowns and player trends.
-
-**How to access**: Select the **Supercoach** tab in the main navigation bar, or navigate directly to `/supercoach` or `/supercoach/:round`.
-
-**URL Routes**:
-
-| URL | View | Parameters |
-|-----|------|------------|
-| `/supercoach` | Supercoach round scores (defaults to latest round) | None |
-| `/supercoach/{N}` | Supercoach scores for round N | `N`: round number, integer 1–27 |
-
-**Components**:
-- `SupercoachScoreTable` in `client/src/components/`
-- `CategoryBreakdown` in `client/src/components/`
-- `ScoreTrendChart` in `client/src/components/`
-- `SupercoachView` in `client/src/views/SupercoachView.tsx`
-
-**How to use**:
-1. Select a round from the round selector (1–27)
-2. Optionally filter by team using the team filter dropdown
-3. Click any player row to open the detail panel
-
-**What you see**:
-- **Round selector**: Dropdown or stepper to navigate between rounds 1–27
-- **Team filter**: Dropdown to filter the score table to a single team
-- **Score table** (`SupercoachScoreTable`): All players for the selected round with columns for player name, team, total Supercoach score, and per-category scores (Scoring, Create, Evade, Base, Defence, Negative). Validation warnings shown as icons next to affected player rows.
-
-**Detail panel** (opens on player click):
-- **Category breakdown** (`CategoryBreakdown`): 6 accordion sections (one per scoring category) showing individual stat contributions within each category — stat name, raw value, points-per-unit, and calculated points
-- **Season trend chart** (`ScoreTrendChart`): Bar chart showing the player's total Supercoach score per round across the season, with season average line overlay
-- **Validation warnings**: Any data quality warnings for this player (offload mismatch, run count mismatch, score difference vs published)
-
-**Interactions**:
-- Change round via round selector
-- Filter by team via dropdown
-- Click a player row to open/close the detail panel
-- Expand/collapse individual category accordions in the detail panel
-
-## Compare View
-
-**Purpose**: Side-by-side comparison of two or more NRL players across season statistics, Supercoach round scores, and projection analytics.
-
-**How to access**:
-- Select the **Compare** tab (compare arrows icon) in the main navigation bar
-- On any player's detail page, click the **Compare** button in the header to add that player to the comparison set and navigate to the Compare page
-
-**URL routes**:
-
-| URL | View |
-|-----|------|
-| `/compare` | Empty comparison page (shows search prompt) |
-| `/compare/:ids` | Comparison of players identified by comma-separated IDs |
-
-**URL state**: The comparison set is encoded in the URL path (e.g., `/compare/id1,id2,id3`). Adding/removing players updates the URL. Bookmarking, sharing, or back-navigating through browser history restores the exact same comparison set.
-
-**Components**:
-- `CompareView` in `client/src/views/CompareView.tsx` — main page
-- `PlayerSearchInput` in `client/src/components/PlayerSearchInput.tsx` — autocomplete player search
-- `CompareAnalyticsSummary` in `client/src/components/CompareAnalyticsSummary.tsx` — analytics cards
-- `CompareSeasonStatsTable` in `client/src/components/CompareSeasonStatsTable.tsx` — sortable season stats
-- `CompareRoundScoresTable` in `client/src/components/CompareRoundScoresTable.tsx` — sortable round scores
-- `CompareProjectionsSection` in `client/src/components/CompareProjectionsSection.tsx` — projection analytics
-
-**What you see**:
-
-**Empty state**: When no players have been added, a search icon, instruction text ("Add players to start comparing"), and search bar are displayed.
-
-**Player chips + search bar**: Each compared player appears as a chip with a remove (×) button. An autocomplete search bar lets users add further players by name.
-
-**1. Key Analytics Summary Cards** — one card per player showing:
-- Projected Score (floor mean + spike mean)
-- Projected Floor (floor mean + spike P25)
-- Projected Ceiling (floor mean + spike P90)
-- Current Supercoach price
-- Break even
-- Leader per metric highlighted in green (2+ players only)
-- Amber warning icon on projection metrics when player has <6 eligible games
-
-**2. Season Statistics Table** — stat categories as rows, players as columns:
-- Stats: Games Played, SC Avg, Tries, Run Metres, Tackles, Tackle Breaks, Line Breaks, NRL Points, Kicks, Kick Metres, Offloads, Errors, Penalties, Missed Tackles, Intercepts, Avg Minutes, Price, Break Even
-- Click a player column header to sort all rows by that player's value (descending first, toggle for ascending)
-- Null values displayed as "—" and sort to the bottom
-- Highest value per row highlighted in green (2+ players only)
-
-**3. Round Scores Table** — completed rounds as rows, players as columns:
-- Each cell shows that player's total Supercoach score for the round
-- **DNP** shown (muted text) when a player has no score for a round that another player played
-- Sortable by player column; DNP rows sort to the bottom
-
-**4. Projections Table** — projection model outputs as rows, players as columns:
-- Rows: Projected Score, Projected Floor, Projected Ceiling, Floor Mean, Spike Mean, Floor CV, Spike CV, Spike distribution band frequencies (Negative/Nil/Low/Moderate/High/Boom as %)
-- "Unavailable" shown in a player's column if their projection data failed to load
-- "No data" shown when player has no eligible games
-- Amber warning icon in column header when player has low sample size (<6 games)
-
-**Interactions**:
-- Add players via autocomplete search or the Compare button on individual player pages
-- Remove players via the × on their chip
-- Sort any table by clicking a player column header
-- Click browser back to restore the previous comparison state
-
-## Visual Language
-
-- **Strength badges**: Green = easy, Amber = medium, Red = hard (based on p33/p67 percentile thresholds)
-- **Outlook badges**: Green = Easy, Amber = Competitive, Red = Tough, Purple = Upset Alert
-- **Form sparkline**: Inline SVG trend line — green (trending up), red (trending down), grey (stable)
-- **Results**: Green = Win, Red = Loss, Grey = Draw
-- **Streak labels**: Green background = Soft Draw (favourable stretch), Red background = Rough Patch (difficult stretch)
-
----
-
-## Summary Tab (`/summary`)
-
-The Summary tab provides a weekly player movement digest for Supercoach decision-making. It shows changes between the previous round's named 17 and the current round's named 17 across five collapsible sections.
-
-**Navigation**: Seventh tab in the tab bar (SummarizeIcon). URL: `/summary`.
-
-**States**:
-- **Loading**: `CircularProgress` spinner shown while fetching.
-- **Pending**: `Alert severity="info"` — "Team lists not yet complete for this round." Shown when not all teams have submitted team lists.
-- **No Previous Round**: `Alert severity="info"` — "No previous round data available for comparison." Shown for Round 1.
-- **Full result**: Five `Accordion` sections with count badges, populated tables.
-
-**Layout**: Five collapsible sections using MUI `Accordion`:
-1. **Dropped** — Players absent from this round's squad. Columns: Player (link), Team, Last #, Last Position, Cause (Chip: red = Injury, grey = Form).
-2. **Benched** — Players demoted from starters (1–17) to interchange (18+). Columns: Player (link), Team, Jersey, Position, Consecutive Rounds.
-3. **Promoted** — Players moved from bench or absent to starters. Columns: Player (link), Team, Jersey, Position, Returning from Injury.
-4. **Returning from Injury** — Players with a recently-closed casualty ward record back in the 17. Columns: Player (link), Team, Pre-Injury #, Pre-Injury Position, Current #, Current Position (with "Position Changed" warning chip when applicable).
-5. **Position Changed** — Players in the 17 for both rounds with a different listed position. Columns: Player (link), Team, Jersey, Old Position, New Position.
-
-**Expand/collapse behaviour**: Sections default to expanded on desktop (`md` breakpoint and above) and collapsed on mobile.
-
-**Player links**: Each player name is a `Link component="button"` that triggers `onPlayerClick(String(row.playerId))`, navigating to the PlayerDetailView.
-
-**Layout design**: The `Box` container is intentionally bare — no fixed columns or grid — so future sections (price changes, projections, breakeven leaderboards) can be appended without redesign.
+## Match Detail View (`/match/{ID}`)
+
+**Purpose**: Full detail for a single match.
+
+**Features**:
+- Match hero (teams, score or kickoff time, strength badges)
+- Stadium, weather
+- Tabs: Overview | Home Stats | Away Stats | Team Lists
+- Stats tabs: sortable player stats table, card mode on mobile
+- Team lists: home and away lineups with jersey numbers and positions, click player → `/player/{ID}`
+
+## Players View (`/players`)
+
+**Purpose**: Browse all players' season statistics.
+
+**Features**:
+- Toggle between table and card views
+- Search by name, filter by team, filter by position
+- Table: sortable columns (SC Avg, Games, Tries, Run Metres, etc.)
+- Card mode: compact player cards showing team color accent
+- Injured players flagged with InjuryStatusChip (cross-referenced with Casualty Ward)
+
+## Player Detail View (`/player/{ID}`)
+
+**Purpose**: Full stats and history for a single player.
+
+**Features**:
+- Profile header with team, position, SC average chips
+- "Compare" button pre-fills `/compare/{id}` with this player
+- Stat snapshot grid (SC average, total, games, projected/floor/ceiling)
+- Tabs: Supercoach | Projections | Injury History
+  - **Supercoach**: score bar chart + per-round table
+  - **Projections**: floor/ceiling/projected cards, spike band chart
+  - **Injury History**: table of historical casualty ward entries
+
+## Supercoach View (`/supercoach/{N}`)
+
+**Purpose**: Supercoach scores for a given round, filterable by team.
+
+**Features**:
+- Round stepper (prev/next)
+- Team filter chips (horizontal scrollable)
+- Incomplete round warning if round not yet finished
+- Sortable table: Player, Team, SC total, category breakdown (Scoring, Create, Evade, Base, Defence, Negative)
+- Click player row → `/player/{ID}`
+- Auto-redirects `/supercoach` → `/supercoach/{current}` on load
+
+## Compare View (`/compare/{ids}`)
+
+**Purpose**: Side-by-side comparison of up to 4 players.
+
+**Features**:
+- Player search autocomplete (excludes already-selected players)
+- Player chips with remove button
+- Stat card strip (SC average per player)
+- Tabs: Overview (Radar chart for 6-axis stat comparison) | Scores (SC trend bar charts) | Projections (floor/ceiling/projected)
+- URL encodes player IDs as comma-separated: `/compare/123,456`
+- Add/remove updates URL with `navigate()`
+
+## Summary View (`/summary`)
+
+**Purpose**: Player movements between the last two rounds.
+
+**Features**:
+- Sections per movement type: Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed
+- Mobile: chip list per section; desktop: DataTable per section
+- "Hide interchange promotions" checkbox in the Promoted section
+- Pending/no-data alerts when round data isn't available
+
+## Casualty Ward (`/casualty-ward`)
+
+**Purpose**: All currently injured players grouped by expected return timeline.
+
+**Features**:
+- Groups ordered numerically (Round N → TBC → Indefinite → Next Season → Other)
+- Table per group: player name (links to `/player/{ID}`), team chip, injury, since date
+- Total count in page header
+
+## Bye Overview (`/bye`)
+
+**Purpose**: Visualise bye week distribution across all teams.
+
+**Features**:
+- Toggle between grid view (full team × round matrix) and list view (per-round bye teams)
+- Round range slider to filter visible rounds
+- Grid: click team row or round column to highlight; bye concentration colour-coded
+- List: shows each round's bye teams as chips
+- Significant bye stats below (rounds with >2 byes)
+
+## Shared Components
+
+| Component | Purpose |
+|-----------|---------|
+| `PageHeader` | Title, subtitle, actions slot |
+| `SectionCard` | Paper container with optional title/divider/actions |
+| `StatCard` | Key metric display (label, value, optional trend) |
+| `DataTable<T>` | Generic responsive table: sticky col, group headers, sort, card mode |
+| `SkeletonPage` | Loading skeletons: `table`, `cards`, `match-list`, `player-header` |
+| `MatchCard` | Match summary card with team accent, score, badges |
+| `PlayerCard` | Player grid card for Players view |
+| `TeamListPanel` | Two-column home/away team lists |
+| `InjuryStatusChip` | Injured/recovering/available chip |
+| `ScoreBarChart` | Recharts bar chart of SC scores per round + average line |
+| `RadarChart` | Recharts radar chart for multi-player stat comparison |
+| `SpikeBandChart` | CSS flex stacked band chart for spike distributions |

@@ -1,10 +1,19 @@
 import { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, RenderOptions } from '@testing-library/react';
 import { ThemeProvider } from '@mui/material/styles';
-import { nrlTheme } from '../theme/nrlTheme';
+import { lightTheme } from '../theme/lightTheme';
 
 function AllTheProviders({ children }: { children: React.ReactNode }) {
-  return <ThemeProvider theme={nrlTheme}>{children}</ThemeProvider>;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <QueryClientProvider client={client}>
+      <ThemeProvider theme={lightTheme}>
+        <MemoryRouter>{children}</MemoryRouter>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
 }
 
 export function renderWithTheme(

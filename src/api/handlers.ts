@@ -464,7 +464,8 @@ export function getSeasonSummary(deps: HandlerDeps) {
       const validYearsStr = loadedYears.length > 0 ? ` (loaded years: ${loadedYears.join(', ')})` : '';
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
-    const result = await createGetSeasonSummaryUseCase(deps.matchRepository).execute(year);
+    const teamListRepo = deps.createTeamListRepository(c.env.DB);
+    const result = await createGetSeasonSummaryUseCase(deps.matchRepository, teamListRepo).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }

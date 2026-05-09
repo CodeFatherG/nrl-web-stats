@@ -289,6 +289,46 @@ export async function getSupercoachScores(
   return fetchApi<SupercoachScoreResponse>(`/supercoach/${year}/${round}${params}`);
 }
 
+export interface MatchSupercoachPlayerScore {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  totalScore: number;
+  isComplete: boolean;
+  categoryTotals: {
+    scoring: number;
+    create: number;
+    evade: number;
+    base: number;
+    defence: number;
+    negative: number;
+  };
+}
+
+export interface MatchSupercoachTeamGroup {
+  teamCode: string;
+  teamName: string;
+  isComplete: boolean;
+  teamTotal: number;
+  players: MatchSupercoachPlayerScore[];
+}
+
+export interface MatchSupercoachResponse {
+  matchId: string;
+  year: number;
+  round: number;
+  isComplete: boolean;
+  homeTeam: MatchSupercoachTeamGroup;
+  awayTeam: MatchSupercoachTeamGroup;
+}
+
+export async function getMatchSupercoach(
+  year: number,
+  matchId: string
+): Promise<MatchSupercoachResponse> {
+  return fetchApi<MatchSupercoachResponse>(`/supercoach/${year}/match/${encodeURIComponent(matchId)}`);
+}
+
 export interface ScrapeSupplementaryResult {
   year: number;
   round: number;

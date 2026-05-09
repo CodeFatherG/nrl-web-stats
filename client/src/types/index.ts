@@ -205,6 +205,7 @@ export interface CompactRound {
   round: number;
   matches: CompactMatch[];
   byeTeams: string[];
+  hasTeamLists: boolean;
 }
 
 /** Season summary response for compact season view */

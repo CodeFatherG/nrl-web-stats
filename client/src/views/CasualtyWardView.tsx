@@ -1,159 +1,105 @@
-import { useState, useEffect, useMemo } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Typography,
-  Box,
-  CircularProgress,
-  Chip,
-  Link,
-  Alert,
-} from '@mui/material';
-import { getCasualtyWard } from '../services/api';
+import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
+import Link from '@mui/material/Link';
+import { useCasualtyWardQuery } from '../hooks/useCasualtyWardQuery';
+import { PageHeader } from '../components/shared/PageHeader';
+import { SectionCard } from '../components/shared/SectionCard';
+import { DataTable } from '../components/shared/DataTable';
+import { SkeletonPage } from '../components/shared/SkeletonPage';
+import Chip from '@mui/material/Chip';
 import type { CasualtyWardEntry } from '../services/api';
-import type { Team } from '../types';
 
-interface CasualtyWardViewProps {
-  teams: Team[];
-  onPlayerClick?: (playerId: string) => void;
-}
+const RETURN_ORDER = (r: string) => {
+  const n = Number(r.replace(/\D/g, ''));
+  if (!isNaN(n) && n > 0) return n;
+  if (r === 'TBC') return 1000;
+  if (r.toLowerCase().includes('indefinite')) return 1001;
+  if (r.toLowerCase().includes('next season')) return 1002;
+  return 1003;
+};
 
-/** Sort order for expected return grouping */
-function expectedReturnSortKey(value: string): number {
-  const roundMatch = value.match(/^Round\s+(\d+)$/i);
-  if (roundMatch) return parseInt(roundMatch[1]!, 10);
-  if (value === 'TBC') return 1000;
-  if (value === 'Indefinite') return 2000;
-  if (value.toLowerCase().includes('season')) return 3000;
-  return 4000;
-}
+const COLUMNS = [
+  { key: 'playerName', label: 'Player', align: 'left' as const, sortable: true,
+    getValue: (e: CasualtyWardEntry) => e.playerName,
+    renderCell: (e: CasualtyWardEntry) => (
+      e.playerId ? (
+        <Link component="button" variant="caption" onClick={() => {}}>
+          {e.playerName}
+        </Link>
+      ) : (
+        <Typography variant="caption">{e.playerName}</Typography>
+      )
+    ) },
+  { key: 'teamCode', label: 'Team', align: 'center' as const,
+    renderCell: (e: CasualtyWardEntry) => <Chip label={e.teamCode} size="small" variant="outlined" /> },
+  { key: 'injury', label: 'Injury', align: 'left' as const,
+    renderCell: (e: CasualtyWardEntry) => <Typography variant="caption">{e.injury}</Typography> },
+  { key: 'startDate', label: 'Since', align: 'left' as const, hideOnMobile: true,
+    renderCell: (e: CasualtyWardEntry) => <Typography variant="caption">{e.startDate}</Typography> },
+];
 
-export function CasualtyWardView({ teams, onPlayerClick }: CasualtyWardViewProps) {
-  const [entries, setEntries] = useState<CasualtyWardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const teamNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const team of teams) {
-      map.set(team.code, team.name);
-    }
-    return map;
-  }, [teams]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    getCasualtyWard()
-      .then((data) => {
-        if (!cancelled) {
-          setEntries(data.entries);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load casualty ward');
-          setLoading(false);
-        }
-      });
-
-    return () => { cancelled = true; };
-  }, []);
+export function CasualtyWardView() {
+  const navigate = useNavigate();
+  const query = useCasualtyWardQuery();
 
   const grouped = useMemo(() => {
+    if (!query.data) return [];
     const groups = new Map<string, CasualtyWardEntry[]>();
-    for (const entry of entries) {
-      const key = entry.expectedReturn;
+    for (const e of query.data.entries) {
+      const key = e.expectedReturn;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(entry);
+      groups.get(key)!.push(e);
     }
-
     return Array.from(groups.entries())
-      .sort(([a], [b]) => expectedReturnSortKey(a) - expectedReturnSortKey(b));
-  }, [entries]);
+      .sort(([a], [b]) => RETURN_ORDER(a) - RETURN_ORDER(b));
+  }, [query.data]);
 
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" py={4}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  if (query.isLoading) return <SkeletonPage variant="table" />;
+  if (query.isError) return <Alert severity="error">Failed to load casualty ward data.</Alert>;
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
-  if (entries.length === 0) {
-    return (
-      <Alert severity="info">No players currently on the casualty ward.</Alert>
-    );
-  }
+  const total = query.data?.count ?? 0;
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
-        Casualty Ward ({entries.length} players)
-      </Typography>
+      <PageHeader title="Casualty Ward" subtitle={`${total} player${total !== 1 ? 's' : ''} currently injured`} />
 
-      {grouped.map(([expectedReturn, groupEntries]) => (
-        <Box key={expectedReturn} mb={3}>
-          <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
-            {expectedReturn}
-            <Chip
-              label={`${groupEntries.length}`}
-              size="small"
-              sx={{ ml: 1 }}
-            />
-          </Typography>
-
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Player</TableCell>
-                  <TableCell>Team</TableCell>
-                  <TableCell>Injury</TableCell>
-                  <TableCell>Since</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {groupEntries
-                  .sort((a, b) => a.lastName.localeCompare(b.lastName))
-                  .map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell>
-                        {entry.playerId && onPlayerClick ? (
-                          <Link
-                            component="button"
-                            variant="body2"
-                            onClick={() => onPlayerClick(entry.playerId!)}
-                            sx={{ textAlign: 'left' }}
-                          >
-                            {entry.playerName}
-                          </Link>
-                        ) : (
-                          entry.playerName
-                        )}
-                      </TableCell>
-                      <TableCell>{teamNameMap.get(entry.teamCode) ?? entry.teamCode}</TableCell>
-                      <TableCell>{entry.injury}</TableCell>
-                      <TableCell>{entry.startDate}</TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+      {grouped.length === 0 ? (
+        <Alert severity="success">No current injuries on record.</Alert>
+      ) : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {grouped.map(([returnDate, entries]) => (
+            <SectionCard key={returnDate} title={`Expected Return: ${returnDate} (${entries.length})`}>
+              <DataTable
+                columns={COLUMNS.map(col =>
+                  col.key === 'playerName'
+                    ? {
+                        ...col,
+                        renderCell: (e: CasualtyWardEntry) =>
+                          e.playerId ? (
+                            <Link
+                              component="button"
+                              variant="caption"
+                              onClick={() => navigate(`/player/${e.playerId}`)}
+                            >
+                              {e.playerName}
+                            </Link>
+                          ) : (
+                            <Typography variant="caption">{e.playerName}</Typography>
+                          ),
+                      }
+                    : col
+                )}
+                rows={entries}
+                getRowKey={e => String(e.id)}
+                emptyMessage="None"
+              />
+            </SectionCard>
+          ))}
         </Box>
-      ))}
+      )}
     </Box>
   );
 }

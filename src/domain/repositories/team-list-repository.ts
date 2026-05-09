@@ -25,4 +25,7 @@ export interface TeamListRepository {
 
   /** Check if any team lists exist for a given match. */
   hasTeamListsForMatch(matchId: string): Promise<boolean>;
+
+  /** Returns the set of round numbers that have any team list entries for the given year. */
+  getRoundsWithTeamLists(year: number): Promise<Set<number>>;
 }

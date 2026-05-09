@@ -157,4 +157,12 @@ export class D1TeamListRepository implements TeamListRepository {
       .first();
     return row !== null;
   }
+
+  async getRoundsWithTeamLists(year: number): Promise<Set<number>> {
+    const { results } = await this.db
+      .prepare('SELECT DISTINCT round FROM team_lists WHERE year = ?')
+      .bind(year)
+      .all();
+    return new Set(results.map(r => r.round as number));
+  }
 }

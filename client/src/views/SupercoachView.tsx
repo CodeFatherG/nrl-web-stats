@@ -1,206 +1,169 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  Box, Typography, FormControl, InputLabel, Select, MenuItem,
-  Alert, CircularProgress, Chip, IconButton,
-} from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import type { SelectChangeEvent } from '@mui/material';
-import { SupercoachScoreTable } from '../components/SupercoachScoreTable';
-import { CategoryBreakdown } from '../components/CategoryBreakdown';
-import { ScoreTrendChart } from '../components/ScoreTrendChart';
-import { getSupercoachScores, getPlayerSupercoachSeason } from '../services/api';
-import type { SupercoachScoreResponse, PlayerSeasonSupercoachResponse } from '../services/api';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { useAppContext } from '../hooks/useAppContext';
+import { useSupercoachQuery } from '../hooks/useSupercoachQuery';
+import { useSeasonSummaryQuery } from '../hooks/useSeasonQuery';
+import { PageHeader } from '../components/shared/PageHeader';
+import { SectionCard } from '../components/shared/SectionCard';
+import { DataTable } from '../components/shared/DataTable';
+import { SkeletonPage } from '../components/shared/SkeletonPage';
 
-interface SupercoachViewProps {
-  year: number;
-  selectedRound: number;
-  onRoundSelect: (round: number) => void;
-  teams: Array<{ code: string; name: string }>;
-}
+type ScoreRow = {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  totalScore: number;
+  isComplete: boolean;
+  scoring: number;
+  create: number;
+  evade: number;
+  base: number;
+  defence: number;
+  negative: number;
+};
 
-export function SupercoachView({ year, selectedRound, onRoundSelect, teams }: SupercoachViewProps) {
-  const [data, setData] = useState<SupercoachScoreResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [teamFilter, setTeamFilter] = useState<string>('');
-  const [selectedPlayer, setSelectedPlayer] = useState<SupercoachScoreResponse['scores'][number] | null>(null);
-  const [trendData, setTrendData] = useState<PlayerSeasonSupercoachResponse | null>(null);
-  const [trendLoading, setTrendLoading] = useState(false);
+const COLUMNS = [
+  { key: 'playerName', label: 'Player', sticky: true, align: 'left' as const, sortable: true,
+    getValue: (r: ScoreRow) => r.playerName,
+    renderCell: (r: ScoreRow) => <Typography variant="caption" fontWeight={600}>{r.playerName}</Typography> },
+  { key: 'teamCode', label: 'Team', align: 'center' as const,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.teamCode}</Typography> },
+  { key: 'totalScore', label: 'SC', align: 'right' as const, sortable: true,
+    getValue: (r: ScoreRow) => r.totalScore,
+    renderCell: (r: ScoreRow) => <Typography variant="caption" fontWeight={700}>{r.totalScore}</Typography> },
+  { key: 'scoring', label: 'Score', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.scoring,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.scoring.toFixed(0)}</Typography> },
+  { key: 'create', label: 'Create', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.create,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.create.toFixed(0)}</Typography> },
+  { key: 'evade', label: 'Evade', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.evade,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.evade.toFixed(0)}</Typography> },
+  { key: 'base', label: 'Base', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.base,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.base.toFixed(0)}</Typography> },
+  { key: 'defence', label: 'Def', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.defence,
+    renderCell: (r: ScoreRow) => <Typography variant="caption">{r.defence.toFixed(0)}</Typography> },
+  { key: 'negative', label: 'Neg', align: 'right' as const, sortable: true, hideOnMobile: true,
+    getValue: (r: ScoreRow) => r.negative,
+    renderCell: (r: ScoreRow) => <Typography variant="caption" color="error.main">{r.negative.toFixed(0)}</Typography> },
+];
 
-  const fetchScores = useCallback(async (round: number, team?: string) => {
-    setLoading(true);
-    setError(null);
-    setSelectedPlayer(null);
+export function SupercoachView() {
+  const { n } = useParams<{ n?: string }>();
+  const { currentYear, teams } = useAppContext();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const year = Number(searchParams.get('year') ?? currentYear);
+  const [teamFilter, setTeamFilter] = useState('');
 
-    try {
-      const result = await getSupercoachScores(year, round, team || undefined);
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load scores');
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [year]);
+  const seasonQuery = useSeasonSummaryQuery(year);
+
+  const derivedRound = useMemo(() => {
+    if (n) return Number(n);
+    if (!seasonQuery.data) return 0;
+    const withLists = seasonQuery.data.rounds.filter(r => r.hasTeamLists);
+    if (withLists.length > 0) return withLists[withLists.length - 1]?.round ?? 1;
+    const completed = seasonQuery.data.rounds.filter(r => r.matches.some(m => m.isComplete));
+    return completed[completed.length - 1]?.round ?? 1;
+  }, [n, seasonQuery.data]);
 
   useEffect(() => {
-    void fetchScores(selectedRound, teamFilter);
-  }, [selectedRound, teamFilter, fetchScores]);
-
-  // Fetch season trend when a player is selected
-  useEffect(() => {
-    if (!selectedPlayer) {
-      setTrendData(null);
-      return;
+    if (!n && derivedRound > 0) {
+      navigate(`/supercoach/${derivedRound}`, { replace: true });
     }
+  }, [n, derivedRound, navigate]);
 
-    setTrendLoading(true);
-    void getPlayerSupercoachSeason(year, selectedPlayer.playerId)
-      .then(setTrendData)
-      .catch(() => setTrendData(null))
-      .finally(() => setTrendLoading(false));
-  }, [selectedPlayer, year]);
+  const scQuery = useSupercoachQuery(year, derivedRound, teamFilter || undefined);
 
-  const handleRoundChange = (e: SelectChangeEvent<number>) => {
-    const round = Number(e.target.value);
-    onRoundSelect(round);
-  };
+  const maxRound = seasonQuery.data?.rounds.length ?? 27;
 
-  const handleTeamChange = (e: SelectChangeEvent<string>) => {
-    setTeamFilter(e.target.value);
-  };
+  const rows = useMemo<ScoreRow[]>(() => {
+    return (scQuery.data?.scores ?? []).map(s => ({
+      playerId: s.playerId,
+      playerName: s.playerName,
+      teamCode: s.teamCode,
+      totalScore: s.totalScore,
+      isComplete: s.isComplete,
+      scoring: s.categoryTotals.scoring,
+      create: s.categoryTotals.create,
+      evade: s.categoryTotals.evade,
+      base: s.categoryTotals.base,
+      defence: s.categoryTotals.defence,
+      negative: s.categoryTotals.negative,
+    }));
+  }, [scQuery.data]);
+
+  if (!n && derivedRound === 0) return <SkeletonPage variant="table" />;
+
+  const stepper = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <IconButton onClick={() => navigate(`/supercoach/${derivedRound - 1}`)} disabled={derivedRound <= 1} size="small">
+        <ChevronLeftIcon />
+      </IconButton>
+      <Typography variant="body2" fontWeight={600} sx={{ minWidth: 64, textAlign: 'center' }}>
+        Round {derivedRound}
+      </Typography>
+      <IconButton onClick={() => navigate(`/supercoach/${derivedRound + 1}`)} disabled={derivedRound >= maxRound} size="small">
+        <ChevronRightIcon />
+      </IconButton>
+    </Box>
+  );
 
   return (
     <Box>
-      {/* Controls */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 120 }}>
-          <InputLabel>Round</InputLabel>
-          <Select value={selectedRound} label="Round" onChange={handleRoundChange}>
-            {Array.from({ length: 27 }, (_, i) => i + 1).map(r => (
-              <MenuItem key={r} value={r}>Round {r}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+      <PageHeader title="Supercoach Scores" subtitle={`${year} Season`} actions={stepper} />
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Team</InputLabel>
-          <Select value={teamFilter} label="Team" onChange={handleTeamChange}>
-            <MenuItem value="">All Teams</MenuItem>
-            {teams.map(t => (
-              <MenuItem key={t.code} value={t.code}>{t.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+      {!scQuery.data?.isComplete && scQuery.data && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Round {derivedRound} is not yet complete — scores may be partial.
+        </Alert>
+      )}
 
-        {data && (
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Chip label={`${data.playersScored} players`} size="small" variant="outlined" />
-            {!data.isComplete && (
-              <Chip label="Incomplete round" size="small" color="warning" />
-            )}
-          </Box>
-        )}
+      {/* Team filter chips */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2, overflowX: 'auto', pb: 0.5,
+        '::-webkit-scrollbar': { display: 'none' } }}>
+        <Chip
+          label="All"
+          size="small"
+          variant={teamFilter === '' ? 'filled' : 'outlined'}
+          color={teamFilter === '' ? 'primary' : 'default'}
+          onClick={() => setTeamFilter('')}
+        />
+        {teams.map(t => (
+          <Chip
+            key={t.code}
+            label={t.code}
+            size="small"
+            variant={teamFilter === t.code ? 'filled' : 'outlined'}
+            color={teamFilter === t.code ? 'primary' : 'default'}
+            onClick={() => setTeamFilter(t.code === teamFilter ? '' : t.code)}
+          />
+        ))}
       </Box>
 
-      {/* Validation banner */}
-      {data && !data.isComplete && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Supplementary stats are not yet available for all players in this round.
-          Scores marked "Partial" use primary stats only.
-        </Alert>
-      )}
-
-      {data && data.validationSummary.totalDiscrepancies > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {data.validationSummary.totalDiscrepancies} data discrepancies and{' '}
-          {data.validationSummary.unmatchedPlayers} unmatched players detected.
-        </Alert>
-      )}
-
-      {/* Content */}
-      {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
-      )}
-
-      {!loading && data && (
-        <SupercoachScoreTable
-          scores={data.scores}
-          onPlayerClick={setSelectedPlayer}
+      <SectionCard>
+        <DataTable
+          columns={COLUMNS}
+          rows={rows}
+          getRowKey={r => r.playerId}
+          stickyHeader
+          maxHeight="70vh"
+          defaultSortKey="totalScore"
+          defaultSortDir="desc"
+          emptyMessage={scQuery.isLoading ? 'Loading…' : 'No scores available.'}
+          onRowClick={r => navigate(`/player/${r.playerId}`)}
         />
-      )}
-
-      {/* Player detail panel with category breakdown */}
-      {selectedPlayer && (
-        <Box sx={{ mt: 3, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                {selectedPlayer.playerName} ({selectedPlayer.teamCode})
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Total: {selectedPlayer.totalScore} | Match confidence: {selectedPlayer.matchConfidence}
-              </Typography>
-            </Box>
-            <IconButton size="small" onClick={() => setSelectedPlayer(null)} aria-label="Close detail panel">
-              <CloseIcon />
-            </IconButton>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1, mb: 2 }}>
-            {Object.entries(selectedPlayer.categoryTotals).map(([cat, total]) => (
-              <Chip
-                key={cat}
-                label={`${cat}: ${total}`}
-                size="small"
-                color={total < 0 ? 'error' : total > 0 ? 'primary' : 'default'}
-                variant="outlined"
-              />
-            ))}
-          </Box>
-          {/* Season trend chart */}
-          {trendLoading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-              <CircularProgress size={24} />
-            </Box>
-          )}
-          {trendData && !trendLoading && (
-            <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <ScoreTrendChart data={trendData} />
-            </Box>
-          )}
-
-          <CategoryBreakdown
-            categories={selectedPlayer.categories}
-            categoryTotals={selectedPlayer.categoryTotals}
-            isComplete={selectedPlayer.isComplete}
-          />
-
-          {/* Validation warnings */}
-          {selectedPlayer.validationWarnings.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" color="warning.main" gutterBottom>
-                Data Validation Warnings ({selectedPlayer.validationWarnings.length})
-              </Typography>
-              {selectedPlayer.validationWarnings.map((w, i) => (
-                <Alert key={i} severity="warning" sx={{ mb: 1 }} variant="outlined">
-                  <Typography variant="body2">{w.message}</Typography>
-                  {w.primaryValue !== null && w.supplementaryValue !== null && (
-                    <Typography variant="caption" color="text.secondary">
-                      Primary: {w.primaryValue} | Supplementary: {w.supplementaryValue}
-                    </Typography>
-                  )}
-                </Alert>
-              ))}
-            </Box>
-          )}
-        </Box>
-      )}
+      </SectionCard>
     </Box>
   );
 }
