@@ -42,6 +42,7 @@ interface DataTableProps<T> {
   defaultSortKey?: string;
   defaultSortDir?: 'asc' | 'desc';
   dense?: boolean;
+  getRowBg?: (row: T) => string | undefined;
 }
 
 function getCellValue<T>(row: T, col: ColumnDef<T>): string | number | null {
@@ -74,6 +75,7 @@ export function DataTable<T>({
   defaultSortKey,
   defaultSortDir = 'desc',
   dense = false,
+  getRowBg,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string>(defaultSortKey ?? '');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir);
@@ -219,48 +221,45 @@ export function DataTable<T>({
               </TableCell>
             </TableRow>
           ) : (
-            sortedRows.map((row, rowIndex) => (
-              <TableRow
-                key={getRowKey(row)}
-                hover={!!onRowClick}
-                onClick={() => onRowClick?.(row)}
-                sx={{
-                  cursor: onRowClick ? 'pointer' : 'default',
-                  bgcolor: rowIndex % 2 === 1 ? 'action.hover' : 'background.paper',
-                }}
-              >
-                {columns.map(col => {
-                  const val = col.renderCell
-                    ? null
-                    : getCellValue(row, col);
-
-                  return (
-                    <TableCell
-                      key={col.key}
-                      align={col.align ?? 'right'}
-                      sx={{
-                        fontSize: '0.8rem',
-                        whiteSpace: 'nowrap',
-                        display: { xs: col.hideOnMobile ? 'none' : 'table-cell', sm: 'table-cell' },
-                        color: val === 0 ? 'text.disabled' : undefined,
-                        ...(col.sticky ? {
-                          position: 'sticky',
-                          left: 0,
-                          zIndex: 1,
-                          bgcolor: rowIndex % 2 === 1 ? 'action.hover' : 'background.paper',
-                          borderRight: '1px solid',
-                          borderColor: 'divider',
-                        } : {}),
-                      }}
-                    >
-                      {col.renderCell
-                        ? col.renderCell(row, rowIndex)
-                        : formatValue(col, val)}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            ))
+            sortedRows.map((row, rowIndex) => {
+              const rowBg = getRowBg?.(row);
+              const defaultBg = rowIndex % 2 === 1 ? 'action.hover' : 'background.paper';
+              const bg = rowBg ?? defaultBg;
+              return (
+                <TableRow
+                  key={getRowKey(row)}
+                  hover={!rowBg && !!onRowClick}
+                  onClick={() => onRowClick?.(row)}
+                  sx={{ cursor: onRowClick ? 'pointer' : 'default', bgcolor: bg }}
+                >
+                  {columns.map(col => {
+                    const val = col.renderCell ? null : getCellValue(row, col);
+                    return (
+                      <TableCell
+                        key={col.key}
+                        align={col.align ?? 'right'}
+                        sx={{
+                          fontSize: '0.8rem',
+                          whiteSpace: 'nowrap',
+                          display: { xs: col.hideOnMobile ? 'none' : 'table-cell', sm: 'table-cell' },
+                          color: val === 0 ? 'text.disabled' : undefined,
+                          ...(col.sticky ? {
+                            position: 'sticky',
+                            left: 0,
+                            zIndex: 1,
+                            bgcolor: bg,
+                            borderRight: '1px solid',
+                            borderColor: 'divider',
+                          } : {}),
+                        }}
+                      >
+                        {col.renderCell ? col.renderCell(row, rowIndex) : formatValue(col, val)}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              );
+            })
           )}
           {footerRows}
         </TableBody>

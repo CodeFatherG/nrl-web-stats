@@ -1,19 +1,21 @@
-import { type ReactNode, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useTheme, useMediaQuery } from '@mui/material';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
-import Grid from '@mui/material/Grid';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import Chip from '@mui/material/Chip';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useAppContext } from '../hooks/useAppContext';
 import { useMovementsQuery } from '../hooks/useMovementsQuery';
 import { PageHeader } from '../components/shared/PageHeader';
-import { SectionCard } from '../components/shared/SectionCard';
-import { DataTable } from '../components/shared/DataTable';
+import { DataTable, type ColumnDef } from '../components/shared/DataTable';
 import { SkeletonPage } from '../components/shared/SkeletonPage';
+import { getTeamBackground } from '../utils/teamColors';
 import type {
   InjuredRecord,
   DroppedRecord,
@@ -26,26 +28,79 @@ import type {
 
 type AnyMovement = { playerId: number; playerName: string; teamCode: string };
 
-function makeColumns(extra?: { key: string; label: string; getValue: (r: AnyMovement) => string }[]) {
+function baseColumns<T extends AnyMovement>(): ColumnDef<T>[] {
   return [
-    { key: 'playerName', label: 'Player', align: 'left' as const, sortable: true,
-      getValue: (r: AnyMovement) => r.playerName,
-      renderCell: (r: AnyMovement) => <Typography variant="caption" fontWeight={600}>{r.playerName}</Typography> },
-    { key: 'teamCode', label: 'Team', align: 'center' as const,
-      renderCell: (r: AnyMovement) => <Typography variant="caption">{r.teamCode}</Typography> },
-    ...(extra ?? []).map(e => ({
-      key: e.key, label: e.label, align: 'left' as const,
-      renderCell: (r: AnyMovement) => <Typography variant="caption">{e.getValue(r)}</Typography>,
-    })),
-  ];
+    {
+      key: 'playerName', label: 'Player', align: 'left', sortable: true,
+      getValue: (r: T) => r.playerName,
+      renderCell: (r: T) => <Typography variant="caption" fontWeight={600}>{r.playerName}</Typography>,
+    },
+    {
+      key: 'teamCode', label: 'Team', align: 'center', sortable: true,
+      getValue: (r: T) => r.teamCode,
+      renderCell: (r: T) => <Typography variant="caption">{r.teamCode}</Typography>,
+    },
+  ] as ColumnDef<T>[];
+}
+
+function MovementSection<T extends AnyMovement>({
+  title,
+  items,
+  columns,
+  onNavigate,
+  actions,
+}: {
+  title: string;
+  items: T[];
+  columns: ColumnDef<T>[];
+  onNavigate: (id: number) => void;
+  actions?: ReactNode;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <Accordion
+      disableGutters
+      elevation={0}
+      sx={{
+        border: 0,
+        '&::before': { display: 'none' },
+        '&:not(:last-child)': { borderBottom: 1, borderColor: 'divider' },
+      }}
+    >
+      <AccordionSummary
+        expandIcon={<ExpandMoreIcon />}
+        sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: '6px', alignItems: 'center', gap: 1 } }}
+      >
+        <Typography variant="body2" fontWeight={600}>{title}</Typography>
+        <Chip label={items.length} size="small" color="primary" sx={{ height: 18, fontSize: '0.7rem' }} />
+        {actions && (
+          <Box sx={{ ml: 'auto', mr: 1 }} onClick={e => e.stopPropagation()}>
+            {actions}
+          </Box>
+        )}
+      </AccordionSummary>
+      <AccordionDetails sx={{ p: 0 }}>
+        <DataTable
+          columns={columns}
+          rows={items}
+          getRowKey={r => String(r.playerId)}
+          stickyHeader={false}
+          maxHeight="40vh"
+          defaultSortKey="teamCode"
+          defaultSortDir="asc"
+          dense
+          getRowBg={r => getTeamBackground(r.teamCode)}
+          onRowClick={r => onNavigate(r.playerId)}
+        />
+      </AccordionDetails>
+    </Accordion>
+  );
 }
 
 export function SummaryView() {
   const { currentYear } = useAppContext();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const year = Number(searchParams.get('year') ?? currentYear);
   const [hideInterchange, setHideInterchange] = useState(true);
 
@@ -74,49 +129,55 @@ export function SummaryView() {
     );
   }
 
-  // Promoted from interchange = previously jersey >=14 (we detect by replacingPlayerId presence vs. not)
   const promotedFiltered = hideInterchange
     ? data.promoted.filter(p => p.replacingPlayerId == null)
     : data.promoted;
 
-  function renderSection<T extends AnyMovement>(
-    title: string,
-    items: T[],
-    extra?: { key: string; label: string; getValue: (r: T) => string }[],
-    actions?: ReactNode
-  ) {
-    if (items.length === 0) return null;
-    return (
-      <Grid item xs={12} sm={6} lg={4} key={title}>
-        <SectionCard
-          title={`${title} (${items.length})`}
-          actions={actions}
-        >
-          {isMobile ? (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {items.map(r => (
-                <Chip
-                  key={r.playerId}
-                  label={`${r.playerName} (${r.teamCode})`}
-                  size="small"
-                  variant="outlined"
-                  onClick={() => navigate(`/player/${r.playerId}`)}
-                />
-              ))}
-            </Box>
-          ) : (
-            <DataTable
-              columns={makeColumns(extra as { key: string; label: string; getValue: (r: AnyMovement) => string }[])}
-              rows={items as AnyMovement[]}
-              getRowKey={r => String(r.playerId)}
-              emptyMessage="None"
-              onRowClick={r => navigate(`/player/${r.playerId}`)}
-            />
-          )}
-        </SectionCard>
-      </Grid>
-    );
-  }
+  const goToPlayer = (id: number) => navigate(`/player/${id}`);
+
+  const injuredCols: ColumnDef<InjuredRecord>[] = [
+    ...baseColumns<InjuredRecord>(),
+    { key: 'injury', label: 'Injury', align: 'left', sortable: true,
+      getValue: r => r.injury ?? '—',
+      renderCell: r => <Typography variant="caption">{r.injury ?? '—'}</Typography> },
+  ];
+
+  const benchedCols: ColumnDef<BenchedRecord>[] = [
+    ...baseColumns<BenchedRecord>(),
+    { key: 'jersey', label: 'Jersey', align: 'center', sortable: false,
+      renderCell: r => <Typography variant="caption">{r.prevJersey}→{r.currentJersey}</Typography> },
+  ];
+
+  const returningCols: ColumnDef<ReturningFromInjuryRecord>[] = [
+    ...baseColumns<ReturningFromInjuryRecord>(),
+    { key: 'injury', label: 'Injury', align: 'left', sortable: true,
+      getValue: r => r.injury,
+      renderCell: r => <Typography variant="caption">{r.injury}</Typography> },
+  ];
+
+  const coveringCols: ColumnDef<CoveringInjuryRecord>[] = [
+    ...baseColumns<CoveringInjuryRecord>(),
+    { key: 'coveringPlayerName', label: 'Covering', align: 'left', sortable: true,
+      getValue: r => r.coveringPlayerName,
+      renderCell: r => <Typography variant="caption">{r.coveringPlayerName}</Typography> },
+  ];
+
+  const promotedCols: ColumnDef<PromotedRecord>[] = [
+    ...baseColumns<PromotedRecord>(),
+    { key: 'replacingPlayerName', label: 'Replacing', align: 'left', sortable: true,
+      getValue: r => r.replacingPlayerName ?? '—',
+      renderCell: r => <Typography variant="caption">{r.replacingPlayerName ?? '—'}</Typography> },
+  ];
+
+  const positionCols: ColumnDef<PositionChangedRecord>[] = [
+    ...baseColumns<PositionChangedRecord>(),
+    { key: 'oldPosition', label: 'From', align: 'center', sortable: true,
+      getValue: r => r.oldPosition,
+      renderCell: r => <Typography variant="caption">{r.oldPosition}</Typography> },
+    { key: 'newPosition', label: 'To', align: 'center', sortable: true,
+      getValue: r => r.newPosition,
+      renderCell: r => <Typography variant="caption">{r.newPosition}</Typography> },
+  ];
 
   return (
     <Box>
@@ -125,35 +186,42 @@ export function SummaryView() {
         subtitle={`Round ${data.round}, ${data.season}`}
       />
 
-      <Grid container spacing={2}>
-        {renderSection<InjuredRecord>('Injured', data.injured,
-          [{ key: 'injury', label: 'Injury', getValue: (r: InjuredRecord) => r.injury ?? '—' }]
-        )}
-        {renderSection<DroppedRecord>('Dropped', data.dropped)}
-        {renderSection<BenchedRecord>('Benched', data.benched,
-          [{ key: 'jersey', label: 'Jersey', getValue: (r: BenchedRecord) => `${r.prevJersey}→${r.currentJersey}` }]
-        )}
-        {renderSection<ReturningFromInjuryRecord>('Returning from Injury', data.returningFromInjury,
-          [{ key: 'injury', label: 'Injury', getValue: (r: ReturningFromInjuryRecord) => r.injury }]
-        )}
-        {renderSection<CoveringInjuryRecord>('Covering Injury', data.coveringInjury,
-          [{ key: 'covering', label: 'Covering', getValue: (r: CoveringInjuryRecord) => r.coveringPlayerName }]
-        )}
-        {renderSection<PromotedRecord>('Promoted', promotedFiltered,
-          [{ key: 'replacing', label: 'Replacing', getValue: (r: PromotedRecord) => r.replacingPlayerName ?? '—' }],
-          <FormControlLabel
-            control={<Checkbox size="small" checked={hideInterchange} onChange={e => setHideInterchange(e.target.checked)} />}
-            label={<Typography variant="caption">Hide interchange</Typography>}
-            sx={{ ml: 'auto' }}
-          />
-        )}
-        {renderSection<PositionChangedRecord>('Position Changed', data.positionChanged,
-          [
-            { key: 'from', label: 'From', getValue: (r: PositionChangedRecord) => r.oldPosition },
-            { key: 'to', label: 'To', getValue: (r: PositionChangedRecord) => r.newPosition },
-          ]
-        )}
-      </Grid>
+      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+        <MovementSection<InjuredRecord>
+          title="Injured" items={data.injured}
+          columns={injuredCols} onNavigate={goToPlayer}
+        />
+        <MovementSection<DroppedRecord>
+          title="Dropped" items={data.dropped}
+          columns={baseColumns<DroppedRecord>()} onNavigate={goToPlayer}
+        />
+        <MovementSection<BenchedRecord>
+          title="Benched" items={data.benched}
+          columns={benchedCols} onNavigate={goToPlayer}
+        />
+        <MovementSection<ReturningFromInjuryRecord>
+          title="Returning from Injury" items={data.returningFromInjury}
+          columns={returningCols} onNavigate={goToPlayer}
+        />
+        <MovementSection<CoveringInjuryRecord>
+          title="Covering Injury" items={data.coveringInjury}
+          columns={coveringCols} onNavigate={goToPlayer}
+        />
+        <MovementSection<PromotedRecord>
+          title="Promoted" items={promotedFiltered}
+          columns={promotedCols} onNavigate={goToPlayer}
+          actions={
+            <FormControlLabel
+              control={<Checkbox size="small" checked={hideInterchange} onChange={e => setHideInterchange(e.target.checked)} />}
+              label={<Typography variant="caption">Hide interchange</Typography>}
+            />
+          }
+        />
+        <MovementSection<PositionChangedRecord>
+          title="Position Changed" items={data.positionChanged}
+          columns={positionCols} onNavigate={goToPlayer}
+        />
+      </Box>
     </Box>
   );
 }
