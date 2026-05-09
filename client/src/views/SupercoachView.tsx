@@ -83,25 +83,32 @@ export function SupercoachView() {
     }
   }, [n, derivedRound, navigate]);
 
-  const scQuery = useSupercoachQuery(year, derivedRound, teamFilter || undefined);
+  const scQuery = useSupercoachQuery(year, derivedRound);
 
   const maxRound = seasonQuery.data?.rounds.length ?? 27;
 
   const rows = useMemo<ScoreRow[]>(() => {
-    return (scQuery.data?.scores ?? []).map(s => ({
-      playerId: s.playerId,
-      playerName: s.playerName,
-      teamCode: s.teamCode,
-      totalScore: s.totalScore,
-      isComplete: s.isComplete,
-      scoring: s.categoryTotals.scoring,
-      create: s.categoryTotals.create,
-      evade: s.categoryTotals.evade,
-      base: s.categoryTotals.base,
-      defence: s.categoryTotals.defence,
-      negative: s.categoryTotals.negative,
-    }));
-  }, [scQuery.data]);
+    const all: ScoreRow[] = [];
+    for (const match of scQuery.data?.matches ?? []) {
+      for (const player of [...match.homeTeam.players, ...match.awayTeam.players]) {
+        if (teamFilter && player.teamCode !== teamFilter) continue;
+        all.push({
+          playerId: player.playerId,
+          playerName: player.playerName,
+          teamCode: player.teamCode,
+          totalScore: player.totalScore,
+          isComplete: player.isComplete,
+          scoring: player.categoryTotals.scoring,
+          create: player.categoryTotals.create,
+          evade: player.categoryTotals.evade,
+          base: player.categoryTotals.base,
+          defence: player.categoryTotals.defence,
+          negative: player.categoryTotals.negative,
+        });
+      }
+    }
+    return all;
+  }, [scQuery.data, teamFilter]);
 
   if (!n && derivedRound === 0) return <SkeletonPage variant="table" />;
 

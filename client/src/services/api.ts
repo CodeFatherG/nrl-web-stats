@@ -239,54 +239,67 @@ export async function getPlayer(
 
 // Supercoach API
 
+export interface SupercoachPlayerScore {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  matchId: string;
+  isComplete: boolean;
+  matchConfidence: string;
+  totalScore: number;
+  categoryTotals: {
+    scoring: number;
+    create: number;
+    evade: number;
+    base: number;
+    defence: number;
+    negative: number;
+  };
+  categories: Record<string, Array<{
+    statName: string;
+    displayName: string;
+    rawValue: number;
+    pointsPerUnit: number;
+    contribution: number;
+  }>>;
+  validationWarnings: Array<{
+    type: string;
+    message: string;
+    primaryValue: number | null;
+    supplementaryValue: number | null;
+  }>;
+}
+
+export interface SupercoachTeamGroup {
+  teamCode: string;
+  teamName: string;
+  teamTotal: number;
+  isComplete: boolean;
+  players: SupercoachPlayerScore[];
+}
+
+export interface SupercoachMatchResult {
+  matchId: string;
+  year: number;
+  round: number;
+  isComplete: boolean;
+  homeTeam: SupercoachTeamGroup;
+  awayTeam: SupercoachTeamGroup;
+}
+
 export interface SupercoachScoreResponse {
   year: number;
   round: number;
   isComplete: boolean;
-  playersScored: number;
-  validationSummary: {
-    totalDiscrepancies: number;
-    unmatchedPlayers: number;
-  };
-  scores: Array<{
-    playerId: string;
-    playerName: string;
-    teamCode: string;
-    matchId: string;
-    isComplete: boolean;
-    matchConfidence: string;
-    totalScore: number;
-    categoryTotals: {
-      scoring: number;
-      create: number;
-      evade: number;
-      base: number;
-      defence: number;
-      negative: number;
-    };
-    categories: Record<string, Array<{
-      statName: string;
-      displayName: string;
-      rawValue: number;
-      pointsPerUnit: number;
-      contribution: number;
-    }>>;
-    validationWarnings: Array<{
-      type: string;
-      message: string;
-      primaryValue: number | null;
-      supplementaryValue: number | null;
-    }>;
-  }>;
+  matchCount: number;
+  matches: SupercoachMatchResult[];
 }
 
 export async function getSupercoachScores(
   year: number,
   round: number,
-  teamCode?: string
 ): Promise<SupercoachScoreResponse> {
-  const params = teamCode ? `?teamCode=${teamCode}` : '';
-  return fetchApi<SupercoachScoreResponse>(`/supercoach/${year}/${round}${params}`);
+  return fetchApi<SupercoachScoreResponse>(`/supercoach/${year}/${round}`);
 }
 
 export interface MatchSupercoachPlayerScore {
