@@ -9,7 +9,7 @@
       { "jerseyNumber": 1, "playerName": "Reece Walsh", "position": "Fullback", "playerId": 101 },
       { "jerseyNumber": 9, "playerName": "Cory Paix", "position": "Hooker", "playerId": 105 },
       { "jerseyNumber": 13, "playerName": "Kobe Hetherington", "position": "Lock", "playerId": 104 },
-      { "jerseyNumber": 18, "playerName": "Jordan Riki", "position": "Reserve", "playerId": 103 }
+      { "jerseyNumber": 14, "playerName": "Jordan Riki", "position": "Interchange", "playerId": 103 }
     ]
   },
   {

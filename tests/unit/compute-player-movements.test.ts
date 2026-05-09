@@ -186,8 +186,10 @@ describe('ComputePlayerMovementsUseCase', () => {
     const riki = result.benched.find(r => r.playerName === 'Jordan Riki');
     expect(riki).toBeDefined();
     expect(riki!.prevJersey).toBe(13);
-    expect(riki!.currentJersey).toBe(18);
+    expect(riki!.currentJersey).toBe(14);
+    expect(riki!.currentPosition).toBe('Interchange');
     expect(riki!.consecutiveRoundsBenched).toBe(1);
+    expect(riki!.replacedByPlayerId).toBe(104); // Kobe Hetherington took the Lock slot
   });
 
   // Promoted: Kobe Hetherington (BRO) was #18 in round 9, now #13 in round 10, replacing Jordan Riki
@@ -197,7 +199,7 @@ describe('ComputePlayerMovementsUseCase', () => {
     const kobe = result.promoted.find(r => r.playerName === 'Kobe Hetherington');
     expect(kobe).toBeDefined();
     expect(kobe!.currentJersey).toBe(13);
-    expect(kobe!.replacingPlayerId).toBe(103); // Jordan Riki moved from #13 to reserve
+    expect(kobe!.replacingPlayerId).toBe(103); // Jordan Riki moved from Lock to Interchange
     expect(kobe!.replacingPlayerName).toBe('Jordan Riki');
   });
 
@@ -393,7 +395,7 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
     expect(p2!.replacingPlayerId).toBe(3002);
   });
 
-  // Test C: both wings benched — each benched player gets distinct replacedByPlayerId
+  // Test C: both wings benched (starter → Interchange) — each gets distinct replacedByPlayerId
   it('assigns distinct replacedByPlayerId to each benched wing via slot-index pairing', async () => {
     const prevTST = {
       matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
@@ -407,8 +409,8 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
     const currTST = {
       matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
       members: [
-        { playerId: 4001, jerseyNumber: 19, playerName: 'Wing E', position: 'Reserve' },
-        { playerId: 4002, jerseyNumber: 20, playerName: 'Wing F', position: 'Reserve' },
+        { playerId: 4001, jerseyNumber: 14, playerName: 'Wing E', position: 'Interchange' },
+        { playerId: 4002, jerseyNumber: 15, playerName: 'Wing F', position: 'Interchange' },
         { playerId: 4003, jerseyNumber: 2,  playerName: 'Res W1', position: 'Wing' },
         { playerId: 4004, jerseyNumber: 5,  playerName: 'Res W2', position: 'Wing' },
       ],
@@ -429,5 +431,79 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
     expect(b2).toBeDefined();
     expect(b1!.replacedByPlayerId).toBe(4003);
     expect(b2!.replacedByPlayerId).toBe(4004);
+  });
+});
+
+// ─── Phase 1 extension: Reserve players now classified (not silently ignored) ─────────────────
+
+describe('ComputePlayerMovementsUseCase — Phase 1 Reserve extension', () => {
+  const oppPrev = { matchId: '2025-R10-TST-OPP', teamCode: 'OPP', year: 2025, round: 9,  scrapedAt: '', members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }] };
+  const oppCurr = { matchId: '2025-R10-TST-OPP', teamCode: 'OPP', year: 2025, round: 10, scrapedAt: '', members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }] };
+  const testMatches9  = [{ id: '2025-R10-TST-OPP', year: 2025, round: 9,  homeTeamCode: 'TST', awayTeamCode: 'OPP', homeStrengthRating: null, awayStrengthRating: null, homeScore: null, awayScore: null, status: 'Scheduled' as const, scheduledTime: '2025-04-14T10:00:00.000Z', stadium: null, weather: null }];
+  const testMatches10 = [{ id: '2025-R10-TST-OPP', year: 2025, round: 10, homeTeamCode: 'TST', awayTeamCode: 'OPP', homeStrengthRating: null, awayStrengthRating: null, homeScore: null, awayScore: null, status: 'Scheduled' as const, scheduledTime: '2025-04-21T10:00:00.000Z', stadium: null, weather: null }];
+
+  // starter → Reserve, no CW → Dropped (not Benched)
+  it('classifies starter→Reserve (no CW) as dropped, not benched', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [{ playerId: 5001, jerseyNumber: 10, playerName: 'Prop X', position: 'Prop' }],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [{ playerId: 5001, jerseyNumber: 18, playerName: 'Prop X', position: 'Reserve' }],
+    };
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+    expect(result.dropped.find(r => r.playerId === 5001)).toBeDefined();
+    expect(result.benched.find(r => r.playerId === 5001)).toBeUndefined();
+  });
+
+  // starter → Reserve, open CW → Injured (not Benched)
+  it('classifies starter→Reserve with open CW as injured, not benched', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [{ playerId: 5002, jerseyNumber: 10, playerName: 'Prop Y', position: 'Prop' }],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [{ playerId: 5002, jerseyNumber: 18, playerName: 'Prop Y', position: 'Reserve' }],
+    };
+    const openCW: CasualtyWardEntry[] = [
+      { id: 10, playerId: '5002', playerName: 'Prop Y', teamCode: 'TST', injury: 'Knee', expectedReturn: 'Round 12', reportedDate: '2025-04-14', closedDate: null },
+    ];
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo(openCW, []), cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+    expect(result.injured.find(r => r.playerId === 5002)).toBeDefined();
+    expect(result.benched.find(r => r.playerId === 5002)).toBeUndefined();
+  });
+
+  // Interchange → Reserve, no CW → Dropped (was silently ignored)
+  it('classifies interchange→Reserve (no CW) as dropped', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [
+        { playerId: 5003, jerseyNumber: 14, playerName: 'Int Player', position: 'Interchange' },
+        { playerId: 9998, jerseyNumber: 1,  playerName: 'TST FB',     position: 'Fullback' },
+      ],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [
+        { playerId: 5003, jerseyNumber: 18, playerName: 'Int Player', position: 'Reserve' },
+        { playerId: 9998, jerseyNumber: 1,  playerName: 'TST FB',     position: 'Fullback' },
+      ],
+    };
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+    expect(result.dropped.find(r => r.playerId === 5003)).toBeDefined();
   });
 });

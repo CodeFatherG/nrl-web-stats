@@ -52,12 +52,12 @@ For round **R**, the algorithm receives:
 
 ## Three-phase algorithm
 
-### Phase 1 — Identify absent named players
+### Phase 1 — Identify newly non-named players
 
 Iterates every player in the **previous** team lists. If a player:
 
 - was **named** (position was a starting position or Interchange) in round R-1, **and**
-- is **completely absent** from the current team list,
+- is currently **not in a named position** — either absent from the team list entirely, or present at a non-named position (e.g. Reserve),
 
 they are classified as:
 
@@ -66,17 +66,26 @@ they are classified as:
 
 Players whose previous position was Reserve (or any other non-named label) are ignored; they were never named.
 
-**Example — Injured:**
+**Example — Injured (absent):**
 > Billy Smith was #9 Hooker for BRO in round 9. He is absent from round 10. His open CW entry says "Hamstring, return Round 12". → **Injured**.
 
-**Example — Dropped:**
+**Example — Dropped (absent):**
 > Nicho Hynes was #7 Halfback for SHA in round 9. He is absent from round 10. No open CW entry. → **Dropped**.
+
+**Example — Dropped (Reserve, no CW):**
+> A player was #10 Prop in round 9 and is listed as #18 Reserve in round 10. No open CW entry. → **Dropped**. They are still in the team list but no longer named.
+
+**Example — Injured (Reserve, open CW):**
+> A player was #10 Prop in round 9 and is now listed as #18 Reserve in round 10. They have an open CW entry for a knee injury. → **Injured**. Being present at Reserve does not change the classification when a CW entry exists.
+
+**Example — Interchange → Reserve, Dropped:**
+> An interchange player ("Interchange") in round 9 is now listed as "Reserve" in round 10. No open CW entry. → **Dropped**.
 
 **Example — Reserve leaving silently:**
 > A player had position "Reserve" in round 9 and is absent in round 10. Their position was not named, so no movement is recorded.
 
-**Example — Interchange player injured:**
-> Joe Roddy was "2nd Row" for CBR in round 9. He is absent from round 10 with a hand injury. He is classified as **Injured** ("2nd Row" is a named position). However, his injury does not seed the covering cascade (see Phase 2).
+**Example — Starting-position player injured, then Reserve:**
+> Joe Roddy was "2nd Row" for CBR in round 9. He is now listed as "Reserve" in round 10 with a hand injury. He is classified as **Injured** ("2nd Row" is a named position). However, his injury does not seed the covering cascade (see Phase 2).
 
 ---
 
@@ -137,24 +146,31 @@ For every player in the current team list, exactly one category is assigned. Pri
 
 #### Pre-classification: Reserves (position not named)
 
-Players whose current position is not named (not a starting position and not Interchange) are handled before the priority chain:
+Players whose current position is not named (not a starting position and not Interchange) are handled before the priority chain. They have already been classified in Phase 1 (as Injured or Dropped if previously named) or are silently ignored (if they were never named). Either way, they do not enter the priority chain:
 
-- **Benched** — if all three conditions hold:
-  - Was **named** last round (position was a starting position or Interchange), **and**
-  - Was at a **starting position** (by position label) last round, **and**
-  - Is now at a non-named position (e.g. Reserve)
-- **Silently ignored** — otherwise (was already non-named or was not at a starting position last round)
+- **Silently passed over** — no further classification is attempted.
 
-"Replaced by" is recorded if the current holder of that position slot was not previously named (non-named position or absent last round). For positions with two named players (Wing, Prop, Centre, Second Row), players at the position are sorted by player ID; the benched player's rank among previous holders determines which current holder is their replacer (lowest-ID previous holder → lowest-ID current holder, etc.).
+#### Pre-classification: Interchange (named but not starting) — Benched
+
+Players whose current position is Interchange (named but not a starting position) are evaluated next, before the numbered priorities:
+
+- **Benched** — if:
+  - Was at a **starting position** (by position label) last round
+- **Falls through to priority chain** — otherwise (was Interchange or Reserve/absent last round)
+
+"Replaced by" is recorded using the same slot-index pairing as for Promoted: find the player's former slot index among previous holders at that starting position (sorted by player ID), then pair with the same-indexed current holder. If no new player took their slot, `replacedByPlayerId` is null.
 
 **Example — Benched:**
-> Jordan Riki was Lock for BRO in round 9 (named starting position). He is now "Reserve" in round 10. → **Benched**, prevPosition=Lock, consecutiveRoundsBenched=1.
+> Jordan Riki was #13 Lock for BRO in round 9 (starting position). He is now #14 Interchange in round 10. → **Benched**, prevPosition=Lock, currentPosition=Interchange, consecutiveRoundsBenched=1, replacedByPlayerId=Kobe Hetherington.
 
-**Example — Reserve always-reserve (silently ignored):**
-> A player had position "Reserve" last round and has position "Reserve" this round. They were never named, so they are never benched.
+**Example — Reserve always-reserve (silently passed over):**
+> A player had position "Reserve" last round and has position "Reserve" this round. They were never named. Phase 1 ignores them (not previously named), and they are skipped in Phase 3.
 
-**Example — Named interchange to reserve (silently ignored):**
-> A player had position "Interchange" last round and is now "Reserve". Their previous position ("Interchange") is not a starting position, so they are not benched.
+**Example — Interchange → Reserve (Dropped, not Benched):**
+> A player had position "Interchange" last round and is now "Reserve". They were named (Interchange is named) and are now not named. → **Dropped** in Phase 1 (if no CW) or **Injured** (if open CW). They do not reach Phase 3.
+
+**Example — Interchange → Interchange (silently ignored, falls through):**
+> A player was #14 Interchange last round and is still #14 Interchange this round. `wasStarting=false` → the Benched check does not fire. They fall through the priority chain and are not classified (no notable movement).
 
 **Example — Position is the authority, not jersey:**
 > Trent Loiero was jersey 17 Lock in round 9. He is jersey 13 Lock in round 10. He is NOT benched because his current position is Lock — a named starting position. He continues to the priority chain below.
@@ -246,15 +262,16 @@ Reaches here when a player is named (position is a starting position or Intercha
 Every player in the current round ends up in exactly one category or none (no notable movement). The priority chain guarantees this:
 
 ```
-Absent from current list:
-  Open CW entry             → Injured              (Phase 1)
-  No CW entry               → Dropped              (Phase 1)
+Not named (Reserve) or absent:
+  wasNamed AND open CW      → Injured              (Phase 1)
+  wasNamed AND no CW        → Dropped              (Phase 1)
+  !wasNamed                 → (ignored)
 
-Present, position not named (e.g. Reserve):
-  wasNamed AND wasStarting  → Benched
-  otherwise                 → (ignored)
+Present, position is Interchange (isNamed AND !isStarting):
+  wasStarting               → Benched              (Phase 3 pre-chain)
+  !wasStarting              → falls through to priority chain below
 
-Present, position named (starting or Interchange):
+Present, position is a starting position:
   Missed last round AND CW  → Returning from Injury [Priority 1]
   In covering map           → Covering Injury       [Priority 2]
   wasNamed AND wasStarting

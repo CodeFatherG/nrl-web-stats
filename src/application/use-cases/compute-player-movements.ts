@@ -126,7 +126,9 @@ export class ComputePlayerMovementsUseCase {
       if (!prevMembers) continue;
 
       for (const [playerId, prevMember] of prevMembers) {
-        if (!currentMembers.has(playerId) && isNamedPosition(prevMember.position)) {
+        const currMemberPhase1 = currentMembers.get(playerId);
+        const currIsNamed = currMemberPhase1 !== undefined && isNamedPosition(currMemberPhase1.position);
+        if (isNamedPosition(prevMember.position) && !currIsNamed) {
           const cwInfo = openPlayerMap.get(String(playerId));
           if (cwInfo) {
             injured.push({
@@ -299,38 +301,8 @@ export class ComputePlayerMovementsUseCase {
         const isStarting = isStartingPosition(currMember.position);
         const wasStarting = prevMember !== undefined && isStartingPosition(prevMember.position);
 
-        // Reserve (jersey > 17): check for benched.
-        // Only a player who was previously named (jersey ≤ 17) at a starting position can be benched.
-        // Players who were always reserve (jersey > 17) are not "benched" even if their position label is starting.
+        // Reserve players: handled in Phase 1 (Dropped/Injured) or silently ignored if never named.
         if (!isNamed) {
-          if (prevMember && wasStarting && wasNamed) {
-            // Was at a starting position, now reserve → benched.
-            // "Replaced by": find this player's slot index among previous holders (sorted by playerId),
-            // then pick the current holder at the same index. Handles multi-player positions correctly.
-            const posKey = normalizePosition(prevMember.position);
-            const prevSlotPlayers = (prevByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
-            const currSlotPlayers = (currByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
-            const slotIndex = prevSlotPlayers.findIndex(p => p.playerId === playerId);
-            const replacerCandidate = slotIndex >= 0 ? currSlotPlayers[slotIndex] : undefined;
-            const replacer = replacerCandidate !== undefined && replacerCandidate.playerId !== playerId
-              ? replacerCandidate
-              : undefined;
-            benched.push({
-              playerId,
-              playerName: currMember.playerName,
-              teamCode,
-              matchId,
-              prevJersey: prevMember.jerseyNumber,
-              prevPosition: prevMember.position,
-              currentJersey: currMember.jerseyNumber,
-              currentPosition: currMember.position,
-              consecutiveRoundsBenched: await this.countConsecutiveBenchedRounds(
-                year, round, teamCode, playerId
-              ),
-              replacedByPlayerId: replacer ? replacer.playerId : null,
-              replacedByPlayerName: replacer ? replacer.playerName : null,
-            });
-          }
           continue;
         }
 
@@ -383,6 +355,34 @@ export class ComputePlayerMovementsUseCase {
           if (!wasStarting && isStarting) {
             // Was in a non-starting role (interchange/bench), now named at a starting position → promoted
           } else {
+            if (wasStarting && !isStarting) {
+              // starter → Interchange: Benched.
+              // "Replaced by": find this player's prior slot index among previous holders (sorted by
+              // playerId), then pick the current holder at the same index. Handles multi-player positions.
+              const posKey = normalizePosition(prevMember.position);
+              const prevSlotPlayers = (prevByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
+              const currSlotPlayers = (currByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
+              const slotIndex = prevSlotPlayers.findIndex(p => p.playerId === playerId);
+              const replacerCandidate = slotIndex >= 0 ? currSlotPlayers[slotIndex] : undefined;
+              const replacer = replacerCandidate !== undefined && replacerCandidate.playerId !== playerId
+                ? replacerCandidate : undefined;
+              benched.push({
+                playerId,
+                playerName: currMember.playerName,
+                teamCode,
+                matchId,
+                prevJersey: prevMember.jerseyNumber,
+                prevPosition: prevMember.position,
+                currentJersey: currMember.jerseyNumber,
+                currentPosition: currMember.position,
+                consecutiveRoundsBenched: await this.countConsecutiveBenchedRounds(
+                  year, round, teamCode, playerId
+                ),
+                replacedByPlayerId: replacer ? replacer.playerId : null,
+                replacedByPlayerName: replacer ? replacer.playerName : null,
+              });
+              continue;
+            }
             if (wasStarting && isStarting &&
                 normalizePosition(prevMember.position) !== normalizePosition(currMember.position)) {
               positionChanged.push({
@@ -453,8 +453,8 @@ export class ComputePlayerMovementsUseCase {
       const list = lists.find(tl => tl.teamCode === teamCode);
       if (!list) break;
       const member = list.members.find(m => m.playerId === playerId);
-      // Named in the squad (starting or interchange position) means not benched in that round
-      if (!member || isNamedPosition(member.position)) break;
+      // Continue counting only for Interchange weeks; break on absent, starting position, or Reserve.
+      if (!member || isStartingPosition(member.position) || !isNamedPosition(member.position)) break;
       count++;
     }
     return count;
