@@ -137,33 +137,75 @@ export function SummaryView() {
 
   const injuredCols: ColumnDef<InjuredRecord>[] = [
     ...baseColumns<InjuredRecord>(),
+    { key: 'lastPosition', label: 'Pos', align: 'center', sortable: true,
+      getValue: r => r.lastPosition,
+      renderCell: r => <Typography variant="caption">{r.lastPosition}</Typography> },
     { key: 'injury', label: 'Injury', align: 'left', sortable: true,
       getValue: r => r.injury ?? '—',
       renderCell: r => <Typography variant="caption">{r.injury ?? '—'}</Typography> },
+    { key: 'expectedReturn', label: 'Expected Return', align: 'left', sortable: true,
+      getValue: r => r.expectedReturn,
+      renderCell: r => <Typography variant="caption">{r.expectedReturn}</Typography> },
+  ];
+
+  const droppedCols: ColumnDef<DroppedRecord>[] = [
+    ...baseColumns<DroppedRecord>(),
+    { key: 'lastPosition', label: 'Pos', align: 'center', sortable: true,
+      getValue: r => r.lastPosition,
+      renderCell: r => <Typography variant="caption">{r.lastPosition}</Typography> },
+    { key: 'lastJersey', label: '#', align: 'center', sortable: true,
+      getValue: r => r.lastJersey,
+      renderCell: r => <Typography variant="caption">{r.lastJersey}</Typography> },
   ];
 
   const benchedCols: ColumnDef<BenchedRecord>[] = [
     ...baseColumns<BenchedRecord>(),
-    { key: 'jersey', label: 'Jersey', align: 'center', sortable: false,
+    { key: 'position', label: 'Pos', align: 'center', sortable: false,
+      renderCell: r => <Typography variant="caption">{r.prevPosition}→{r.currentPosition}</Typography> },
+    { key: 'jersey', label: '#', align: 'center', sortable: false,
       renderCell: r => <Typography variant="caption">{r.prevJersey}→{r.currentJersey}</Typography> },
+    { key: 'consecutiveRoundsBenched', label: 'Wks', align: 'center', sortable: true,
+      getValue: r => r.consecutiveRoundsBenched,
+      renderCell: r => <Typography variant="caption">{r.consecutiveRoundsBenched}</Typography> },
+    { key: 'replacedByPlayerName', label: 'Replaced By', align: 'left', sortable: true,
+      getValue: r => r.replacedByPlayerName ?? '—',
+      renderCell: r => <Typography variant="caption">{r.replacedByPlayerName ?? '—'}</Typography> },
   ];
 
   const returningCols: ColumnDef<ReturningFromInjuryRecord>[] = [
     ...baseColumns<ReturningFromInjuryRecord>(),
+    { key: 'currentPosition', label: 'Pos', align: 'center', sortable: true,
+      getValue: r => r.currentPosition,
+      renderCell: r => <Typography variant="caption">{r.currentPosition}{r.positionChanged ? ` (was ${r.lastPosition})` : ''}</Typography> },
+    { key: 'currentJersey', label: '#', align: 'center', sortable: true,
+      getValue: r => r.currentJersey,
+      renderCell: r => <Typography variant="caption">{r.currentJersey}</Typography> },
     { key: 'injury', label: 'Injury', align: 'left', sortable: true,
       getValue: r => r.injury,
       renderCell: r => <Typography variant="caption">{r.injury}</Typography> },
+    { key: 'roundsOut', label: 'Wks Out', align: 'center', sortable: true,
+      getValue: r => r.roundsOut,
+      renderCell: r => <Typography variant="caption">{r.roundsOut}</Typography> },
   ];
 
   const coveringCols: ColumnDef<CoveringInjuryRecord>[] = [
     ...baseColumns<CoveringInjuryRecord>(),
-    { key: 'coveringPlayerName', label: 'Covering', align: 'left', sortable: true,
+    { key: 'currentPosition', label: 'Pos', align: 'center', sortable: true,
+      getValue: r => r.currentPosition,
+      renderCell: r => <Typography variant="caption">{r.currentPosition}</Typography> },
+    { key: 'coveringPlayerName', label: 'Covering (injured)', align: 'left', sortable: true,
       getValue: r => r.coveringPlayerName,
-      renderCell: r => <Typography variant="caption">{r.coveringPlayerName}</Typography> },
+      renderCell: r => <Typography variant="caption">{r.coveringPlayerName} ({r.coveringLastPosition})</Typography> },
   ];
 
   const promotedCols: ColumnDef<PromotedRecord>[] = [
     ...baseColumns<PromotedRecord>(),
+    { key: 'position', label: 'Pos', align: 'center', sortable: true,
+      getValue: r => r.position,
+      renderCell: r => <Typography variant="caption">{r.position}</Typography> },
+    { key: 'currentJersey', label: '#', align: 'center', sortable: true,
+      getValue: r => r.currentJersey,
+      renderCell: r => <Typography variant="caption">{r.currentJersey}</Typography> },
     { key: 'replacingPlayerName', label: 'Replacing', align: 'left', sortable: true,
       getValue: r => r.replacingPlayerName ?? '—',
       renderCell: r => <Typography variant="caption">{r.replacingPlayerName ?? '—'}</Typography> },
@@ -171,6 +213,9 @@ export function SummaryView() {
 
   const positionCols: ColumnDef<PositionChangedRecord>[] = [
     ...baseColumns<PositionChangedRecord>(),
+    { key: 'currentJersey', label: '#', align: 'center', sortable: true,
+      getValue: r => r.currentJersey,
+      renderCell: r => <Typography variant="caption">{r.currentJersey}</Typography> },
     { key: 'oldPosition', label: 'From', align: 'center', sortable: true,
       getValue: r => r.oldPosition,
       renderCell: r => <Typography variant="caption">{r.oldPosition}</Typography> },
@@ -193,7 +238,7 @@ export function SummaryView() {
         />
         <MovementSection<DroppedRecord>
           title="Dropped" items={data.dropped}
-          columns={baseColumns<DroppedRecord>()} onNavigate={goToPlayer}
+          columns={droppedCols} onNavigate={goToPlayer}
         />
         <MovementSection<BenchedRecord>
           title="Benched" items={data.benched}
