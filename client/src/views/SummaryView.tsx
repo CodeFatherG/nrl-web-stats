@@ -130,7 +130,7 @@ export function SummaryView() {
   }
 
   const promotedFiltered = hideInterchange
-    ? data.promoted.filter(p => p.replacingPlayerId == null)
+    ? data.promoted.filter(p => p.position.toLowerCase().trim() !== 'interchange')
     : data.promoted;
 
   const goToPlayer = (id: number) => navigate(`/player/${id}`);
