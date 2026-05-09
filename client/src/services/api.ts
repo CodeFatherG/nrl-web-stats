@@ -527,16 +527,25 @@ export interface ContextualProjectionResult {
       h2hRpi: number;
       h2hConfidence: number;
     };
+    venue?: {
+      multiplier: number;
+      confidence: number;
+      sampleN: number;
+      stadiumId: string;
+    };
   };
 }
 
 export async function getContextualProjection(
   year: number,
   playerId: string,
-  opponent: string
+  opponent: string,
+  venue?: string,
 ): Promise<ContextualProjectionResult> {
+  const params = new URLSearchParams({ opponent });
+  if (venue) params.set('venue', venue);
   return fetchApi<ContextualProjectionResult>(
-    `/supercoach/${year}/player/${encodeURIComponent(playerId)}/contextual-projection?opponent=${encodeURIComponent(opponent)}`
+    `/supercoach/${year}/player/${encodeURIComponent(playerId)}/contextual-projection?${params}`
   );
 }
 

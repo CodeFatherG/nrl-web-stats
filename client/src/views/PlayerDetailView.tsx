@@ -328,11 +328,11 @@ export function PlayerDetailView() {
     );
   }, [scheduleQuery.data]);
 
-  // Fan-out contextual projection per upcoming opponent
+  // Fan-out contextual projection per upcoming opponent + venue
   const contextualQueries = useQueries({
     queries: remainingFixtures.map(f => ({
-      queryKey: ['contextualProj', year, id, f.opponent],
-      queryFn: () => getContextualProjection(year, id!, f.opponent!),
+      queryKey: ['contextualProj', year, id, f.opponent, f.stadium ?? null],
+      queryFn: () => getContextualProjection(year, id!, f.opponent!, f.stadium ?? undefined),
       enabled: !!id && !!f.opponent,
     })),
   });
@@ -342,17 +342,20 @@ export function PlayerDetailView() {
     return remainingFixtures.flatMap((f, i) => {
       const q = contextualQueries[i];
       if (!q?.data) return [];
+      const base = q.data.baseProjection;
+      const adj = q.data.adjustedProjection;
       return [{
         round: f.round,
         opponent: f.opponent!,
         isHome: f.isHome,
-        baseTotal: q.data.baseProjection.total,
-        baseFloor: q.data.baseProjection.floor,
-        baseCeiling: q.data.baseProjection.ceiling,
-        adjTotal: q.data.adjustedProjection.total,
-        adjFloor: q.data.adjustedProjection.floor,
-        adjCeiling: q.data.adjustedProjection.ceiling,
-        multiplier: q.data.adjustments.opponent.multiplier,
+        baseTotal: base.total,
+        baseFloor: base.floor,
+        baseCeiling: base.ceiling,
+        adjTotal: adj.total,
+        adjFloor: adj.floor,
+        adjCeiling: adj.ceiling,
+        // Combined multiplier derived from the ratio — reflects all applied factors
+        multiplier: base.total > 0 ? adj.total / base.total : 1,
       }];
     });
   }, [remainingFixtures, contextualQueries]);

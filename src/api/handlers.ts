@@ -66,7 +66,7 @@ import {
   calculateSeasonThresholds,
 } from '../database/rankings.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
-import { VALID_VENUE_IDS } from '../config/venue-normalisation.js';
+import { VALID_VENUE_IDS, VENUE_NORMALISATION } from '../config/venue-normalisation.js';
 import { VALID_WEATHER_CATEGORIES } from '../config/weather-normalisation.js';
 import type { WeatherCategory } from '../config/weather-normalisation.js';
 import { cacheStore } from '../cache/store.js';
@@ -1485,10 +1485,18 @@ export function getContextualProjection(deps: HandlerDeps) {
     }
 
     const venueRaw = c.req.query('venue');
-    if (venueRaw && !VALID_VENUE_IDS.includes(venueRaw)) {
-      return errorResponse(c, 'INVALID_VENUE', `Unknown venue: '${venueRaw}'. Valid venue IDs can be found at GET /api/supercoach/venues`, 400, [...VALID_VENUE_IDS]);
+    let venue: string | undefined;
+    if (venueRaw) {
+      // Accept either a raw stadium string (e.g. "Suncorp Stadium") or a canonical ID
+      const normalized = VENUE_NORMALISATION[venueRaw];
+      if (normalized) {
+        venue = normalized;
+      } else if (VALID_VENUE_IDS.includes(venueRaw)) {
+        venue = venueRaw;
+      } else {
+        return errorResponse(c, 'INVALID_VENUE', `Unknown venue: '${venueRaw}'. Pass a raw stadium name (e.g. 'Suncorp Stadium') or a canonical venue ID.`, 400, [...VALID_VENUE_IDS]);
+      }
     }
-    const venue = venueRaw ?? undefined;
 
     const weatherRaw = c.req.query('weather');
     if (weatherRaw && !(VALID_WEATHER_CATEGORIES as readonly string[]).includes(weatherRaw)) {
