@@ -9,41 +9,27 @@ import {
   Legend,
 } from 'recharts';
 import { getTeamPrimary } from '../../utils/teamColors';
+import type { AxisConfig } from '../../utils/positionGroups';
 
-interface PlayerStats {
+interface PlayerRadarEntry {
   name: string;
   teamCode: string;
-  stats: {
-    tries: number;
-    runMetres: number;
-    tackles: number;
-    lineBreaks: number;
-    fantasyPoints: number;
-    tackleBreaks: number;
-  };
+  stats: Record<string, number>;
 }
 
 interface RadarChartProps {
-  players: PlayerStats[];
+  players: PlayerRadarEntry[];
+  axes: AxisConfig[];
   height?: number;
 }
 
-const AXES = [
-  { key: 'tries', label: 'Tries' },
-  { key: 'runMetres', label: 'Run M' },
-  { key: 'tackles', label: 'Tackles' },
-  { key: 'lineBreaks', label: 'Line Breaks' },
-  { key: 'fantasyPoints', label: 'SC Avg' },
-  { key: 'tackleBreaks', label: 'TB' },
-] as const;
-
-function normalise(players: PlayerStats[]) {
-  const maxes = AXES.reduce<Record<string, number>>((acc, { key }) => {
+function normalise(players: PlayerRadarEntry[], axes: AxisConfig[]) {
+  const maxes = axes.reduce<Record<string, number>>((acc, { key }) => {
     acc[key] = Math.max(...players.map(p => p.stats[key] ?? 0), 1);
     return acc;
   }, {});
 
-  return AXES.map(({ key, label }) => {
+  return axes.map(({ key, label }) => {
     const entry: Record<string, unknown> = { stat: label };
     for (const p of players) {
       entry[p.name] = Math.round(((p.stats[key] ?? 0) / (maxes[key] ?? 1)) * 100);
@@ -52,11 +38,11 @@ function normalise(players: PlayerStats[]) {
   });
 }
 
-const COLOURS = ['#1976D2', '#E8A020', '#4CAF50', '#9C27B0'];
+const COLOURS = ['#1976D2', '#E8A020', '#4CAF50', '#9C27B0', '#F44336', '#00BCD4'];
 
-export function RadarChart({ players, height = 300 }: RadarChartProps) {
+export function RadarChart({ players, axes, height = 300 }: RadarChartProps) {
   const theme = useTheme();
-  const data = normalise(players);
+  const data = normalise(players, axes);
 
   return (
     <Box sx={{ height, width: '100%' }}>

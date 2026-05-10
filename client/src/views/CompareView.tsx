@@ -1,4 +1,4 @@
-// Exported for carried-forward comparison components (CompareRoundScoresTable, CompareSeasonStatsTable)
+// SeasonStatsSnapshot and PlayerComparisonData are exported for use by comparison table components
 export interface SeasonStatsSnapshot {
   gamesPlayed: number;
   totalTries: number;
@@ -16,8 +16,52 @@ export interface SeasonStatsSnapshot {
   totalMissedTackles: number;
   totalInterceptions: number;
   avgMinutesPlayed: number;
+  // Extended fields (already in PlayerPerformanceDetail)
+  tryAssists: number;
+  lineBreakAssists: number;
+  dummyHalfRuns: number;
+  dummyHalfRunMetres: number;
   latestPrice: number | null;
   latestBreakEven: number | null;
+  // Additional NRL stats
+  totalAllRuns: number;
+  totalHitUps: number;
+  totalHitUpRunMetres: number;
+  totalPostContactMetres: number;
+  totalGoals: number;
+  totalFieldGoals: number;
+  totalPasses: number;
+  totalReceipts: number;
+  totalSinBins: number;
+  totalOnReport: number;
+  totalBombKicks: number;
+  totalGrubberKicks: number;
+  totalFortyTwentyKicks: number;
+  totalKickReturnMetres: number;
+  totalOneOnOneSteal: number;
+  fantasyPointsTotal: number;
+  // Supplementary NRL stats (null when no data available)
+  totalEffectiveOffloads: number | null;
+  totalIneffectiveOffloads: number | null;
+  totalRunsOver8m: number | null;
+  totalRunsUnder8m: number | null;
+  totalTrySaves: number | null;
+  totalLastTouch: number | null;
+  totalKickRegatherBreak: number | null;
+  // SC season totals & per-category averages/totals (from sc.matches)
+  scSeasonTotal: number;
+  avgScoringPts: number;
+  totalScoringPts: number;
+  avgCreatePts: number;
+  totalCreatePts: number;
+  avgEvadePts: number;
+  totalEvadePts: number;
+  avgBasePts: number;
+  totalBasePts: number;
+  avgDefencePts: number;
+  totalDefencePts: number;
+  avgNegativePts: number;
+  totalNegativePts: number;
 }
 
 export interface PlayerComparisonData {
@@ -26,7 +70,8 @@ export interface PlayerComparisonData {
   teamCode: string;
   position: string;
   seasonStats: SeasonStatsSnapshot | null;
-  scRounds: Array<{ round: number; totalScore: number | null; opponent: string | null }>;
+  scRounds: Array<{ round: number; totalScore: number | null; opponent: string | null; isComplete: boolean }>;
+  sc: import('../services/api').PlayerSeasonSupercoachResponse | null;
   projection: import('../services/api').PlayerProjectionResponse | null;
   projectionError: boolean;
   loading: boolean;
@@ -38,7 +83,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
-import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -47,25 +91,112 @@ import { useAppContext } from '../hooks/useAppContext';
 import { useSeasonPlayersQuery } from '../hooks/useSeasonQuery';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
-import { StatCard } from '../components/shared/StatCard';
 import { SkeletonPage } from '../components/shared/SkeletonPage';
 import { RadarChart } from '../components/charts/RadarChart';
-import { ScoreBarChart } from '../components/charts/ScoreBarChart';
+import { ScRadarChart } from '../components/charts/ScRadarChart';
+import { CompareSeasonStatsTable, STAT_COLS, SC_COLS, NRL_COLS } from '../components/CompareSeasonStatsTable';
+import { CompareRoundScoresTable } from '../components/CompareRoundScoresTable';
+import { CompareProjectionsTable } from '../components/CompareProjectionsTable';
 import { PlayerSearchInput } from '../components/PlayerSearchInput';
+import { getRadarAxes } from '../utils/positionGroups';
 import {
   getPlayer,
   getPlayerSupercoachSeason,
   getPlayerSupercoachProjection,
 } from '../services/api';
+import type { PlayerPerformanceDetail } from '../types';
 
-type ComparePlayer = {
-  id: string;
-  name: string;
-  teamCode: string;
-  position: string;
-  sc: Awaited<ReturnType<typeof getPlayerSupercoachSeason>> | null;
-  proj: Awaited<ReturnType<typeof getPlayerSupercoachProjection>> | null;
-};
+function buildSeasonStats(
+  performances: PlayerPerformanceDetail[],
+  sc: import('../services/api').PlayerSeasonSupercoachResponse | null,
+): SeasonStatsSnapshot {
+  const completed = performances.filter(p => p.isComplete);
+  const sum = (fn: (p: PlayerPerformanceDetail) => number) =>
+    completed.reduce((acc, p) => acc + fn(p), 0);
+
+  const latestPerf = [...completed].sort((a, b) => b.round - a.round)[0] ?? null;
+
+  // Supplementary stats: sum non-null values; return null if no game had data
+  const suppSum = (fn: (p: PlayerPerformanceDetail) => number | null): number | null => {
+    const hasData = completed.some(p => fn(p) !== null);
+    return hasData ? completed.reduce((acc, p) => acc + (fn(p) ?? 0), 0) : null;
+  };
+
+  const scMatches = sc?.matches ?? [];
+  const scN = scMatches.length;
+  const catSum = scMatches.reduce(
+    (acc, m) => ({
+      scoring:  acc.scoring  + m.categoryTotals.scoring,
+      create:   acc.create   + m.categoryTotals.create,
+      evade:    acc.evade    + m.categoryTotals.evade,
+      base:     acc.base     + m.categoryTotals.base,
+      defence:  acc.defence  + m.categoryTotals.defence,
+      negative: acc.negative + m.categoryTotals.negative,
+    }),
+    { scoring: 0, create: 0, evade: 0, base: 0, defence: 0, negative: 0 },
+  );
+
+  return {
+    gamesPlayed: completed.length,
+    totalTries: sum(p => p.tries),
+    totalRunMetres: sum(p => p.allRunMetres),
+    totalTacklesMade: sum(p => p.tacklesMade),
+    totalTackleBreaks: sum(p => p.tackleBreaks),
+    totalLineBreaks: sum(p => p.lineBreaks),
+    totalPoints: sum(p => p.points),
+    avgScScore: sc?.seasonAverage ?? 0,
+    totalKicks: sum(p => p.kicks),
+    totalKickMetres: sum(p => p.kickMetres),
+    totalOffloads: sum(p => p.offloads),
+    totalErrors: sum(p => p.errors),
+    totalPenalties: sum(p => p.penalties),
+    totalMissedTackles: sum(p => p.missedTackles),
+    totalInterceptions: sum(p => p.intercepts),
+    avgMinutesPlayed: completed.length > 0 ? sum(p => p.minutesPlayed) / completed.length : 0,
+    tryAssists: sum(p => p.tryAssists),
+    lineBreakAssists: sum(p => p.lineBreakAssists),
+    dummyHalfRuns: sum(p => p.dummyHalfRuns),
+    dummyHalfRunMetres: sum(p => p.dummyHalfRunMetres),
+    latestPrice: latestPerf?.price ?? null,
+    latestBreakEven: latestPerf?.breakEven ?? null,
+    totalAllRuns: sum(p => p.allRuns),
+    totalHitUps: sum(p => p.hitUps),
+    totalHitUpRunMetres: sum(p => p.hitUpRunMetres),
+    totalPostContactMetres: sum(p => p.postContactMetres),
+    totalGoals: sum(p => p.goals),
+    totalFieldGoals: sum(p => p.fieldGoals),
+    totalPasses: sum(p => p.passes),
+    totalReceipts: sum(p => p.receipts),
+    totalSinBins: sum(p => p.sinBins),
+    totalOnReport: sum(p => p.onReport),
+    totalBombKicks: sum(p => p.bombKicks),
+    totalGrubberKicks: sum(p => p.grubberKicks),
+    totalFortyTwentyKicks: sum(p => p.fortyTwentyKicks),
+    totalKickReturnMetres: sum(p => p.kickReturnMetres),
+    totalOneOnOneSteal: sum(p => p.oneOnOneSteal),
+    fantasyPointsTotal: sum(p => p.fantasyPointsTotal),
+    totalEffectiveOffloads: suppSum(p => p.effectiveOffloads),
+    totalIneffectiveOffloads: suppSum(p => p.ineffectiveOffloads),
+    totalRunsOver8m: suppSum(p => p.runsOver8m),
+    totalRunsUnder8m: suppSum(p => p.runsUnder8m),
+    totalTrySaves: suppSum(p => p.trySaves),
+    totalLastTouch: suppSum(p => p.lastTouch),
+    totalKickRegatherBreak: suppSum(p => p.kickRegatherBreak),
+    scSeasonTotal:   sc?.seasonTotal ?? 0,
+    avgScoringPts:   scN > 0 ? catSum.scoring  / scN : 0,
+    totalScoringPts: catSum.scoring,
+    avgCreatePts:    scN > 0 ? catSum.create   / scN : 0,
+    totalCreatePts:  catSum.create,
+    avgEvadePts:     scN > 0 ? catSum.evade    / scN : 0,
+    totalEvadePts:   catSum.evade,
+    avgBasePts:      scN > 0 ? catSum.base     / scN : 0,
+    totalBasePts:    catSum.base,
+    avgDefencePts:   scN > 0 ? catSum.defence  / scN : 0,
+    totalDefencePts: catSum.defence,
+    avgNegativePts:  scN > 0 ? catSum.negative / scN : 0,
+    totalNegativePts: catSum.negative,
+  };
+}
 
 export function CompareView() {
   const { ids } = useParams<{ ids?: string }>();
@@ -104,22 +235,56 @@ export function CompareView() {
     })),
   });
 
-  const players: ComparePlayer[] = useMemo(() => {
+  const players: PlayerComparisonData[] = useMemo(() => {
     return playerIds.map((pid, i) => {
       const pq = playerQueries[i];
       const sq = scQueries[i];
       const prq = projQueries[i];
-      if (!pq?.data) return null;
+
+      const isLoading = pq?.isLoading || sq?.isLoading || prq?.isLoading;
+      const error = pq?.error ? String(pq.error) : null;
+
+      if (!pq?.data) {
+        return {
+          playerId: pid,
+          playerName: pid,
+          teamCode: '',
+          position: '',
+          seasonStats: null,
+          scRounds: [],
+          sc: null,
+          projection: null,
+          projectionError: false,
+          loading: isLoading ?? true,
+          error,
+        };
+      }
+
+      const playerData = pq.data;
+      const scData = sq?.data ?? null;
+      const projData = prq?.data ?? null;
+      const performances = playerData.seasons[String(year)]?.performances ?? [];
+
       return {
-        id: pid,
-        name: pq.data.name,
-        teamCode: pq.data.teamCode,
-        position: pq.data.position,
-        sc: sq?.data ?? null,
-        proj: prq?.data ?? null,
+        playerId: pid,
+        playerName: playerData.name,
+        teamCode: playerData.teamCode,
+        position: playerData.position,
+        seasonStats: buildSeasonStats(performances, scData),
+        scRounds: (scData?.matches ?? []).map(m => ({
+          round: m.round,
+          totalScore: m.totalScore,
+          opponent: m.opponent,
+          isComplete: true,
+        })),
+        sc: scData,
+        projection: projData,
+        projectionError: !!prq?.error,
+        loading: isLoading ?? false,
+        error,
       };
-    }).filter((p): p is ComparePlayer => p !== null);
-  }, [playerIds, playerQueries, scQueries, projQueries]);
+    });
+  }, [playerIds, playerQueries, scQueries, projQueries, year]);
 
   const isLoading = playerQueries.some(q => q.isLoading);
 
@@ -128,8 +293,8 @@ export function CompareView() {
       setSnackbar('Player already added.');
       return;
     }
-    if (playerIds.length >= 4) {
-      setSnackbar('Maximum 4 players for comparison.');
+    if (playerIds.length >= 6) {
+      setSnackbar('Maximum 6 players for comparison.');
       return;
     }
     navigate(`/compare/${[...playerIds, pid].join(',')}`);
@@ -140,22 +305,35 @@ export function CompareView() {
     navigate(remaining.length > 0 ? `/compare/${remaining.join(',')}` : '/compare');
   };
 
-  const radarData = players.map(p => ({
-    name: p.name,
+  const loadedPlayers = players.filter(p => !p.loading && p.playerName !== p.playerId);
+
+  // Position-aware NRL radar axes
+  const nrlAxes = useMemo(
+    () => getRadarAxes(loadedPlayers.map(p => p.position)),
+    [loadedPlayers],
+  );
+
+  // Key stats columns — only the axes shown in the radar chart
+  const keyStatsCols = useMemo(() => {
+    const axisKeys = new Set(nrlAxes.map(a => a.key));
+    return STAT_COLS.filter(c => axisKeys.has(c.key));
+  }, [nrlAxes]);
+
+  // Build NRL radar data from real season stats
+  const nrlRadarData = loadedPlayers.map(p => ({
+    name: p.playerName,
     teamCode: p.teamCode,
-    stats: {
-      tries: 0,
-      runMetres: 0,
-      tackles: 0,
-      lineBreaks: 0,
-      fantasyPoints: p.sc?.seasonAverage ?? 0,
-      tackleBreaks: 0,
-    },
+    stats: Object.fromEntries(
+      nrlAxes.map(axis => [axis.key, (p.seasonStats as Record<string, number> | null)?.[axis.key] ?? 0])
+    ) as Record<string, number>,
   }));
 
   return (
     <Box>
-      <PageHeader title="Compare Players" subtitle={`${players.length} player${players.length !== 1 ? 's' : ''} selected`} />
+      <PageHeader
+        title="Compare Players"
+        subtitle={`${loadedPlayers.length} player${loadedPlayers.length !== 1 ? 's' : ''} selected`}
+      />
 
       {/* Search + selected chips */}
       <Box sx={{ mb: 2 }}>
@@ -165,11 +343,11 @@ export function CompareView() {
           onSelect={pid => handleAddPlayer(pid)}
         />
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-          {players.map(p => (
+          {loadedPlayers.map(p => (
             <Chip
-              key={p.id}
-              label={`${p.name} (${p.teamCode})`}
-              onDelete={() => handleRemovePlayer(p.id)}
+              key={p.playerId}
+              label={`${p.playerName} (${p.teamCode})`}
+              onDelete={() => handleRemovePlayer(p.playerId)}
               size="small"
             />
           ))}
@@ -178,74 +356,60 @@ export function CompareView() {
 
       {isLoading && <SkeletonPage variant="cards" />}
 
-      {!isLoading && players.length === 0 && (
+      {!isLoading && loadedPlayers.length === 0 && (
         <Alert severity="info">Search for players above to start comparing.</Alert>
       )}
 
-      {!isLoading && players.length > 0 && (
+      {!isLoading && loadedPlayers.length > 0 && (
         <>
-          {/* Stat cards */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)`, gap: 2, mb: 2 }}>
-            {players.map(p => (
-              <StatCard
-                key={p.id}
-                label={`${p.name} SC Avg`}
-                value={p.sc?.seasonAverage != null ? p.sc.seasonAverage.toFixed(1) : '—'}
-              />
-            ))}
-          </Box>
-
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
             <Tab label="Overview" />
+            <Tab label="Stats" />
             <Tab label="Scores" />
             <Tab label="Projections" />
           </Tabs>
 
+          {/* Overview: two radar charts side-by-side on wide screens */}
           {tab === 0 && (
-            <SectionCard title="Stat Radar">
-              <RadarChart players={radarData} height={320} />
-            </SectionCard>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: 2,
+              }}
+            >
+              <SectionCard title="NRL Stats">
+                <RadarChart players={nrlRadarData} axes={nrlAxes} height={320} />
+              </SectionCard>
+              <SectionCard title="Supercoach Stats">
+                <ScRadarChart players={loadedPlayers} height={320} />
+              </SectionCard>
+            </Box>
           )}
 
+          {/* Stats: three focused tables */}
           {tab === 1 && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-              {players.map(p => (
-                <SectionCard key={p.id} title={p.name}>
-                  {p.sc ? (
-                    <ScoreBarChart
-                      data={p.sc.matches.map(m => ({
-                        round: m.round,
-                        score: m.totalScore,
-                        isComplete: m.isComplete,
-                        opponent: m.opponent,
-                      }))}
-                      average={p.sc.seasonAverage}
-                      height={160}
-                    />
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">No SC data</Typography>
-                  )}
-                </SectionCard>
-              ))}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <SectionCard title="Key Stats">
+                <CompareSeasonStatsTable players={loadedPlayers} cols={keyStatsCols} />
+              </SectionCard>
+              <SectionCard title="Supercoach">
+                <CompareSeasonStatsTable players={loadedPlayers} cols={SC_COLS} />
+              </SectionCard>
+              <SectionCard title="NRL Stats">
+                <CompareSeasonStatsTable players={loadedPlayers} cols={NRL_COLS} />
+              </SectionCard>
             </Box>
           )}
 
+          {/* Scores: comparative round-by-round table */}
           {tab === 2 && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(players.length, 2)}, 1fr)`, gap: 2 }}>
-              {players.map(p => (
-                <SectionCard key={p.id} title={p.name}>
-                  {p.proj ? (
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
-                      <StatCard label="Projected" value={p.proj.projectedTotal.toFixed(0)} />
-                      <StatCard label="Floor" value={p.proj.projectedFloor.toFixed(0)} />
-                      <StatCard label="Ceiling" value={p.proj.projectedCeiling.toFixed(0)} />
-                    </Box>
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">No projection data</Typography>
-                  )}
-                </SectionCard>
-              ))}
-            </Box>
+            <CompareRoundScoresTable players={loadedPlayers} />
+          )}
+
+          {/* Projections: detailed projection metrics + upcoming row */}
+          {tab === 3 && (
+            <CompareProjectionsTable players={loadedPlayers} />
           )}
         </>
       )}

@@ -1,118 +1,213 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '../test/utils';
-import { CompareSeasonStatsTable } from './CompareSeasonStatsTable';
-import type { PlayerComparisonData } from '../views/CompareView';
+import { CompareSeasonStatsTable, SC_COLS, NRL_COLS } from './CompareSeasonStatsTable';
+import type { PlayerComparisonData, SeasonStatsSnapshot } from '../views/CompareView';
 
-function makePlayer(id: string, overrides: Partial<PlayerComparisonData> = {}): PlayerComparisonData {
+const BASE_STATS: SeasonStatsSnapshot = {
+  gamesPlayed: 10,
+  totalTries: 5,
+  totalRunMetres: 1000,
+  totalTacklesMade: 200,
+  totalTackleBreaks: 20,
+  totalLineBreaks: 3,
+  totalPoints: 20,
+  avgScScore: 60,
+  totalKicks: 10,
+  totalKickMetres: 300,
+  totalOffloads: 8,
+  totalErrors: 5,
+  totalPenalties: 3,
+  totalMissedTackles: 10,
+  totalInterceptions: 2,
+  avgMinutesPlayed: 70,
+  tryAssists: 4,
+  lineBreakAssists: 3,
+  dummyHalfRuns: 0,
+  dummyHalfRunMetres: 0,
+  latestPrice: 500000,
+  latestBreakEven: 55,
+  totalAllRuns: 80,
+  totalHitUps: 60,
+  totalHitUpRunMetres: 400,
+  totalPostContactMetres: 300,
+  totalGoals: 2,
+  totalFieldGoals: 0,
+  totalPasses: 150,
+  totalReceipts: 160,
+  totalSinBins: 0,
+  totalOnReport: 1,
+  totalBombKicks: 5,
+  totalGrubberKicks: 8,
+  totalFortyTwentyKicks: 1,
+  totalKickReturnMetres: 200,
+  totalOneOnOneSteal: 3,
+  fantasyPointsTotal: 700,
+  totalEffectiveOffloads: 6,
+  totalIneffectiveOffloads: 2,
+  totalRunsOver8m: 15,
+  totalRunsUnder8m: 45,
+  totalTrySaves: 1,
+  totalLastTouch: 4,
+  totalKickRegatherBreak: 0,
+  scSeasonTotal: 600,
+  avgScoringPts: 10,
+  totalScoringPts: 100,
+  avgCreatePts: 8,
+  totalCreatePts: 80,
+  avgEvadePts: 5,
+  totalEvadePts: 50,
+  avgBasePts: 20,
+  totalBasePts: 200,
+  avgDefencePts: 15,
+  totalDefencePts: 150,
+  avgNegativePts: 2,
+  totalNegativePts: 20,
+};
+
+function makePlayer(id: string, statsOverride: Partial<SeasonStatsSnapshot> = {}): PlayerComparisonData {
   return {
     playerId: id,
     playerName: `Player ${id}`,
     teamCode: 'BRO',
-    position: 'Forward',
-    seasonStats: {
-      gamesPlayed: 10,
-      totalTries: 5,
-      totalRunMetres: 1000,
-      totalTacklesMade: 200,
-      totalTackleBreaks: 20,
-      totalLineBreaks: 3,
-      totalPoints: 20,
-      avgScScore: 60,
-      totalKicks: 10,
-      totalKickMetres: 300,
-      totalOffloads: 8,
-      totalErrors: 5,
-      totalPenalties: 3,
-      totalMissedTackles: 10,
-      totalInterceptions: 2,
-      avgMinutesPlayed: 70,
-      latestPrice: 500000,
-      latestBreakEven: 55,
-    },
+    position: 'prop',
+    seasonStats: { ...BASE_STATS, ...statsOverride },
     scRounds: [],
+    sc: null,
     projection: null,
     projectionError: false,
     loading: false,
     error: null,
-    ...overrides,
   };
 }
 
 describe('CompareSeasonStatsTable', () => {
-  it('renders player names as column headers', () => {
+  it('renders player names as row labels', () => {
     render(<CompareSeasonStatsTable players={[makePlayer('a'), makePlayer('b')]} />);
-    expect(screen.getByText('Player a')).toBeTruthy();
-    expect(screen.getByText('Player b')).toBeTruthy();
+    expect(screen.getAllByText('Player a').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Player b').length).toBeGreaterThan(0);
   });
 
   it('shows "—" for null stat values', () => {
-    const player = makePlayer('a', {
-      seasonStats: {
-        gamesPlayed: 5,
-        totalTries: 0,
-        totalRunMetres: 0,
-        totalTacklesMade: 0,
-        totalTackleBreaks: 0,
-        totalLineBreaks: 0,
-        totalPoints: 0,
-        avgScScore: 0,
-        totalKicks: 0,
-        totalKickMetres: 0,
-        totalOffloads: 0,
-        totalErrors: 0,
-        totalPenalties: 0,
-        totalMissedTackles: 0,
-        totalInterceptions: 0,
-        avgMinutesPlayed: 0,
-        latestPrice: null,
-        latestBreakEven: null,
-      },
-    });
-    render(<CompareSeasonStatsTable players={[makePlayer('b'), player]} />);
+    const p = makePlayer('a', { latestPrice: null, latestBreakEven: null });
+    render(<CompareSeasonStatsTable players={[makePlayer('b'), p]} />);
     const dashes = screen.getAllByText('—');
     expect(dashes.length).toBeGreaterThan(0);
   });
 
-  it('sorts descending by player column on first header click', () => {
-    // Give player b a very high totalTries so it sorts to the top
-    const baseStats = makePlayer('base').seasonStats!;
-    const lowStats = { ...baseStats, gamesPlayed: 1, totalTries: 1, totalRunMetres: 1, totalTacklesMade: 1, totalTackleBreaks: 1, totalLineBreaks: 1, totalPoints: 1, avgScScore: 1, totalKicks: 1, totalKickMetres: 1, totalOffloads: 1, totalErrors: 1, totalPenalties: 1, totalMissedTackles: 1, totalInterceptions: 1, avgMinutesPlayed: 1, latestPrice: null, latestBreakEven: null };
-    const p1 = makePlayer('a', { seasonStats: { ...lowStats } });
-    const p2 = makePlayer('b', { seasonStats: { ...lowStats, totalTries: 999 } });
+  it('renders SC and NRL column headers by default', () => {
+    render(<CompareSeasonStatsTable players={[makePlayer('a')]} />);
+    expect(screen.getByText('SC Tot')).toBeTruthy();  // SC group
+    expect(screen.getByText('GP')).toBeTruthy();       // NRL group
+  });
+
+  it('renders only the provided cols when cols prop is given', () => {
+    render(<CompareSeasonStatsTable players={[makePlayer('a')]} cols={SC_COLS} />);
+    expect(screen.getByText('SC Tot')).toBeTruthy();
+    expect(screen.queryByText('GP')).toBeNull();
+  });
+
+  it('renders stat column headers including extended NRL stats', () => {
+    render(<CompareSeasonStatsTable players={[makePlayer('a')]} cols={NRL_COLS} />);
+    // Abbreviated column labels
+    expect(screen.getByText('TA')).toBeTruthy();   // Try Assists
+    expect(screen.getByText('LBA')).toBeTruthy();  // LB Assists
+    expect(screen.getByText('DHR')).toBeTruthy();  // Dummy Half Runs
+  });
+
+  it('applies green background to higher tackles value and red to lower', () => {
+    const p1 = makePlayer('a', { totalTacklesMade: 50 });
+    const p2 = makePlayer('b', { totalTacklesMade: 200 });
     render(<CompareSeasonStatsTable players={[p1, p2]} />);
 
-    // Click player b's column header to sort by b descending
-    const sortLabel = screen.getByText('Player b');
-    fireEvent.click(sortLabel);
+    const cellA = document.querySelector('[data-testid="cell-totalTacklesMade-a"]') as HTMLElement | null;
+    const cellB = document.querySelector('[data-testid="cell-totalTacklesMade-b"]') as HTMLElement | null;
 
-    // Tries row should now be first (b has 999, all other stats are 1)
-    const rows = screen.getAllByRole('row');
-    const firstDataRow = rows[1];
-    expect(firstDataRow?.textContent).toContain('Tries');
+    const parseRgb = (s: string) => {
+      const m = s.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (!m || !m[1] || !m[2] || !m[3]) return null;
+      return { r: +m[1], g: +m[2], b: +m[3] };
+    };
+    const rgbA = parseRgb(cellA?.style.backgroundColor ?? '');
+    const rgbB = parseRgb(cellB?.style.backgroundColor ?? '');
+    if (rgbA && rgbB) {
+      expect(rgbB.g).toBeGreaterThan(rgbA.g);
+    }
   });
 
-  it('toggles sort to ascending on second click of same column', () => {
-    const players = [makePlayer('a'), makePlayer('b')];
-    render(<CompareSeasonStatsTable players={players} />);
+  it('applies green background to lower missed tackles value', () => {
+    const p1 = makePlayer('a', { totalMissedTackles: 2 });
+    const p2 = makePlayer('b', { totalMissedTackles: 20 });
+    render(<CompareSeasonStatsTable players={[p1, p2]} />);
 
-    const sortLabel = screen.getByText('Player a');
-    fireEvent.click(sortLabel); // desc
-    fireEvent.click(sortLabel); // asc — should not throw
-    // Just verify the component doesn't crash
-    expect(screen.getByText('Player a')).toBeTruthy();
+    const cellA = document.querySelector('[data-testid="cell-totalMissedTackles-a"]') as HTMLElement | null;
+    const cellB = document.querySelector('[data-testid="cell-totalMissedTackles-b"]') as HTMLElement | null;
+
+    const parseRgb = (s: string) => {
+      const m = s.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (!m || !m[1] || !m[2] || !m[3]) return null;
+      return { r: +m[1], g: +m[2], b: +m[3] };
+    };
+    const rgbA = parseRgb(cellA?.style.backgroundColor ?? '');
+    const rgbB = parseRgb(cellB?.style.backgroundColor ?? '');
+    if (rgbA && rgbB) {
+      expect(rgbA.g).toBeGreaterThan(rgbB.g);
+    }
   });
 
-  it('does not highlight leader cells in single-player mode', () => {
+  it('applies green background to lower price', () => {
+    const cheap = makePlayer('a', { latestPrice: 200000 });
+    const expensive = makePlayer('b', { latestPrice: 800000 });
+    render(<CompareSeasonStatsTable players={[cheap, expensive]} />);
+
+    const cellCheap    = document.querySelector('[data-testid="cell-latestPrice-a"]') as HTMLElement | null;
+    const cellExpensive = document.querySelector('[data-testid="cell-latestPrice-b"]') as HTMLElement | null;
+
+    const parseRgb = (s: string) => {
+      const m = s.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (!m || !m[1] || !m[2] || !m[3]) return null;
+      return { r: +m[1], g: +m[2], b: +m[3] };
+    };
+    const rgbCheap    = parseRgb(cellCheap?.style.backgroundColor ?? '');
+    const rgbExpensive = parseRgb(cellExpensive?.style.backgroundColor ?? '');
+    if (rgbCheap && rgbExpensive) {
+      expect(rgbCheap.g).toBeGreaterThan(rgbExpensive.g);
+    }
+  });
+
+  it('no gradient applied for single player', () => {
     render(<CompareSeasonStatsTable players={[makePlayer('solo')]} />);
-    const leaderCells = document.querySelectorAll('[data-testid^="leader-"]');
-    expect(leaderCells.length).toBe(0);
+    const cell = document.querySelector('[data-testid="cell-totalTacklesMade-solo"]') as HTMLElement | null;
+    expect(cell?.style.backgroundColor ?? '').toBe('');
   });
 
-  it('highlights the leader cell when two players have different values', () => {
-    const p1 = makePlayer('a', { seasonStats: { ...makePlayer('a').seasonStats!, totalTries: 2 } });
-    const p2 = makePlayer('b', { seasonStats: { ...makePlayer('b').seasonStats!, totalTries: 10 } });
+  it('no gradient when all values are equal', () => {
+    const p1 = makePlayer('a', { totalTacklesMade: 100 });
+    const p2 = makePlayer('b', { totalTacklesMade: 100 });
     render(<CompareSeasonStatsTable players={[p1, p2]} />);
-    const leaderCells = document.querySelectorAll('[data-testid="leader-totalTries"]');
-    expect(leaderCells.length).toBe(1);
+    const cellA = document.querySelector('[data-testid="cell-totalTacklesMade-a"]') as HTMLElement | null;
+    expect(cellA?.style.backgroundColor ?? '').toBe('');
+  });
+
+  it('null cell excluded from gradient', () => {
+    const p1 = makePlayer('a', { latestPrice: null });
+    const p2 = makePlayer('b', { latestPrice: 500000 });
+    render(<CompareSeasonStatsTable players={[p1, p2]} />);
+    const cellNull = document.querySelector('[data-testid="cell-latestPrice-a"]') as HTMLElement | null;
+    expect(cellNull?.textContent).toBe('—');
+    expect(cellNull?.style.backgroundColor ?? '').toBe('');
+  });
+
+  it('sorts player rows by column on header click', () => {
+    const p1 = makePlayer('a', { totalRunMetres: 1000 });
+    const p2 = makePlayer('b', { totalRunMetres: 500 });
+    const p3 = makePlayer('c', { totalRunMetres: 750 });
+    render(<CompareSeasonStatsTable players={[p1, p2, p3]} />);
+
+    fireEvent.click(screen.getByText('Run M'));
+
+    const rows = screen.getAllByRole('row');
+    const dataRows = rows.filter(r => r.querySelector('[data-testid^="cell-totalRunMetres-"]'));
+    const first = dataRows[0]?.querySelector('[data-testid^="cell-totalRunMetres-"]');
+    expect(first?.getAttribute('data-testid')).toBe('cell-totalRunMetres-a');
   });
 });

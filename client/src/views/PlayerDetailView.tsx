@@ -300,6 +300,12 @@ const INJURY_COLUMNS = [
     renderCell: (e: { expectedReturn: string }) => <Typography variant="caption">{e.expectedReturn}</Typography> },
   { key: 'startDate', label: 'Start', align: 'left' as const, hideOnMobile: true,
     renderCell: (e: { startDate: string }) => <Typography variant="caption">{e.startDate}</Typography> },
+  { key: 'endDate', label: 'End', align: 'left' as const, hideOnMobile: true,
+    renderCell: (e: { endDate: string | null }) => (
+      <Typography variant="caption" sx={{ color: e.endDate ? 'inherit' : 'success.main' }}>
+        {e.endDate ?? 'Active'}
+      </Typography>
+    ) },
 ];
 
 // ─── main view ────────────────────────────────────────────────────────────────
