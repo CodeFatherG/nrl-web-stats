@@ -173,6 +173,26 @@ export class D1CasualtyWardRepository implements CasualtyWardRepository {
     return (results as Record<string, unknown>[]).map(rowToEntry);
   }
 
+  async countGamesMissed(playerId: string, teamCode: string, startDate: string, endDate: string): Promise<number> {
+    const result = await this.db
+      .prepare(
+        `SELECT COUNT(*) as count
+         FROM matches m
+         WHERE (m.home_team_code = ? OR m.away_team_code = ?)
+           AND DATE(m.scheduled_time) >= ?
+           AND DATE(m.scheduled_time) <= ?
+           AND m.status = 'Completed'
+           AND NOT EXISTS (
+             SELECT 1 FROM match_performances mp
+             WHERE mp.player_id = ?
+               AND mp.match_id = m.id
+           )`
+      )
+      .bind(teamCode, teamCode, startDate, endDate, playerId)
+      .first<{ count: number }>();
+    return result?.count ?? 0;
+  }
+
   async reopen(id: number): Promise<void> {
     await this.db
       .prepare(`UPDATE casualty_ward SET end_date = NULL, updated_at = datetime('now') WHERE id = ?`)

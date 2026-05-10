@@ -433,6 +433,7 @@ export interface CasualtyWardEntry {
   startDate: string;
   endDate: string | null;
   playerId: string | null;
+  gamesMissed: number | null;
 }
 
 export interface CasualtyWardResponse {

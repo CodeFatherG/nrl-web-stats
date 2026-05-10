@@ -1321,9 +1321,18 @@ export function getCasualtyWard(deps: HandlerDeps) {
     try {
       const repo = deps.createCasualtyWardRepository(c.env.DB);
       const entries = await repo.findOpen();
+      const today = new Date().toISOString().substring(0, 10);
+
+      const gamesMissedCounts = await Promise.all(
+        entries.map(e =>
+          e.playerId
+            ? repo.countGamesMissed(e.playerId, e.teamCode, e.startDate, e.endDate ?? today)
+            : Promise.resolve(null)
+        )
+      );
 
       return c.json({
-        entries: entries.map(e => ({
+        entries: entries.map((e, i) => ({
           id: e.id,
           firstName: e.firstName,
           lastName: e.lastName,
@@ -1334,6 +1343,7 @@ export function getCasualtyWard(deps: HandlerDeps) {
           startDate: e.startDate,
           endDate: e.endDate,
           playerId: e.playerId,
+          gamesMissed: gamesMissedCounts[i],
         })),
         count: entries.length,
       });
@@ -1363,9 +1373,18 @@ export function getPlayerInjuryHistory(deps: HandlerDeps) {
         return errorResponse(c, 'NOT_FOUND', `No casualty ward records found for player ${playerId}`, 404);
       }
 
+      const today = new Date().toISOString().substring(0, 10);
+      const gamesMissedCounts = await Promise.all(
+        entries.map(e =>
+          e.playerId
+            ? repo.countGamesMissed(e.playerId, e.teamCode, e.startDate, e.endDate ?? today)
+            : Promise.resolve(null)
+        )
+      );
+
       return c.json({
         playerId,
-        entries: entries.map(e => ({
+        entries: entries.map((e, i) => ({
           id: e.id,
           firstName: e.firstName,
           lastName: e.lastName,
@@ -1376,6 +1395,7 @@ export function getPlayerInjuryHistory(deps: HandlerDeps) {
           startDate: e.startDate,
           endDate: e.endDate,
           playerId: e.playerId,
+          gamesMissed: gamesMissedCounts[i],
         })),
       });
     } catch (error) {
