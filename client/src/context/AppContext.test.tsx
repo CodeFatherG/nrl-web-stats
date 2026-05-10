@@ -27,8 +27,14 @@ function TestConsumer() {
   );
 }
 
-function wrapper({ children }: { children: React.ReactNode }) {
-  return <AppContextProvider>{children}</AppContextProvider>;
+// Wrap directly in JSX instead of using the `wrapper` render option,
+// since renderWithTheme omits 'wrapper' from its options type.
+function renderApp() {
+  return render(
+    <AppContextProvider>
+      <TestConsumer />
+    </AppContextProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -40,35 +46,35 @@ describe('AppContext', () => {
     it('starts in loading state before promises resolve', () => {
       mockGetHealth.mockReturnValue(new Promise(() => {}));
       mockGetTeams.mockReturnValue(new Promise(() => {}));
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       expect(screen.getByTestId('status')).toHaveTextContent('loading');
     });
 
     it('transitions to ready when health has years and teams resolves', async () => {
       mockGetHealth.mockResolvedValue({ status: 'ok', loadedYears: [2024, 2025], totalFixtures: 100 });
       mockGetTeams.mockResolvedValue({ teams: [{ code: 'BRI', name: 'Brisbane Broncos' }] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('ready'));
     });
 
     it('transitions to no-data when loadedYears is empty', async () => {
       mockGetHealth.mockResolvedValue({ status: 'ok', loadedYears: [], totalFixtures: 0 });
       mockGetTeams.mockResolvedValue({ teams: [] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('no-data'));
     });
 
     it('transitions to error when getHealth rejects', async () => {
       mockGetHealth.mockRejectedValue(new Error('Network failure'));
       mockGetTeams.mockResolvedValue({ teams: [] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
     });
 
     it('transitions to error when getTeams rejects', async () => {
       mockGetHealth.mockResolvedValue({ status: 'ok', loadedYears: [2025], totalFixtures: 10 });
       mockGetTeams.mockRejectedValue(new Error('Teams unavailable'));
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
     });
   });
@@ -82,17 +88,17 @@ describe('AppContext', () => {
     });
 
     it('sets currentYear to the maximum of loadedYears', async () => {
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('year')).toHaveTextContent('2025'));
     });
 
     it('populates loadedYears from getHealth response', async () => {
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('years')).toHaveTextContent('2024,2025'));
     });
 
     it('populates teams from getTeams response', async () => {
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('teams')).toHaveTextContent('BRI,SYD'));
     });
   });
@@ -101,7 +107,7 @@ describe('AppContext', () => {
     it('surfaces the error message string on failure', async () => {
       mockGetHealth.mockRejectedValue(new Error('Connection refused'));
       mockGetTeams.mockResolvedValue({ teams: [] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Connection refused'));
     });
   });
@@ -110,7 +116,7 @@ describe('AppContext', () => {
     it('triggers a new API call when refetch is invoked', async () => {
       mockGetHealth.mockResolvedValue({ status: 'ok', loadedYears: [2025], totalFixtures: 10 });
       mockGetTeams.mockResolvedValue({ teams: [] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('ready'));
       expect(mockGetHealth).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByRole('button', { name: /refetch/i }));
@@ -120,7 +126,7 @@ describe('AppContext', () => {
     it('clears a previous error and reloads on refetch', async () => {
       mockGetHealth.mockRejectedValueOnce(new Error('First failure'));
       mockGetTeams.mockResolvedValue({ teams: [] });
-      render(<TestConsumer />, { wrapper });
+      renderApp();
       await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
 
       mockGetHealth.mockResolvedValue({ status: 'ok', loadedYears: [2025], totalFixtures: 10 });
