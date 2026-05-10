@@ -54,17 +54,17 @@ describe('ByeOverviewGrid', () => {
       render(<ByeOverviewGrid {...defaultProps} />);
 
       // Brisbane Broncos has bye in round 5
-      // Total BYE chips should include one for Brisbane
-      const byeIndicators = screen.getAllByText('BYE');
+      // ByeIndicator renders a disabled IconButton (no text — queried by role)
+      const byeIndicators = screen.getAllByRole('button');
       expect(byeIndicators.length).toBeGreaterThan(0);
     });
 
     it('should display correct number of bye indicators', () => {
       render(<ByeOverviewGrid {...defaultProps} />);
 
-      // Count all BYE indicators in the grid
-      // Our mock data has 17 teams with 1 bye each = 17 BYE indicators
-      const byeIndicators = screen.getAllByText('BYE');
+      // Count all bye indicators — each renders as a disabled IconButton
+      // Our mock data has 17 teams with 1 bye each = 17 buttons
+      const byeIndicators = screen.getAllByRole('button');
       expect(byeIndicators.length).toBe(17);
     });
 
@@ -78,17 +78,17 @@ describe('ByeOverviewGrid', () => {
       expect(brisbaneRow).toBeDefined();
       const cells = within(brisbaneRow!).getAllByRole('cell');
 
-      // Round 1 cell (index 1, since index 0 is rowheader) should NOT have BYE
+      // Round 1 cell (index 0 of td cells) should NOT have a bye indicator
       // Brisbane has bye in round 5, not round 1
-      expect(within(cells[0]!).queryByText('BYE')).not.toBeInTheDocument();
+      expect(within(cells[0]!).queryByRole('button')).not.toBeInTheDocument();
     });
 
     it('should display bye indicators for multiple teams in same round', () => {
       render(<ByeOverviewGrid {...defaultProps} />);
 
       // Round 12 has 3 teams with byes: SOU, SYD, WST
-      // Count BYE indicators (there should be 17 total)
-      const byeIndicators = screen.getAllByText('BYE');
+      // Total across all rounds: 17 bye indicators (one per team in mock data)
+      const byeIndicators = screen.getAllByRole('button');
       expect(byeIndicators.length).toBe(17);
     });
   });

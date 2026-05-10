@@ -4,19 +4,19 @@ import { render } from '../test/utils';
 import { ByeIndicator } from './ByeIndicator';
 
 describe('ByeIndicator', () => {
-  it('should display "BYE" label', () => {
+  it('renders a disabled button', () => {
     render(<ByeIndicator />);
-    expect(screen.getByText('BYE')).toBeInTheDocument();
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
   });
 
-  it('should render event busy icon', () => {
+  it('renders the EventBusyIcon SVG', () => {
     const { container } = render(<ByeIndicator />);
     expect(container.querySelector('[data-testid="EventBusyIcon"]')).toBeInTheDocument();
   });
 
-  it('should render as a chip', () => {
+  it('renders only one interactive element', () => {
     render(<ByeIndicator />);
-    const chip = screen.getByText('BYE').closest('.MuiChip-root');
-    expect(chip).toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 });
