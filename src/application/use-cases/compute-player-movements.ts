@@ -108,6 +108,24 @@ export class ComputePlayerMovementsUseCase {
     const currentByTeam = buildTeamMap(currentTeamLists);
     const prevByTeam = buildTeamMap(prevTeamLists);
 
+    // For teams that had a bye in round - 1 (no team list), walk back to their most recent
+    // team list so all three phases compare against the last round the team actually played.
+    for (const teamCode of expectedTeams) {
+      if (prevByTeam.has(teamCode)) continue;
+      for (let r = round - 2; r >= 1; r--) {
+        const lists = await this.teamListRepo.findByYearAndRound(year, r);
+        const tl = lists.find(l => l.teamCode === teamCode);
+        if (tl) {
+          const members: TeamMemberMap = new Map();
+          for (const m of tl.members) {
+            members.set(m.playerId, { jerseyNumber: m.jerseyNumber, playerName: m.playerName, position: m.position });
+          }
+          prevByTeam.set(teamCode, members);
+          break;
+        }
+      }
+    }
+
     const injured: InjuredRecord[] = [];
     const dropped: DroppedRecord[] = [];
     const benched: BenchedRecord[] = [];
@@ -294,6 +312,29 @@ export class ComputePlayerMovementsUseCase {
         }
       }
 
+      // Pre-compute per-position slot pairings, excluding incumbents.
+      // "Vacated": was a starting holder previously, no longer at this position now.
+      // "New arrival": at this position now, was not previously (came from elsewhere/absent).
+      // Sorted by player ID for deterministic 1-to-1 pairing in Benched and Promoted.
+      const vacatedAtPos = new Map<string, Array<{ playerId: number; playerName: string }>>();
+      const newArrivalsAtPos = new Map<string, Array<{ playerId: number; playerName: string }>>();
+      for (const [pos, prevPlayers] of prevByPosition) {
+        vacatedAtPos.set(pos, prevPlayers
+          .filter(pp => {
+            const snap = currentMembers.get(pp.playerId);
+            return !snap || normalizePosition(snap.position) !== pos;
+          })
+          .sort((a, b) => a.playerId - b.playerId));
+      }
+      for (const [pos, currPlayers] of currByPosition) {
+        newArrivalsAtPos.set(pos, currPlayers
+          .filter(cp => {
+            const snap = prevMembers.get(cp.playerId);
+            return !snap || normalizePosition(snap.position) !== pos;
+          })
+          .sort((a, b) => a.playerId - b.playerId));
+      }
+
       for (const [playerId, currMember] of currentMembers) {
         const prevMember = prevMembers.get(playerId);
         const isNamed    = isNamedPosition(currMember.position); // in the named squad (position-based)
@@ -360,12 +401,10 @@ export class ComputePlayerMovementsUseCase {
               // "Replaced by": find this player's prior slot index among previous holders (sorted by
               // playerId), then pick the current holder at the same index. Handles multi-player positions.
               const posKey = normalizePosition(prevMember.position);
-              const prevSlotPlayers = (prevByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
-              const currSlotPlayers = (currByPosition.get(posKey) ?? []).slice().sort((a, b) => a.playerId - b.playerId);
-              const slotIndex = prevSlotPlayers.findIndex(p => p.playerId === playerId);
-              const replacerCandidate = slotIndex >= 0 ? currSlotPlayers[slotIndex] : undefined;
-              const replacer = replacerCandidate !== undefined && replacerCandidate.playerId !== playerId
-                ? replacerCandidate : undefined;
+              const vacated = vacatedAtPos.get(posKey) ?? [];
+              const arrivals = newArrivalsAtPos.get(posKey) ?? [];
+              const slotIndex = vacated.findIndex(p => p.playerId === playerId);
+              const replacer = slotIndex >= 0 && slotIndex < arrivals.length ? arrivals[slotIndex] : undefined;
               benched.push({
                 playerId,
                 playerName: currMember.playerName,
@@ -405,15 +444,10 @@ export class ComputePlayerMovementsUseCase {
         // For multi-player positions (Wing, Prop, Centre, Second Row) find the slot by sorting all
         // current holders by playerId and pairing to the same-indexed previous holder.
         const posKey2 = normalizePosition(currMember.position);
-        const currSlotArr = isStarting ? (currByPosition.get(posKey2) ?? []).slice().sort((a, b) => a.playerId - b.playerId) : [];
-        const prevSlotArr = isStarting ? (prevByPosition.get(posKey2) ?? []).slice().sort((a, b) => a.playerId - b.playerId) : [];
-        const mySlotIndex = currSlotArr.findIndex(p => p.playerId === playerId);
-        const prevAtSlot = mySlotIndex >= 0 ? prevSlotArr[mySlotIndex] : undefined;
-        const prevHolderInCurr = prevAtSlot !== undefined ? currentMembers.get(prevAtSlot.playerId) : undefined;
-        const prevHolderLeft = prevAtSlot !== undefined &&
-          (prevHolderInCurr === undefined ||                                                                 // absent (dropped/injured)
-           !isNamedPosition(prevHolderInCurr.position) ||                                                   // demoted to reserve (benched)
-           normalizePosition(prevHolderInCurr.position) !== normalizePosition(prevAtSlot.position));        // moved to a different position
+        const arrivals2 = isStarting ? (newArrivalsAtPos.get(posKey2) ?? []) : [];
+        const vacated2  = isStarting ? (vacatedAtPos.get(posKey2) ?? []) : [];
+        const arrivalIndex = arrivals2.findIndex(p => p.playerId === playerId);
+        const replacee = arrivalIndex >= 0 && arrivalIndex < vacated2.length ? vacated2[arrivalIndex] : undefined;
         promoted.push({
           playerId,
           playerName: currMember.playerName,
@@ -421,8 +455,8 @@ export class ComputePlayerMovementsUseCase {
           matchId,
           currentJersey: currMember.jerseyNumber,
           position: currMember.position,
-          replacingPlayerId: prevHolderLeft ? prevAtSlot!.playerId : null,
-          replacingPlayerName: prevHolderLeft ? prevAtSlot!.playerName : null,
+          replacingPlayerId: replacee?.playerId ?? null,
+          replacingPlayerName: replacee?.playerName ?? null,
         });
       }
     }
@@ -451,7 +485,7 @@ export class ComputePlayerMovementsUseCase {
     for (let r = currentRound - 1; r >= 1; r--) {
       const lists = await this.teamListRepo.findByYearAndRound(year, r);
       const list = lists.find(tl => tl.teamCode === teamCode);
-      if (!list) break;
+      if (!list) continue; // bye round — skip and keep counting
       const member = list.members.find(m => m.playerId === playerId);
       // Continue counting only for Interchange weeks; break on absent, starting position, or Reserve.
       if (!member || isStartingPosition(member.position) || !isNamedPosition(member.position)) break;
