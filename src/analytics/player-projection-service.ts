@@ -53,7 +53,31 @@ export const DEFAULT_COMPOSITE_WEIGHTS: CompositeWeights = {
 /** Minimum eligible games for a reliable projection (below this → lowSampleWarning) */
 export const MIN_SAMPLE_SIZE = 6;
 
+/**
+ * Exponential decay factor applied to game weights (index 0 = oldest).
+ * weight[i] = RECENCY_DECAY_FACTOR ^ (n-1-i), so the most recent game always
+ * has weight 1.0. At 0.85 a game 6 rounds ago has ~38% the influence of last round.
+ */
+export const RECENCY_DECAY_FACTOR = 0.85;
+
 // ── Math Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Returns per-game weights for recency decay.
+ * weights[0] is the oldest game, weights[n-1] = 1.0 is the most recent.
+ */
+export function exponentialWeights(n: number, decay: number = RECENCY_DECAY_FACTOR): number[] {
+  if (n === 0) return [];
+  return Array.from({ length: n }, (_, i) => Math.pow(decay, n - 1 - i));
+}
+
+/** Weighted mean. weights and values must be the same length. */
+export function weightedMean(values: number[], weights: number[]): number {
+  if (values.length === 0) return 0;
+  const total = weights.reduce((s, w) => s + w, 0);
+  if (total === 0) return 0;
+  return values.reduce((s, v, i) => s + v * (weights[i] ?? 0), 0) / total;
+}
 
 /**
  * Linear-interpolation percentile matching numpy's default (linear) method.
@@ -101,17 +125,16 @@ export function buildFloorScore(categories: CategoryBreakdown): number {
 
 /**
  * Build the complete floor profile from a player's eligible games.
+ * weights must be aligned with games (same length). Defaults to uniform weighting.
+ * mean and avgMinutes are weighted; std and cv use raw values to characterise the full distribution.
  */
-export function buildFloorProfile(games: EligibleGame[]): FloorProfile {
+export function buildFloorProfile(games: EligibleGame[], weights?: number[]): FloorProfile {
   const gameFloors = games.map(g => buildFloorScore(g.categories));
   const gameMinutes = games.map(g => g.minutesPlayed);
+  const w = weights ?? Array(gameFloors.length).fill(1);
 
-  const mean = gameFloors.length > 0
-    ? gameFloors.reduce((s, v) => s + v, 0) / gameFloors.length
-    : 0;
-  const avgMinutes = gameMinutes.length > 0
-    ? gameMinutes.reduce((s, v) => s + v, 0) / gameMinutes.length
-    : 80;
+  const mean = gameFloors.length > 0 ? weightedMean(gameFloors, w) : 0;
+  const avgMinutes = gameMinutes.length > 0 ? weightedMean(gameMinutes, w) : 80;
 
   const std = sampleStd(gameFloors);
   const cv = std === null ? null : (mean <= 0 ? Infinity : std / mean);
@@ -167,17 +190,16 @@ export function buildSpikeDistribution(gameSpikes: number[]): SpikeDistribution 
 /**
  * Build the complete spike profile from eligible games and their pre-computed floor scores.
  * floorScores must be aligned with games (same length, same order).
+ * weights must be aligned with games. Defaults to uniform weighting.
+ * mean and avgMinutes are weighted; std and percentiles use raw values to characterise the full distribution.
  */
-export function buildSpikeProfile(games: EligibleGame[], floorScores: number[]): SpikeProfile {
+export function buildSpikeProfile(games: EligibleGame[], floorScores: number[], weights?: number[]): SpikeProfile {
   const gameSpikes = games.map((g, i) => g.totalScore - (floorScores[i] ?? 0));
   const gameMinutes = games.map(g => g.minutesPlayed);
+  const w = weights ?? Array(gameSpikes.length).fill(1);
 
-  const mean = gameSpikes.length > 0
-    ? gameSpikes.reduce((s, v) => s + v, 0) / gameSpikes.length
-    : 0;
-  const avgMinutes = gameMinutes.length > 0
-    ? gameMinutes.reduce((s, v) => s + v, 0) / gameMinutes.length
-    : 80;
+  const mean = gameSpikes.length > 0 ? weightedMean(gameSpikes, w) : 0;
+  const avgMinutes = gameMinutes.length > 0 ? weightedMean(gameMinutes, w) : 80;
 
   const std = sampleStd(gameSpikes);
   const cv = std === null ? Infinity : (mean <= 0 ? Infinity : std / mean);
@@ -208,16 +230,19 @@ export function buildSpikeProfile(games: EligibleGame[], floorScores: number[]):
 /**
  * Build a complete two-component projection profile for a player.
  * games must be pre-filtered to eligible (isComplete=true) rounds only.
+ * decayFactor controls recency weighting; pass 1.0 to reproduce uniform (unweighted) behaviour.
  */
 export function buildPlayerProfile(
   meta: PlayerMeta,
   games: EligibleGame[],
+  decayFactor: number = RECENCY_DECAY_FACTOR,
 ): PlayerProjectionProfile {
   const noUsableData = games.length === 0;
   const lowSampleWarning = games.length < MIN_SAMPLE_SIZE;
 
-  const floor = buildFloorProfile(games);
-  const spike = buildSpikeProfile(games, floor.gameFloors);
+  const weights = exponentialWeights(games.length, decayFactor);
+  const floor = buildFloorProfile(games, weights);
+  const spike = buildSpikeProfile(games, floor.gameFloors, weights);
 
   return {
     playerId: meta.playerId,
