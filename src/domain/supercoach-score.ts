@@ -62,6 +62,8 @@ export interface PlayerSeasonSupercoach {
   readonly seasonTotal: number;
   readonly seasonAverage: number;
   readonly matchesPlayed: number;
+  readonly currentPrice: number | null;
+  readonly currentBreakeven: number | null;
   readonly matches: PlayerMatchSupercoach[];
 }
 

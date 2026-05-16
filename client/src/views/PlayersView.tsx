@@ -39,9 +39,6 @@ const COLUMNS = [
         {p.averageFantasyPoints != null ? p.averageFantasyPoints.toFixed(1) : '—'}
       </Typography>
     ) },
-  { key: 'gamesPlayed', label: 'GP', align: 'right' as const, sortable: true,
-    getValue: (p: PlayerSeasonSummary) => p.gamesPlayed,
-    renderCell: (p: PlayerSeasonSummary) => <Typography variant="caption">{p.gamesPlayed}</Typography> },
   { key: 'totalTries', label: 'Tries', align: 'right' as const, sortable: true,
     getValue: (p: PlayerSeasonSummary) => p.totalTries,
     renderCell: (p: PlayerSeasonSummary) => <Typography variant="caption">{p.totalTries}</Typography> },

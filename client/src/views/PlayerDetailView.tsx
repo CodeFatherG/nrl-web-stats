@@ -413,6 +413,15 @@ export function PlayerDetailView() {
     );
   }
 
+  function formatCompactCurrency(value: number): string {
+  return new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency: 'AUD',
+    notation: 'compact',
+    maximumFractionDigits: 1, // Ensures only one decimal place (e.g., .4)
+  }).format(value);
+}
+
   const player = playerQuery.data;
   const sc = scQuery.data;
   const proj = projQuery.data;
@@ -445,8 +454,9 @@ export function PlayerDetailView() {
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
           <Chip label={player.teamCode} size="small" variant="outlined" />
           <Chip label={player.position} size="small" variant="outlined" />
+          {sc && <Chip label={formatCompactCurrency(sc.currentPrice ?? 0)} size="small" variant="outlined" />}
           {sc && <Chip label={`SC Avg: ${sc.seasonAverage.toFixed(1)}`} size="small" color="primary" />}
-          {sc && <Chip label={`${sc.matchesPlayed} games`} size="small" variant="outlined" />}
+          {sc && <Chip label={`BE: ${sc.currentBreakeven ?? 0}`} size="small" variant="outlined" />}  
         </Box>
       </Paper>
 

@@ -34,6 +34,8 @@ function makePlayer(
       seasonTotal: seasonTotal ?? 0,
       seasonAverage: seasonAverage ?? 0,
       matchesPlayed: rounds.filter(r => r.score !== null).length,
+      currentPrice: null,
+      currentBreakeven: null,
     } : null,
     projection: null,
     projectionError: false,

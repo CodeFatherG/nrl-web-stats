@@ -418,6 +418,8 @@ export interface PlayerSeasonSupercoachResponse {
   seasonTotal: number;
   seasonAverage: number;
   matchesPlayed: number;
+  currentPrice: number | null;
+  currentBreakeven: number | null;
 }
 
 // Casualty Ward API

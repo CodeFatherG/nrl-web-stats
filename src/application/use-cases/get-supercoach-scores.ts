@@ -330,6 +330,9 @@ export class GetSupercoachScoresUseCase {
 
     const matchEntries: PlayerMatchSupercoach[] = [];
     const linksToSave: PlayerNameLink[] = [];
+    let latestSupplementaryRound = -1;
+    let currentPrice: number | null = null;
+    let currentBreakeven: number | null = null;
 
     for (const perf of performances) {
       // Get supplementary stats for this round
@@ -357,6 +360,11 @@ export class GetSupercoachScoresUseCase {
       if (identityMatch) {
         supplementary = supplementaryMap.get(identityMatch.supplementaryName) ?? null;
         matchConfidence = identityMatch.confidence;
+        if (supplementary && perf.round > latestSupplementaryRound) {
+          latestSupplementaryRound = perf.round;
+          currentPrice = supplementary.price;
+          currentBreakeven = supplementary.breakEven;
+        }
         if (identityMatch.confidence !== 'linked' && this.linkRepo) {
           this.persistLink(playerId, player.name, perf.teamCode, identityMatch.supplementaryName, identityMatch.confidence, linksToSave);
         }
@@ -437,6 +445,8 @@ export class GetSupercoachScoresUseCase {
       seasonTotal,
       seasonAverage: matchesPlayed > 0 ? Math.round(seasonTotal / matchesPlayed) : 0,
       matchesPlayed,
+      currentPrice,
+      currentBreakeven,
     };
   }
 }
