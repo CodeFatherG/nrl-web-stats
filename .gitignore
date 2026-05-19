@@ -44,3 +44,7 @@ specs/*/
 !specs/constitution.md
 
 .vite
+
+__pycache__/
+
+*.tsbuildinfo
