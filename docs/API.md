@@ -1409,3 +1409,86 @@ Returns pre-computed player movements between the previous round and the current
 - 500 `INTERNAL_ERROR`: Unexpected server error.
 
 See `specs/030-player-movements-summary/contracts/player-movements.md` for the full schema.
+
+---
+
+## Game Strength Ratings
+
+### `GET /api/supercoach/:year/game-strength/:round`
+
+Returns Game Strength Ratings (GSR) for every non-bye fixture in the specified NRL round. Each team receives a rating from their own perspective reflecting how favourable their match-up is for Supercoach scoring.
+
+**Path Parameters**:
+- `year` (integer, ≥ 1998) — NRL season year
+- `round` (integer, ≥ 1) — NRL round number
+
+**Query Parameters**:
+- `halfLife` (integer, ≥ 1, default: 6) — Recency decay half-life in rounds. Non-default values always compute on-demand (bypass locked/cached records).
+
+**Response (200)**:
+```json
+{
+  "year": 2026,
+  "round": 5,
+  "leagueAvgTeamScore": 1847.3,
+  "matches": [
+    {
+      "matchId": "2026-R5-BRO-DOL",
+      "year": 2026,
+      "round": 5,
+      "homeTeam": {
+        "teamCode": "BRO",
+        "opponentCode": "DOL",
+        "weightedAvgScored": 1923.4,
+        "weightedAvgAllowed": 1884.1,
+        "overallGSR": 1903.75,
+        "normalizedOverallGSR": 1.031,
+        "categoricalGSR": 1891.2,
+        "normalizedCategoricalGSR": 1.024,
+        "categoryStrengths": [
+          {
+            "category": "base",
+            "label": "Base (Tackles & Hitups)",
+            "weightedAvgScored": 782.1,
+            "weightedAvgAllowed": 761.4,
+            "combinedStrength": 771.75,
+            "leagueWeight": 0.418
+          }
+        ],
+        "teamSamplesUsed": 4,
+        "opponentSamplesUsed": 4,
+        "sampleSizeWarning": false
+      },
+      "awayTeam": { "...": "same shape as homeTeam" }
+    }
+  ],
+  "methodology": {
+    "halfLifeRounds": 6,
+    "offenseWeight": 0.5,
+    "minRoundsForReliability": 3,
+    "categoryWeightingMethod": "dynamic"
+  }
+}
+```
+
+**Field Descriptions**:
+- `normalizedOverallGSR` — Overall GSR divided by the round's league-average team score. 1.0 = average, >1.0 = easier match-up, <1.0 = harder.
+- `normalizedCategoricalGSR` — Category-weighted GSR normalised by the same league average.
+- `categoryStrengths` — Fixed order: `base`, `scoring`, `create`, `evade`, `defence`, `negative`. `leagueWeight` values sum to 1.0.
+- `sampleSizeWarning` — `true` when either team has fewer than `minRoundsForReliability` completed matches in history.
+- `leagueAvgTeamScore` — Mean of all participating teams' `weightedAvgScored` values; used as the normalisation denominator.
+
+**Caching / Stability**:
+- Ratings for the round immediately following each completed round are **locked to D1** at round-completion time and never change.
+- Ratings for further future rounds are held in an **in-memory cache** and rebuilt whenever a round completes.
+- Ratings for the current or past rounds that were not locked are **computed on-demand**.
+- Non-default `halfLife` requests always compute on-demand (not cached or locked).
+
+**Errors**:
+- 400 `INVALID_YEAR` — `year` is before 1998 or not an integer.
+- 400 `INVALID_ROUND` — `round` is less than 1 or not an integer.
+- 400 `INVALID_HALF_LIFE` — `halfLife` is less than 1 or not an integer.
+- 404 `NO_FIXTURES_FOUND` — No fixtures found for the given year and round.
+- 500 `INTERNAL_ERROR` — Unexpected server error.
+
+See `specs/032-game-strength-rating/contracts/game-strength-endpoint.md` for the full schema.

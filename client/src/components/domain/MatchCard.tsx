@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import { StrengthBadge } from '../StrengthBadge';
+import { GSRBadge } from '../GSRBadge';
 import { OutlookBadge } from '../OutlookBadge';
 import { getTeamPrimary } from '../../utils/teamColors';
 import { formatMatchDate } from '../../utils/formatMatchDate';
@@ -16,6 +17,11 @@ interface MatchCardProps {
   awayTeamName: string;
   homeStrength: number;
   awayStrength: number;
+  /** Optional Game Strength Rating (normalised, 1.0 = league avg) — displayed alongside strength */
+  homeGSR?: number;
+  awayGSR?: number;
+  homeGSRWarning?: boolean;
+  awayGSRWarning?: boolean;
   homeScore?: number | null;
   awayScore?: number | null;
   isComplete?: boolean;
@@ -35,6 +41,10 @@ export function MatchCard({
   awayTeamName,
   homeStrength,
   awayStrength,
+  homeGSR,
+  awayGSR,
+  homeGSRWarning,
+  awayGSRWarning,
   homeScore,
   awayScore,
   isComplete,
@@ -77,8 +87,9 @@ export function MatchCard({
             <Typography variant={compact ? 'caption' : 'body2'} fontWeight={600} noWrap>
               {compact ? homeTeamCode : homeTeamName}
             </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.25 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
               <StrengthBadge rating={homeStrength} thresholds={strengthThresholds} showValue={!compact} />
+              {homeGSR != null && <GSRBadge normalizedGSR={homeGSR} sampleSizeWarning={homeGSRWarning} showValue={!compact} />}
             </Box>
           </Box>
 
@@ -100,8 +111,9 @@ export function MatchCard({
             <Typography variant={compact ? 'caption' : 'body2'} fontWeight={600} noWrap>
               {compact ? awayTeamCode : awayTeamName}
             </Typography>
-            <Box sx={{ mt: 0.25 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
               <StrengthBadge rating={awayStrength} thresholds={strengthThresholds} showValue={!compact} />
+              {awayGSR != null && <GSRBadge normalizedGSR={awayGSR} sampleSizeWarning={awayGSRWarning} showValue={!compact} />}
             </Box>
           </Box>
         </Box>

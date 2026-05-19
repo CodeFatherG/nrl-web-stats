@@ -11,12 +11,14 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useState, useMemo } from 'react';
 import { useMatchDetailQuery, useMatchSupercoachQuery } from '../hooks/useMatchQuery';
 import { useAllRankingsQuery } from '../hooks/useTeamQuery';
+import { useGameStrengthQuery } from '../hooks/useRoundQuery';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { DataTable } from '../components/shared/DataTable';
 import { SkeletonPage } from '../components/shared/SkeletonPage';
 import { TeamListPanel } from '../components/domain/TeamListPanel';
 import { StrengthBadge } from '../components/StrengthBadge';
+import { GSRBadge } from '../components/GSRBadge';
 import { formatMatchDate } from '../utils/formatMatchDate';
 import { useAppContext } from '../hooks/useAppContext';
 import type { PlayerMatchStats } from '../types';
@@ -275,7 +277,16 @@ export function MatchDetailView() {
   const thresholds = rankingsQuery.data?.thresholds ?? { p33: 300, p67: 400, lowerFence: 0.1, upperFence: 0.9 };
 
   const matchYear = matchQuery.data?.year ?? year;
+  const matchRound = matchQuery.data?.round ?? 0;
   const scQuery = useMatchSupercoachQuery(matchYear, id ?? '');
+  const gsrQuery = useGameStrengthQuery(matchYear, matchRound);
+
+  const matchGSR = useMemo(() => {
+    if (!gsrQuery.data || !matchQuery.data) return null;
+    return gsrQuery.data.matches.find(
+      m => m.homeTeam.teamCode === matchQuery.data!.homeTeamCode && m.awayTeam.teamCode === matchQuery.data!.awayTeamCode
+    ) ?? null;
+  }, [gsrQuery.data, matchQuery.data]);
 
   const scScores = useMemo(() => {
     const map = new Map<string, number>();
@@ -317,7 +328,10 @@ export function MatchDetailView() {
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ textAlign: 'right', flex: 1 }}>
             <Typography variant="h6" fontWeight={700}>{m.homeTeamName}</Typography>
-            {m.homeStrengthRating != null && <StrengthBadge rating={m.homeStrengthRating} thresholds={thresholds} showValue />}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, flexWrap: 'wrap' }}>
+              {m.homeStrengthRating != null && <StrengthBadge rating={m.homeStrengthRating} thresholds={thresholds} showValue />}
+              {matchGSR && <GSRBadge normalizedGSR={matchGSR.homeTeam.normalizedOverallGSR} sampleSizeWarning={matchGSR.homeTeam.sampleSizeWarning} />}
+            </Box>
           </Box>
           <Box sx={{ textAlign: 'center', minWidth: 80 }}>
             <Typography variant={isComplete ? 'h4' : 'h5'} fontWeight={700}>{scoreDisplay}</Typography>
@@ -326,7 +340,10 @@ export function MatchDetailView() {
           </Box>
           <Box sx={{ textAlign: 'left', flex: 1 }}>
             <Typography variant="h6" fontWeight={700}>{m.awayTeamName}</Typography>
-            {m.awayStrengthRating != null && <StrengthBadge rating={m.awayStrengthRating} thresholds={thresholds} showValue />}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 0.5, flexWrap: 'wrap' }}>
+              {m.awayStrengthRating != null && <StrengthBadge rating={m.awayStrengthRating} thresholds={thresholds} showValue />}
+              {matchGSR && <GSRBadge normalizedGSR={matchGSR.awayTeam.normalizedOverallGSR} sampleSizeWarning={matchGSR.awayTeam.sampleSizeWarning} />}
+            </Box>
           </Box>
         </Box>
         {(m.stadium || m.weather) && (

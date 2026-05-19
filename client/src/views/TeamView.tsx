@@ -17,7 +17,10 @@ import { SkeletonPage } from '../components/shared/SkeletonPage';
 import { FormSparkline } from '../components/FormSparkline';
 import { FilterControls } from '../components/FilterControls';
 import { StrengthBadge } from '../components/StrengthBadge';
+import { GSRBadge } from '../components/GSRBadge';
 import { VenueBadge } from '../components/VenueBadge';
+import { useQueries } from '@tanstack/react-query';
+import { getGameStrengthRatings } from '../services/api';
 import { formatMatchDate } from '../utils/formatMatchDate';
 import { createMatchId } from '../utils/matchId';
 import type { ScheduleFixture, FilterState } from '../types';
@@ -50,6 +53,28 @@ export function TeamView() {
     return true;
   });
 
+  // Fetch GSR for every round this team plays in (deduped). Locked + cached rounds are cheap.
+  const uniqueRounds = Array.from(new Set(filteredFixtures.map(f => f.round)));
+  const gsrQueries = useQueries({
+    queries: uniqueRounds.map(round => ({
+      queryKey: ['gameStrength', year, round],
+      queryFn: () => getGameStrengthRatings(year, round),
+      enabled: year > 0 && round > 0,
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+
+  const gsrByRoundAndTeam = new Map<string, { gsr: number; warning: boolean }>();
+  gsrQueries.forEach((q, i) => {
+    if (q.data) {
+      const round = uniqueRounds[i];
+      for (const match of q.data.matches) {
+        gsrByRoundAndTeam.set(`${round}:${match.homeTeam.teamCode}`, { gsr: match.homeTeam.normalizedOverallGSR, warning: match.homeTeam.sampleSizeWarning });
+        gsrByRoundAndTeam.set(`${round}:${match.awayTeam.teamCode}`, { gsr: match.awayTeam.normalizedOverallGSR, warning: match.awayTeam.sampleSizeWarning });
+      }
+    }
+  });
+
   const columns = [
     { key: 'round', label: 'Rd', align: 'center' as const, sortable: true,
       getValue: (f: ScheduleFixture) => f.round,
@@ -65,6 +90,13 @@ export function TeamView() {
       renderCell: (f: ScheduleFixture) => (
         <StrengthBadge rating={f.strengthRating} thresholds={thresholds} />
       ) },
+    { key: 'gsr', label: 'GSR', align: 'center' as const, sortable: true,
+      getValue: (f: ScheduleFixture) => gsrByRoundAndTeam.get(`${f.round}:${teamCode}`)?.gsr ?? null,
+      renderCell: (f: ScheduleFixture) => {
+        const entry = gsrByRoundAndTeam.get(`${f.round}:${teamCode}`);
+        if (!entry) return <Typography variant="caption" color="text.disabled">—</Typography>;
+        return <GSRBadge normalizedGSR={entry.gsr} sampleSizeWarning={entry.warning} />;
+      } },
     { key: 'date', label: 'Date', align: 'left' as const, hideOnMobile: true,
       renderCell: (f: ScheduleFixture) => (
         <Typography variant="caption" color="text.secondary">

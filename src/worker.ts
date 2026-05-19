@@ -36,6 +36,10 @@ import { GetContextualProjectionUseCase } from './application/use-cases/get-cont
 import { GetContextualProfileUseCase } from './application/use-cases/get-contextual-profile.js';
 import { playerMovementsCache } from './analytics/player-movements-cache.js';
 import { ComputePlayerMovementsUseCase } from './application/use-cases/compute-player-movements.js';
+import { gameStrengthCache } from './analytics/game-strength-cache.js';
+import { D1GameStrengthRepository } from './infrastructure/persistence/d1-game-strength-repository.js';
+import { GetGameStrengthUseCase } from './application/use-cases/get-game-strength.js';
+import { LockGameStrengthRatingsUseCase } from './application/use-cases/lock-game-strength-ratings.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
@@ -150,6 +154,26 @@ function initializeDeps(db?: D1Database): void {
         new D1CasualtyWardRepository(reqDb),
         playerMovementsCache
       ),
+    createGetGameStrengthUseCase: (reqDb: D1Database) => {
+      const scUseCase = new GetSupercoachScoresUseCase(
+        new D1PlayerRepository(reqDb),
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
+      );
+      return new GetGameStrengthUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+    },
+    createLockGameStrengthUseCase: (reqDb: D1Database) => {
+      const scUseCase = new GetSupercoachScoresUseCase(
+        new D1PlayerRepository(reqDb),
+        new D1SupplementaryStatsRepository(reqDb),
+        loadScoringConfig(new Date().getFullYear()),
+        new D1PlayerNameLinkRepository(reqDb),
+        matchRepository
+      );
+      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+    },
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -306,6 +330,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     supplementaryStatsSource,
     suppRepo
   );
+  const lockGSRUseCase = deps.createLockGameStrengthUseCase(env.DB);
 
   for (const { year, round } of roundsToScrape) {
     try {
@@ -345,6 +370,16 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
           playersScraped: suppResult.playersScraped,
           cached: suppResult.cached,
         });
+
+        // Attempt GSR locking after supplementary stats scrape (idempotent — checks completeness internally)
+        try {
+          await lockGSRUseCase.execute(year, round);
+        } catch (gsrError) {
+          logger.error('[CRON] GSR locking failed (non-fatal, will retry next cycle)', {
+            year, round,
+            error: gsrError instanceof Error ? gsrError.message : 'Unknown error',
+          });
+        }
       } catch (suppError) {
         logger.error('[CRON] Supplementary stats scrape failed (will retry next cycle)', {
           year,
