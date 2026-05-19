@@ -395,6 +395,46 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
     expect(p2!.replacingPlayerId).toBe(3002);
   });
 
+  // Test D: one prop stays (incumbent), one prop is benched, one interchange player promoted to prop.
+  // The incumbent must not distort the slot pairing for the benched/promoted players.
+  it('pairs benched prop with the new-arrival prop, ignoring the incumbent prop', async () => {
+    const prevTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+      members: [
+        { playerId: 5501, jerseyNumber: 8,  playerName: 'Prop Stay',   position: 'Prop' },       // incumbent
+        { playerId: 5502, jerseyNumber: 10, playerName: 'Prop Out',    position: 'Prop' },       // will be benched
+        { playerId: 5503, jerseyNumber: 14, playerName: 'Int Player',  position: 'Interchange' }, // will be promoted
+      ],
+    };
+    const currTST = {
+      matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
+      members: [
+        { playerId: 5501, jerseyNumber: 8,  playerName: 'Prop Stay',   position: 'Prop' },       // still starting
+        { playerId: 5503, jerseyNumber: 10, playerName: 'Int Player',  position: 'Prop' },       // promoted
+        { playerId: 5502, jerseyNumber: 14, playerName: 'Prop Out',    position: 'Interchange' }, // benched
+      ],
+    };
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
+    const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
+    const result = cache2.get(2025, 10)!;
+
+    // Prop Out benched: vacated=[PropOut], arrivals=[IntPlayer] → replacedBy=IntPlayer
+    const benched = result.benched.find(r => r.playerId === 5502);
+    expect(benched).toBeDefined();
+    expect(benched!.replacedByPlayerId).toBe(5503);
+
+    // Int Player promoted: arrivals=[IntPlayer], vacated=[PropOut] → replacing=PropOut
+    const promoted = result.promoted.find(r => r.playerId === 5503);
+    expect(promoted).toBeDefined();
+    expect(promoted!.replacingPlayerId).toBe(5502);
+
+    // Prop Stay is silently unchanged (no classification)
+    expect(result.benched.find(r => r.playerId === 5501)).toBeUndefined();
+    expect(result.promoted.find(r => r.playerId === 5501)).toBeUndefined();
+  });
+
   // Test C: both wings benched (starter → Interchange) — each gets distinct replacedByPlayerId
   it('assigns distinct replacedByPlayerId to each benched wing via slot-index pairing', async () => {
     const prevTST = {
@@ -505,5 +545,83 @@ describe('ComputePlayerMovementsUseCase — Phase 1 Reserve extension', () => {
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
     const result = cache2.get(2025, 10)!;
     expect(result.dropped.find(r => r.playerId === 5003)).toBeDefined();
+  });
+});
+
+// ─── Bye-round handling ───────────────────────────────────────────────────────
+// When a team had a bye in round N-1, their prevByTeam entry must fall back to
+// round N-2 (the last round they played) rather than being undefined.
+
+describe('ComputePlayerMovementsUseCase — bye-round handling', () => {
+  // Round 9: TST played (Jackson Ford #13 Lock, James Replacement #14 Interchange)
+  // Round 10: TST on bye — no team list, no match
+  // Round 11: TST plays again (Ford now #14 Interchange, Replacement now #13 Lock)
+  // Expected: Ford → Benched, Replacement → Promoted replacing Ford
+
+  const tst9: TeamList = {
+    matchId: '2025-R9-TST-OPP', teamCode: 'TST', year: 2025, round: 9, scrapedAt: '',
+    members: [
+      { playerId: 6001, jerseyNumber: 13, playerName: 'Jackson Ford',      position: 'Lock' },
+      { playerId: 6002, jerseyNumber: 14, playerName: 'James Replacement', position: 'Interchange' },
+    ],
+  };
+  const opp9: TeamList = {
+    matchId: '2025-R9-TST-OPP', teamCode: 'OPP', year: 2025, round: 9, scrapedAt: '',
+    members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }],
+  };
+  // Round 10: OPP plays, TST is on bye (no TST entry)
+  const opp10: TeamList = {
+    matchId: '2025-R10-OPP-OPP2', teamCode: 'OPP', year: 2025, round: 10, scrapedAt: '',
+    members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }],
+  };
+  const tst11: TeamList = {
+    matchId: '2025-R11-TST-OPP', teamCode: 'TST', year: 2025, round: 11, scrapedAt: '',
+    members: [
+      { playerId: 6001, jerseyNumber: 14, playerName: 'Jackson Ford',      position: 'Interchange' },
+      { playerId: 6002, jerseyNumber: 13, playerName: 'James Replacement', position: 'Lock' },
+    ],
+  };
+  const opp11: TeamList = {
+    matchId: '2025-R11-TST-OPP', teamCode: 'OPP', year: 2025, round: 11, scrapedAt: '',
+    members: [{ playerId: 9999, jerseyNumber: 1, playerName: 'Opp FB', position: 'Fullback' }],
+  };
+
+  const match10 = makeMinimalMatch('2025-R10-OPP-OPP2', 10, 'OPP', 'OPP2'); // TST on bye
+  const match11 = makeMinimalMatch('2025-R11-TST-OPP',  11, 'TST', 'OPP');
+
+  let byeResult: ReturnType<PlayerMovementsCache['get']>;
+
+  beforeEach(async () => {
+    const cache2 = new PlayerMovementsCache();
+    const tRepo = new InMemoryTeamListRepo([
+      { round: 9,  lists: [tst9, opp9] as TeamList[] },
+      { round: 10, lists: [opp10] as TeamList[] },       // TST absent — bye
+      { round: 11, lists: [tst11, opp11] as TeamList[] },
+    ]);
+    const mRepo = new InMemoryMatchRepo([
+      { round: 10, matches: [match10] },
+      { round: 11, matches: [match11] },
+    ]);
+    await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 11);
+    byeResult = cache2.get(2025, 11);
+  });
+
+  it('produces a result (not pending) for a team returning from a bye', () => {
+    expect(byeResult).not.toBeNull();
+    expect(byeResult!.pending).toBe(false);
+  });
+
+  it('classifies a starter as benched when their team had a bye the previous round', () => {
+    const ford = byeResult!.benched.find(r => r.playerId === 6001);
+    expect(ford).toBeDefined();
+    expect(ford!.prevPosition).toBe('Lock');
+    expect(ford!.currentPosition).toBe('Interchange');
+  });
+
+  it('classifies an interchange player as promoted when their team had a bye the previous round', () => {
+    const replacement = byeResult!.promoted.find(r => r.playerId === 6002);
+    expect(replacement).toBeDefined();
+    expect(replacement!.position).toBe('Lock');
+    expect(replacement!.replacingPlayerId).toBe(6001);
   });
 });

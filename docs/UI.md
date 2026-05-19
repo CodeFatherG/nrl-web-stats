@@ -193,3 +193,5 @@ A year selector in the top bar changes the active season. Selecting a year updat
 | `ScoreBarChart` | Recharts bar chart of SC scores per round + average line |
 | `RadarChart` | Recharts radar chart for multi-player stat comparison |
 | `SpikeBandChart` | CSS flex stacked band chart for spike distributions |
+| `StrengthBadge` | Coloured chip for legacy strength rating (low/medium/high) |
+| `GSRBadge` | Coloured chip for Game Strength Rating (1.0 = league avg). Displayed beside `StrengthBadge` in Round View, Match Detail View, and Team View for side-by-side comparison during the transition from legacy strength ratings. |

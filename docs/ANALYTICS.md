@@ -403,3 +403,85 @@ Only opponent and venue multipliers are included in the `multipliers[]` array. W
 ### Extensibility
 
 The `adjustments` object in the response uses named optional keys (`opponent`, `venue`, `weather`). New context dimensions can be added as additional multipliers in `applyMultipliers` without changing the base projection or existing sub-models.
+
+---
+
+## Game Strength Rating (GSR)
+
+**Source**: `src/analytics/game-strength-service.ts`
+**Feature**: `specs/032-game-strength-rating/`
+
+### Purpose
+
+Computes a per-team Supercoach difficulty rating for every fixture in a given NRL round. Higher GSR = more favourable match-up for Supercoach scoring.
+
+### Inputs
+
+- Team match history retrieved via `GetSupercoachScoresUseCase.executeForTeamSeason(year, teamCode)`, which returns `MatchSupercoachResult[]` for a full season.
+- Per-match team category totals derived by summing `player.categoryTotals[cat]` across all players in each `TeamSupercoachGroup`.
+- Round fixture list from the in-memory fixture store (via `fixtureRepositoryAdapter`), used to identify non-bye fixtures.
+
+### Formulas
+
+**Recency Weight** (exponential decay):
+```
+weight(roundDiff) = exp(-ln2 × roundDiff / halfLife)
+```
+`roundDiff` is the ordinal distance from the most recently played match (0 = most recent). Default `halfLife = 6`.
+
+**Weighted Average**:
+```
+weightedAvg = Σ(value[i] × weight[i]) / Σ(weight[i])
+```
+
+**Overall GSR** (per team):
+```
+overallGSR = 0.5 × weightedAvgScored(team) + 0.5 × weightedAvgAllowed(opponent)
+```
+Where `weightedAvgScored(team)` is the recency-weighted average of the team's total score, and `weightedAvgAllowed(opponent)` is the recency-weighted average of the points scored *against* the opponent by *their* historical opponents.
+
+**Category League Weight**:
+```
+leagueWeight[c] = teamAvg[c] / Σ(teamAvg[c'] for all c')
+```
+Computed dynamically from the actual match history being processed. Weights sum to 1.0.
+
+**Categorical GSR**:
+```
+categoricalGSR = Σ_c [ leagueWeight[c] × (0.5 × WAS[team][c] + 0.5 × WAA[opponent][c]) ]
+```
+
+**Normalisation** (both ratings):
+```
+normalizedGSR = GSR / leagueAvgTeamScore
+```
+Where `leagueAvgTeamScore` is the mean of all teams' `weightedAvgScored` in the round. Result: 1.0 = league average.
+
+### Category Order
+
+Fixed: `base`, `scoring`, `create`, `evade`, `defence`, `negative`. The `base` category (tackles and hitups) typically accounts for ~40% of the league-average total and so receives the largest `leagueWeight`.
+
+### Reliability Warning
+
+`sampleSizeWarning: true` is set on any team entry where `teamSamplesUsed < minRoundsForReliability` or `opponentSamplesUsed < minRoundsForReliability`. Default threshold: 3 rounds. The rating is still returned as a best-effort value.
+
+### Caching and Locking Behaviour
+
+| Scenario | Storage | Stability |
+|----------|---------|-----------|
+| Round immediately after a completed round | D1 (`game_strength_ratings` table) | Locked — never changes |
+| Further future rounds | In-memory `GameStrengthCache` | Rebuilt on each round completion |
+| Non-default `halfLife` requests | None | Always computed on-demand |
+| On-demand fallback (cold cache) | None | Computed per request |
+
+**Trigger**: `LockGameStrengthRatingsUseCase.execute(year, completedRound)` is called automatically after each supplementary stats scrape in the cron handler. It is idempotent — if the next round's GSR is already locked, it exits immediately. Completeness is verified by checking that all matches in the completed round have `isComplete: true` before locking.
+
+### Implementation Notes
+
+- No new database queries are introduced beyond `GetSupercoachScoresUseCase` (reads from existing `supplementary_stats` and `match_performances` tables).
+- All analytics functions in `game-strength-service.ts` are pure (no I/O) and independently unit-testable.
+- Cross-season history: previous-season matches are pulled in via `fetchCrossSeasonHistory` so Round 1 of a new season has data to work with. To prevent prior-season form from dominating the recency-weighted average in early in-season rounds, a **season-transition penalty** adds extra "virtual rounds" of decay to every entry from a prior season:
+  ```
+  effective_roundDiff = base_roundDiff + (currentYear − entry.year) × seasonTransitionPenalty
+  ```
+  Default penalty: 12 (= 2× halfLife). Empirically validated: SC-winner prediction accuracy is 68.8% with penalty=12 vs 58.8% with no penalty (and 70.0% with current-season-only history, so the penalty recovers most of the lost signal).

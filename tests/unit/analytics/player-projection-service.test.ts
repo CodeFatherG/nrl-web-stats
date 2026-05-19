@@ -7,9 +7,12 @@ import {
   classifySpikeBand,
   compositeScore,
   DEFAULT_COMPOSITE_WEIGHTS,
+  exponentialWeights,
   MIN_SAMPLE_SIZE,
   percentile,
+  RECENCY_DECAY_FACTOR,
   sampleStd,
+  weightedMean,
 } from '../../../src/analytics/player-projection-service.js';
 import type { EligibleGame, PlayerMeta } from '../../../src/analytics/player-projection-types.js';
 import type { CategoryBreakdown } from '../../../src/domain/supercoach-score.js';
@@ -159,6 +162,53 @@ describe('sampleStd', () => {
   });
 });
 
+describe('exponentialWeights', () => {
+  it('returns [] for n=0', () => {
+    expect(exponentialWeights(0)).toEqual([]);
+  });
+
+  it('returns [1.0] for n=1', () => {
+    expect(exponentialWeights(1)).toEqual([1.0]);
+  });
+
+  it('most recent game always has weight 1.0', () => {
+    const w = exponentialWeights(5);
+    expect(w[4]).toBe(1.0);
+  });
+
+  it('n=3, decay=0.85 → [0.7225, 0.85, 1.0]', () => {
+    const w = exponentialWeights(3, 0.85);
+    expect(w[0]).toBeCloseTo(0.7225, 4);
+    expect(w[1]).toBeCloseTo(0.85, 4);
+    expect(w[2]).toBeCloseTo(1.0, 4);
+  });
+
+  it('weights are strictly increasing', () => {
+    const w = exponentialWeights(7, RECENCY_DECAY_FACTOR);
+    for (let i = 1; i < w.length; i++) {
+      expect(w[i]).toBeGreaterThan(w[i - 1]!);
+    }
+  });
+});
+
+describe('weightedMean', () => {
+  it('returns 0 for empty values', () => {
+    expect(weightedMean([], [])).toBe(0);
+  });
+
+  it('uniform weights produce the simple mean', () => {
+    expect(weightedMean([10, 20, 30], [1, 1, 1])).toBeCloseTo(20, 5);
+  });
+
+  it('[10, 20] with weights [1, 3] = 17.5', () => {
+    expect(weightedMean([10, 20], [1, 3])).toBeCloseTo(17.5, 5);
+  });
+
+  it('single element returns that value regardless of weight', () => {
+    expect(weightedMean([42], [0.5])).toBeCloseTo(42, 5);
+  });
+});
+
 describe('buildFloorScore', () => {
   it('sums contribution values only for floor stat names', () => {
     const categories = makeCategories(
@@ -297,17 +347,29 @@ describe('buildPlayerProfile', () => {
     expect(profile.lowSampleWarning).toBe(false);
   });
 
-  it('computes correct floor and spike means from Kennedy fixture', () => {
+  it('computes recency-weighted floor and spike means from Kennedy fixture', () => {
+    // weights (oldest→newest): [0.3772, 0.4437, 0.5220, 0.6144, 0.7225, 0.8500, 1.0000]
+    // weighted floor mean ≈ 50.83, weighted spike mean ≈ 31.55
     const profile = buildPlayerProfile(KENNEDY_META, KENNEDY_GAMES);
-    expect(profile.floorMean).toBeCloseTo(50, 5);
-    expect(profile.spikeMean).toBeCloseTo(32.857, 2);
+    expect(profile.floorMean).toBeCloseTo(50.83, 1);
+    expect(profile.spikeMean).toBeCloseTo(31.55, 1);
   });
 
-  it('computes correct projected values', () => {
+  it('computes correct projected values with recency weighting', () => {
     const profile = buildPlayerProfile(KENNEDY_META, KENNEDY_GAMES);
-    expect(profile.projectedTotal).toBeCloseTo(50 + 32.857, 2);
-    expect(profile.projectedFloor).toBeCloseTo(50 + 29, 2);   // spikeP25=29
-    expect(profile.projectedCeiling).toBeCloseTo(50 + 40.6, 1); // spikeP90=40.6
+    // projectedTotal = weighted floorMean + weighted spikeMean
+    expect(profile.projectedTotal).toBeCloseTo(82.38, 1);
+    // projectedFloor = weighted floorMean + spikeP25 (P25 unweighted = 29)
+    expect(profile.projectedFloor).toBeCloseTo(79.83, 1);
+    // projectedCeiling = weighted floorMean + spikeP90 (P90 unweighted = 40.6)
+    expect(profile.projectedCeiling).toBeCloseTo(91.43, 1);
+  });
+
+  it('decayFactor=1.0 reproduces uniform-weight results', () => {
+    const profile = buildPlayerProfile(KENNEDY_META, KENNEDY_GAMES, 1.0);
+    expect(profile.floorMean).toBeCloseTo(50, 5);
+    expect(profile.spikeMean).toBeCloseTo(32.857, 2);
+    expect(profile.projectedTotal).toBeCloseTo(82.857, 2);
   });
 
   it('sets floorStd=null and floorCv=null when only 1 game', () => {
@@ -366,14 +428,16 @@ describe('compositeScore', () => {
 
   it('computes correct composite score for Kennedy fixture', () => {
     const profile = buildPlayerProfile(KENNEDY_META, KENNEDY_GAMES);
-    // 1.0*50 + 0.8*32.857 + 10.0*(1-0.14922) + 0.5*29 ≈ 99.29
-    expect(compositeScore(profile)).toBeCloseTo(99.29, 1);
+    // 1.0*50.83 + 0.8*31.55 + 10.0*(1 - std/weightedMean) + 0.5*29 ≈ 99.11
+    // std remains unweighted (7.461), floorCv = 7.461/50.83 ≈ 0.1468
+    expect(compositeScore(profile)).toBeCloseTo(99.11, 1);
   });
 
   it('respects custom weights', () => {
     const profile = buildPlayerProfile(KENNEDY_META, KENNEDY_GAMES);
     const custom = { floor: 1.0, spike: 0.0, consistency: 0.0, reliableSpike: 0.0 };
-    expect(compositeScore(profile, custom)).toBeCloseTo(50, 5);
+    // floor-only composite = floorMean (recency-weighted ≈ 50.83)
+    expect(compositeScore(profile, custom)).toBeCloseTo(profile.floorMean, 5);
   });
 
   it('applies default weights when none provided', () => {

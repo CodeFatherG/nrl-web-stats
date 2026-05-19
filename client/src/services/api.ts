@@ -435,6 +435,7 @@ export interface CasualtyWardEntry {
   startDate: string;
   endDate: string | null;
   playerId: string | null;
+  gamesMissed: number | null;
 }
 
 export interface CasualtyWardResponse {
@@ -566,4 +567,55 @@ export async function getContextualProjection(
 
 export async function getPlayerMovements(season: number): Promise<PlayerMovementsResponse> {
   return fetchApi<PlayerMovementsResponse>(`/player-movements?season=${season}`);
+}
+
+// ─── Game Strength Rating ─────────────────────────────────────────────────────
+
+export interface GSRCategoryStrength {
+  category: string;
+  label: string;
+  weightedAvgScored: number;
+  weightedAvgAllowed: number;
+  combinedStrength: number;
+  leagueWeight: number;
+}
+
+export interface GSRTeamRating {
+  teamCode: string;
+  opponentCode: string;
+  weightedAvgScored: number;
+  weightedAvgAllowed: number;
+  overallGSR: number;
+  normalizedOverallGSR: number;
+  categoricalGSR: number;
+  normalizedCategoricalGSR: number;
+  categoryStrengths: GSRCategoryStrength[];
+  teamSamplesUsed: number;
+  opponentSamplesUsed: number;
+  sampleSizeWarning: boolean;
+}
+
+export interface GSRMatch {
+  matchId: string;
+  year: number;
+  round: number;
+  homeTeam: GSRTeamRating;
+  awayTeam: GSRTeamRating;
+}
+
+export interface GSRResponse {
+  year: number;
+  round: number;
+  leagueAvgTeamScore: number;
+  matches: GSRMatch[];
+  methodology: {
+    halfLifeRounds: number;
+    offenseWeight: number;
+    minRoundsForReliability: number;
+    categoryWeightingMethod: string;
+  };
+}
+
+export async function getGameStrengthRatings(year: number, round: number): Promise<GSRResponse> {
+  return fetchApi<GSRResponse>(`/supercoach/${year}/game-strength/${round}`);
 }

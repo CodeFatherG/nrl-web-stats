@@ -42,4 +42,10 @@ export interface CasualtyWardRepository {
 
   /** Returns all closed entries (endDate IS NOT NULL) with endDate >= sinceDate, ordered by endDate DESC. */
   findRecentlyClosed(sinceDate: string): Promise<CasualtyWardEntry[]>;
+
+  /**
+   * Count completed team matches in [startDate, endDate] where the player has no match_performance
+   * record (i.e. did not take the field). Use today's date as endDate for open injuries.
+   */
+  countGamesMissed(playerId: string, teamCode: string, startDate: string, endDate: string): Promise<number>;
 }
