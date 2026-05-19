@@ -74,6 +74,9 @@ import { createGetTeamScheduleUseCase } from '../application/use-cases/get-team-
 import { createGetSeasonSummaryUseCase } from '../application/use-cases/get-season-summary.js';
 import { createGetRoundDetailsUseCase } from '../application/use-cases/get-round-details.js';
 import { createAnalyseStreaksUseCase } from '../application/use-cases/analyse-streaks.js';
+import type { GetGameStrengthUseCase } from '../application/use-cases/get-game-strength.js';
+import type { LockGameStrengthRatingsUseCase } from '../application/use-cases/lock-game-strength-ratings.js';
+import { DEFAULT_HALF_LIFE } from '../analytics/game-strength-service.js';
 
 /** Dependencies injected from the composition root */
 export interface HandlerDeps {
@@ -115,6 +118,10 @@ export interface HandlerDeps {
   playerMovementsCache: PlayerMovementsCache;
   /** Factory to create a per-request ComputePlayerMovementsUseCase from the DB binding */
   createComputePlayerMovementsUseCase: (db: D1Database) => ComputePlayerMovementsUseCase;
+  /** Factory to create a per-request GetGameStrengthUseCase from the DB binding */
+  createGetGameStrengthUseCase: (db: D1Database) => GetGameStrengthUseCase;
+  /** Factory to create a per-request LockGameStrengthRatingsUseCase from the DB binding */
+  createLockGameStrengthUseCase: (db: D1Database) => LockGameStrengthRatingsUseCase;
 }
 
 // Environment bindings type
@@ -1321,9 +1328,18 @@ export function getCasualtyWard(deps: HandlerDeps) {
     try {
       const repo = deps.createCasualtyWardRepository(c.env.DB);
       const entries = await repo.findOpen();
+      const today = new Date().toISOString().substring(0, 10);
+
+      const gamesMissedCounts = await Promise.all(
+        entries.map(e =>
+          e.playerId
+            ? repo.countGamesMissed(e.playerId, e.teamCode, e.startDate, e.endDate ?? today)
+            : Promise.resolve(null)
+        )
+      );
 
       return c.json({
-        entries: entries.map(e => ({
+        entries: entries.map((e, i) => ({
           id: e.id,
           firstName: e.firstName,
           lastName: e.lastName,
@@ -1334,6 +1350,7 @@ export function getCasualtyWard(deps: HandlerDeps) {
           startDate: e.startDate,
           endDate: e.endDate,
           playerId: e.playerId,
+          gamesMissed: gamesMissedCounts[i],
         })),
         count: entries.length,
       });
@@ -1363,9 +1380,18 @@ export function getPlayerInjuryHistory(deps: HandlerDeps) {
         return errorResponse(c, 'NOT_FOUND', `No casualty ward records found for player ${playerId}`, 404);
       }
 
+      const today = new Date().toISOString().substring(0, 10);
+      const gamesMissedCounts = await Promise.all(
+        entries.map(e =>
+          e.playerId
+            ? repo.countGamesMissed(e.playerId, e.teamCode, e.startDate, e.endDate ?? today)
+            : Promise.resolve(null)
+        )
+      );
+
       return c.json({
         playerId,
-        entries: entries.map(e => ({
+        entries: entries.map((e, i) => ({
           id: e.id,
           firstName: e.firstName,
           lastName: e.lastName,
@@ -1376,6 +1402,7 @@ export function getPlayerInjuryHistory(deps: HandlerDeps) {
           startDate: e.startDate,
           endDate: e.endDate,
           playerId: e.playerId,
+          gamesMissed: gamesMissedCounts[i],
         })),
       });
     } catch (error) {
@@ -1565,6 +1592,49 @@ export function getContextualProfile(deps: HandlerDeps) {
 // ============================================
 // Player Movements
 // ============================================
+/**
+ * GET /api/supercoach/:year/game-strength/:round
+ * Returns Game Strength Ratings for every non-bye fixture in the specified round.
+ * Optional ?halfLife query param (default 6) controls recency decay.
+ * Locked rounds are served from D1; future rounds from in-memory cache; others computed on-demand.
+ */
+export function getGameStrengthRatings(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+
+    const roundParam = c.req.param('round');
+    const roundResult = z.coerce.number().int().min(1).safeParse(roundParam);
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be a positive integer', 400);
+    }
+
+    const halfLifeParam = c.req.query('halfLife');
+    let halfLife = DEFAULT_HALF_LIFE;
+    if (halfLifeParam !== undefined) {
+      const halfLifeResult = z.coerce.number().int().min(1).safeParse(halfLifeParam);
+      if (!halfLifeResult.success) {
+        return errorResponse(c, 'INVALID_HALF_LIFE', 'halfLife must be a positive integer', 400);
+      }
+      halfLife = halfLifeResult.data;
+    }
+
+    try {
+      const useCase = deps.createGetGameStrengthUseCase(c.env.DB);
+      const result = await useCase.execute(yearResult.data, roundResult.data, halfLife);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof Error && (error as Error & { code?: string }).code === 'NO_FIXTURES_FOUND') {
+        return errorResponse(c, 'NO_FIXTURES_FOUND', error.message, 404);
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'INTERNAL_ERROR', `Failed to compute game strength ratings: ${message}`, 500);
+    }
+  };
+}
+
 /**
  * GET /api/player-movements - Return pre-computed player movements for a round
  */

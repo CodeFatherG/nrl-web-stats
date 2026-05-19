@@ -8,7 +8,7 @@ import Alert from '@mui/material/Alert';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { useAppContext } from '../hooks/useAppContext';
-import { useRoundQuery, useMatchOutlookQuery } from '../hooks/useRoundQuery';
+import { useRoundQuery, useMatchOutlookQuery, useGameStrengthQuery } from '../hooks/useRoundQuery';
 import { useAllRankingsQuery } from '../hooks/useTeamQuery';
 import { useSeasonSummaryQuery } from '../hooks/useSeasonQuery';
 import { PageHeader } from '../components/shared/PageHeader';
@@ -45,7 +45,19 @@ export function RoundView() {
 
   const roundQuery = useRoundQuery(year, derivedRound);
   const outlookQuery = useMatchOutlookQuery(year, derivedRound);
+  const gsrQuery = useGameStrengthQuery(year, derivedRound);
   const rankingsQuery = useAllRankingsQuery(year);
+
+  const gsrByTeam = useMemo(() => {
+    const map = new Map<string, { gsr: number; warning: boolean }>();
+    if (gsrQuery.data) {
+      for (const match of gsrQuery.data.matches) {
+        map.set(match.homeTeam.teamCode, { gsr: match.homeTeam.normalizedOverallGSR, warning: match.homeTeam.sampleSizeWarning });
+        map.set(match.awayTeam.teamCode, { gsr: match.awayTeam.normalizedOverallGSR, warning: match.awayTeam.sampleSizeWarning });
+      }
+    }
+    return map;
+  }, [gsrQuery.data]);
 
   const maxRound = seasonQuery.data?.rounds.length ?? 27;
   const thresholds = rankingsQuery.data?.thresholds;
@@ -107,6 +119,10 @@ export function RoundView() {
                 awayTeamName={match.awayTeam}
                 homeStrength={match.homeStrength}
                 awayStrength={match.awayStrength}
+                homeGSR={gsrByTeam.get(match.homeTeam)?.gsr}
+                awayGSR={gsrByTeam.get(match.awayTeam)?.gsr}
+                homeGSRWarning={gsrByTeam.get(match.homeTeam)?.warning}
+                awayGSRWarning={gsrByTeam.get(match.awayTeam)?.warning}
                 homeScore={match.homeScore}
                 awayScore={match.awayScore}
                 isComplete={match.isComplete}

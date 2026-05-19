@@ -190,9 +190,12 @@ export function SummaryView() {
 
   const coveringCols: ColumnDef<CoveringInjuryRecord>[] = [
     ...baseColumns<CoveringInjuryRecord>(),
-    { key: 'currentPosition', label: 'Pos', align: 'center', sortable: true,
-      getValue: r => r.currentPosition,
-      renderCell: r => <Typography variant="caption">{r.currentPosition}</Typography> },
+    { key: 'movement', label: 'Movement', align: 'center', sortable: false,
+      renderCell: r => (
+        <Typography variant="caption">
+          {r.prevPosition ? `${r.prevPosition} → ${r.currentPosition}` : r.currentPosition}
+        </Typography>
+      ) },
     { key: 'coveringPlayerName', label: 'Covering (injured)', align: 'left', sortable: true,
       getValue: r => r.coveringPlayerName,
       renderCell: r => <Typography variant="caption">{r.coveringPlayerName} ({r.coveringLastPosition})</Typography> },

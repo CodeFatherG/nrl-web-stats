@@ -306,6 +306,12 @@ const INJURY_COLUMNS = [
         {e.endDate ?? 'Active'}
       </Typography>
     ) },
+  { key: 'gamesMissed', label: 'Games Missed', align: 'center' as const, hideOnMobile: true,
+    renderCell: (e: { gamesMissed: number | null }) => (
+      <Typography variant="caption">
+        {e.gamesMissed ?? '—'}
+      </Typography>
+    ) },
 ];
 
 // ─── main view ────────────────────────────────────────────────────────────────

@@ -124,4 +124,5 @@ Include documentation updates in the same commit or PR as the code change. See C
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at `specs/032-game-strength-rating/plan.md`
 <!-- SPECKIT END -->
