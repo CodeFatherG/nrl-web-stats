@@ -90,13 +90,38 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
     expect(findByIdSpy).toHaveBeenCalled();
   });
 
-  it('read path never calls save…', async () => {
+  // SPEC-034-READTHROUGH: warm hits still never write; miss/stale may write
+  // a PlayerProjectionAggregate (opt-in cache population).
+  it('warm hit does NOT call save (no need to repopulate fresh data)', async () => {
+    await repo.savePlayerAggregate({
+      playerId: 'p:test:1', year: 2026, asOfRound: 12, computedAt: '2026-05-20T00:00:00.000Z',
+      baseProfile: {} as any, contextualProfile: {} as any,
+    });
     const saveAggSpy = vi.spyOn(repo, 'savePlayerAggregate');
+
     const uc = new GetContextualProfileUseCase(
       makePlayerRepo(), makeScUseCase(), makeLiveProjectionUseCase(),
       makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
     );
     await uc.execute(2026, 'p:test:1');
     expect(saveAggSpy).not.toHaveBeenCalled();
+  });
+
+  it('read-through write failures are swallowed (do not propagate to the user)', async () => {
+    // Force the read-through path: ensure live fallback returns ok, and saving throws.
+    const liveProjection = makeLiveProjectionUseCase();
+    (liveProjection as any).execute = async () => ({
+      playerId: 'p:test:1', playerName: 'Test', teamCode: 'BRI', position: 'PROP',
+      projectedTotal: 40, projectedFloor: 35, projectedCeiling: 48,
+    } as any);
+    const brokenRepo = Object.assign(new InMemoryProjectionRepository(), {
+      savePlayerAggregate: async () => { throw new Error('store unavailable'); },
+    });
+    const uc = new GetContextualProfileUseCase(
+      makePlayerRepo(), makeScUseCase(), liveProjection, makeMatchRepo(), new AnalyticsCache(),
+      brokenRepo as any, async () => 12,
+    );
+    // Must not throw despite the save failure.
+    await expect(uc.execute(2026, 'p:test:1')).resolves.toBeDefined();
   });
 });

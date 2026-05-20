@@ -89,7 +89,14 @@ describe('GetTeamProjectionRankingsUseCase — repo-first read path (US2)', () =
     expect(findByTeamSpy).toHaveBeenCalled();
   });
 
-  it('read path never calls save… on the repository', async () => {
+  // SPEC-034-READTHROUGH: the read-through opt-in (added later) relaxes the
+  // original "read path never writes" rule for THIS use case only:
+  //  - warm hits MUST still not write (no need — cache is already fresh)
+  //  - miss/stale MAY save its own aggregate kind (TeamRankingsAggregate)
+  //  - miss/stale MUST NOT save aggregate kinds it doesn't own (player /
+  //    precompute-status — those are the precompute path's concern).
+  it('warm hit does NOT call save (no need to repopulate fresh data)', async () => {
+    await repo.saveTeamRankingsAggregate(makeTeamRankingsAggregate({ mode: 'composite', asOfRound: 12 }));
     const saveTeamSpy = vi.spyOn(repo, 'saveTeamRankingsAggregate');
     const savePlayerSpy = vi.spyOn(repo, 'savePlayerAggregate');
     const saveStatusSpy = vi.spyOn(repo, 'savePrecomputeStatus');
@@ -100,5 +107,28 @@ describe('GetTeamProjectionRankingsUseCase — repo-first read path (US2)', () =
     expect(saveTeamSpy).not.toHaveBeenCalled();
     expect(savePlayerSpy).not.toHaveBeenCalled();
     expect(saveStatusSpy).not.toHaveBeenCalled();
+  });
+
+  it('miss/stale: read-through writes its OWN aggregate kind, never the others', async () => {
+    const saveTeamSpy = vi.spyOn(repo, 'saveTeamRankingsAggregate');
+    const savePlayerSpy = vi.spyOn(repo, 'savePlayerAggregate');
+    const saveStatusSpy = vi.spyOn(repo, 'savePrecomputeStatus');
+
+    const uc = new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase, repo, async () => 12);
+    await uc.execute(2026, 'BRI', 'composite');
+
+    expect(saveTeamSpy).toHaveBeenCalledTimes(1);
+    expect(saveTeamSpy.mock.calls[0]?.[0]).toMatchObject({ year: 2026, teamCode: 'BRI', mode: 'composite', asOfRound: 12 });
+    expect(savePlayerSpy).not.toHaveBeenCalled();
+    expect(saveStatusSpy).not.toHaveBeenCalled();
+  });
+
+  it('read-through write failures are swallowed (do not propagate to the user)', async () => {
+    const brokenRepo = Object.assign(new InMemoryProjectionRepository(), {
+      saveTeamRankingsAggregate: async () => { throw new Error('store unavailable'); },
+    });
+    const uc = new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase, brokenRepo as any, async () => 12);
+    // Must not throw despite the save failure.
+    await expect(uc.execute(2026, 'BRI', 'composite')).resolves.toBeDefined();
   });
 });

@@ -64,7 +64,40 @@ export class GetTeamProjectionRankingsUseCase {
       });
     }
 
-    return this.computeLive(year, teamCode, mode);
+    const rankings = await this.computeLive(year, teamCode, mode);
+
+    // ── SPEC-034-READTHROUGH START ───────────────────────────────────────
+    // Opportunistic cache population on miss/stale. Same rules as in
+    // get-contextual-profile.ts. Removable as one self-contained block.
+    await this.tryPopulateAggregate(year, teamCode, mode, rankings);
+    // ── SPEC-034-READTHROUGH END ─────────────────────────────────────────
+
+    return rankings;
+  }
+
+  /** SPEC-034-READTHROUGH — write a TeamRankingsAggregate after live fallback.
+   *  Errors are caught and logged; they never propagate to the user (SC-008). */
+  private async tryPopulateAggregate(
+    year: number,
+    teamCode: string,
+    mode: RankingMode,
+    rankings: TeamProjectionRankings,
+  ): Promise<void> {
+    try {
+      const asOfRound = await this.watermarkFn(year);
+      await this.projectionRepository.saveTeamRankingsAggregate({
+        year,
+        teamCode,
+        mode,
+        asOfRound,
+        computedAt: new Date().toISOString(),
+        rankings,
+      });
+    } catch (err) {
+      logger.warn('read-through write failed (team rankings)', {
+        teamCode, mode, year, error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /** Pure live computation — no repository touch. Exposed for the precompute

@@ -66,7 +66,55 @@ export class GetContextualProfileUseCase {
     }
 
     // ── Live fallback ────────────────────────────────────────────────────
-    return this.computeLive(year, playerId);
+    const outcome = await this.computeLive(year, playerId);
+
+    // ── SPEC-034-READTHROUGH START ───────────────────────────────────────
+    // Opportunistic cache population: on miss/stale, write the freshly-
+    // computed PlayerProjectionAggregate so subsequent reads of any of the
+    // four projection endpoints serve warm. Off the response critical path
+    // is a `ctx.waitUntil` away — for now we await synchronously, accepting
+    // the extra ~50ms on a fall-through (which already took seconds).
+    //
+    // To remove: delete this entire block. The cron-fired precompute path
+    // still populates the cache as before. Safe to revert at any time.
+    // (Also remove the matching block in get-team-projection-rankings.ts.)
+    if (outcome.kind === 'ok') {
+      await this.tryPopulateAggregate(year, playerId, outcome.result);
+    }
+    // ── SPEC-034-READTHROUGH END ─────────────────────────────────────────
+
+    return outcome;
+  }
+
+  /** SPEC-034-READTHROUGH — write the full PlayerProjectionAggregate after a
+   *  live fallback. Errors are caught and logged; they never propagate to the
+   *  user (read path must never fail on cache concerns — SC-008). */
+  private async tryPopulateAggregate(
+    year: number,
+    playerId: string,
+    contextualProfile: ContextualProfileResult,
+  ): Promise<void> {
+    try {
+      // baseProfile is needed to assemble the full aggregate. projectionUseCase
+      // is repo-first, so this is one in-memory cache hit if the AnalyticsCache
+      // already coalesced the computation, otherwise a live recompute. In the
+      // typical miss path the AnalyticsCache has it.
+      const baseProfile = await this.projectionUseCase.execute(year, playerId);
+      if (!baseProfile) return;
+      const asOfRound = await this.watermarkFn(year);
+      await this.projectionRepository.savePlayerAggregate({
+        playerId,
+        year,
+        asOfRound,
+        computedAt: new Date().toISOString(),
+        baseProfile,
+        contextualProfile,
+      });
+    } catch (err) {
+      logger.warn('read-through write failed (contextual profile)', {
+        playerId, year, error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /** Pure live computation — exposed for PrecomputeProjectionsUseCase (US4)
