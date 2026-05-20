@@ -45,6 +45,7 @@ import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-pl
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
 import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
+import type { ProjectionRepository } from '../domain/repositories/projection-repository.js';
 import type { PlayerMovementsCache } from '../analytics/player-movements-cache.js';
 import type { ComputePlayerMovementsUseCase } from '../application/use-cases/compute-player-movements.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
@@ -122,6 +123,9 @@ export interface HandlerDeps {
   createGetGameStrengthUseCase: (db: D1Database) => GetGameStrengthUseCase;
   /** Factory to create a per-request LockGameStrengthRatingsUseCase from the DB binding */
   createLockGameStrengthUseCase: (db: D1Database) => LockGameStrengthRatingsUseCase;
+  /** Precomputed projection store (spec 034). Use cases in subsequent phases
+   *  read this first and fall back to live computation on miss/stale. */
+  projectionRepository: ProjectionRepository;
 }
 
 // Environment bindings type

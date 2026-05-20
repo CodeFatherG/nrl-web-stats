@@ -51,6 +51,12 @@
           "migrations_dir": "migrations"
         }
       ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE",
+          "id": "1c293b4dd9254bb38125958e7fa90495"
+        }
+      ],
       "queues": {
         "producers": [
           {
@@ -87,6 +93,12 @@
           "database_name": "nrl-data-production",
           "database_id": "085f5b77-3d16-4fad-9ded-a8e2436eb05c",
           "migrations_dir": "migrations"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE",
+          "id": "0038f92f3462485b9de8a44c5db44f9f"
         }
       ],
       "queues": {

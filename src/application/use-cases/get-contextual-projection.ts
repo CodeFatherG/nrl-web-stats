@@ -5,8 +5,9 @@
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
-import type { GetPlayerProjectionUseCase } from './get-player-projection.js';
+import type { GetPlayerProjectionUseCase, WatermarkFn } from './get-player-projection.js';
 import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
 import type {
   ContextualEligibleGame,
@@ -48,6 +49,8 @@ export class GetContextualProjectionUseCase {
     private readonly projectionUseCase: GetPlayerProjectionUseCase,
     private readonly matchRepository: MatchRepository,
     private readonly analyticsCache: AnalyticsCache,
+    private readonly projectionRepository: ProjectionRepository,
+    private readonly watermarkFn: WatermarkFn,
   ) {}
 
   async execute(
@@ -57,6 +60,51 @@ export class GetContextualProjectionUseCase {
     venue?: string,
     weather?: WeatherCategory,
   ): Promise<ContextualProjectionOutcome> {
+    // ── Repo-first read path (spec 034, US3) ─────────────────────────────
+    // The (player, year) aggregate already contains baseProfile + the full
+    // contextualProfile fan-out. On a warm hit we slice the requested
+    // opponent/venue/weather in memory and return — no D1 work needed.
+    try {
+      const agg = await this.projectionRepository.findPlayerAggregate(year, playerId);
+      if (agg !== null && agg.asOfRound >= (await this.watermarkFn(year))) {
+        const baseProjection: ProjectionValues = {
+          total: agg.baseProfile.projectedTotal,
+          floor: agg.baseProfile.projectedFloor,
+          ceiling: agg.baseProfile.projectedCeiling,
+        };
+        const adjustments: ContextualProjectionResult['adjustments'] = {};
+        const multipliers: number[] = [];
+        if (opponent) {
+          const o = agg.contextualProfile.opponents[opponent];
+          if (o) { adjustments.opponent = o; multipliers.push(o.multiplier); }
+        }
+        if (venue) {
+          const v = agg.contextualProfile.venues[venue];
+          if (v) { adjustments.venue = v; multipliers.push(v.multiplier); }
+        }
+        if (weather) {
+          const w = agg.contextualProfile.weather[weather];
+          if (w) { adjustments.weather = w; } // weather not applied to projection
+        }
+        const result: ContextualProjectionResult = {
+          playerId: agg.contextualProfile.playerId,
+          playerName: agg.contextualProfile.playerName,
+          teamCode: agg.contextualProfile.teamCode,
+          position: agg.contextualProfile.position,
+          year,
+          baseProjection,
+          adjustedProjection: applyMultipliers(baseProjection, multipliers),
+          adjustments,
+        };
+        return { kind: 'ok', result };
+      }
+    } catch (err) {
+      logger.warn('contextual projection repository read failed; falling back to live', {
+        playerId, year, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // ── Live fallback ────────────────────────────────────────────────────
     const player = await this.playerRepository.findById(playerId);
     if (!player) return { kind: 'player_not_found' };
 

@@ -91,6 +91,15 @@ function makeDeps(overrides: Partial<EnqueueDueScrapesDeps> & { producer: FakePr
     },
     casualtyWardSource: overrides.casualtyWardSource ?? { fetchCasualtyWard: async () => ({} as any), isAvailable: async () => true },
     producer: overrides.producer,
+    projectionRepository: overrides.projectionRepository ?? {
+      findPlayerAggregate: async () => null,
+      findTeamRankingsAggregate: async () => null,
+      findPrecomputeStatus: async () => null,
+      savePlayerAggregate: async () => {},
+      saveTeamRankingsAggregate: async () => {},
+      savePrecomputeStatus: async () => {},
+    },
+    watermarkFn: overrides.watermarkFn ?? (async () => 0),
   };
 }
 

@@ -124,5 +124,5 @@ Include documentation updates in the same commit or PR as the code change. See C
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/033-scrape-job-queue/plan.md`
+at `specs/034-precomputed-projections/plan.md`
 <!-- SPECKIT END -->

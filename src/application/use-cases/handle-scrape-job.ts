@@ -13,6 +13,7 @@
 
 import type { JobBatch, JobHandle, ScrapeJob } from '../ports/job-queue.js';
 import { ScrapeJobSchema } from '../ports/job-queue.js';
+import { ProjectionStoreQuotaExhaustedError } from '../../domain/repositories/projection-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -20,6 +21,7 @@ import type { ScrapeTeamListsUseCase } from './scrape-team-lists.js';
 import type { ScrapeCasualtyWardUseCase } from './scrape-casualty-ward.js';
 import type { ComputePlayerMovementsUseCase } from './compute-player-movements.js';
 import type { LockGameStrengthRatingsUseCase } from './lock-game-strength-ratings.js';
+import type { PrecomputeProjectionsUseCase } from './precompute-projections.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -37,10 +39,20 @@ export interface HandleScrapeJobDeps {
   scrapeCasualtyWard: ScrapeCasualtyWardUseCase;
   computePlayerMovements: ComputePlayerMovementsUseCase;
   lockGameStrength: LockGameStrengthRatingsUseCase;
+  /** Spec 034: handles the `precompute-projections` job variant. Optional so
+   *  legacy test wiring that predates this feature doesn't have to construct it. */
+  precomputeProjections?: PrecomputeProjectionsUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
 function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; reason: string } | { kind: 'terminal'; reason: string } {
+  // Projection-store quota exhausted (spec 034, FR-021): retrying inside the
+  // same UTC day cannot succeed; the watermark predicate re-fires on the next
+  // discovery tick after the daily reset. Match by type, not by message.
+  if (err instanceof ProjectionStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'projection-store-quota-exhausted' };
+  }
+
   const message = err instanceof Error ? err.message : String(err);
 
   // HTTP 5xx / network / Workers subrequest pressure — transient, retry with delay
@@ -143,6 +155,12 @@ export class HandleScrapeJobUseCase {
         return;
       case 'lock-game-strength-ratings':
         await this.deps.lockGameStrength.execute(job.year, job.round);
+        return;
+      case 'precompute-projections':
+        if (!this.deps.precomputeProjections) {
+          throw new Error('precompute-projections dispatched but no PrecomputeProjectionsUseCase wired');
+        }
+        await this.deps.precomputeProjections.execute({ year: job.year, asOfRound: job.asOfRound });
         return;
       default: {
         // Exhaustiveness check — the discriminated union should make this unreachable.
