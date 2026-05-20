@@ -315,16 +315,6 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   const matchCount = await matchRepository.getMatchCount();
   logger.info('[CRON] D1 state', { loadedYears, matchCount });
 
-  // ---------------------------------------------------------------------
-  // T016 cutover: discovery use case publishes one job per due unit of
-  // scrape work. The queue consumer (`queue` handler below) runs each job
-  // in its own invocation. Per-job retry/DLQ semantics come from the
-  // platform's max_retries config in wrangler.jsonc.
-  //
-  // Previously this block ran every Scrape*UseCase inline; ~400 lines of
-  // sequential scrape calls have been replaced by the single discovery
-  // execution below. See specs/033-scrape-job-queue/plan.md §Phase 4.
-  // ---------------------------------------------------------------------
   try {
     const playerRepo = new D1PlayerRepository(env.DB);
     const teamListRepo = new D1TeamListRepository(env.DB);
@@ -359,13 +349,6 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   logger.info('[CRON] Scheduled handler complete');
 };
 
-
-// ---------------------------------------------------------------------------
-// Queue consumer handler — processes ScrapeJob messages via HandleScrapeJobUseCase.
-// In shadow mode (current phase) no jobs are published, so this handler is
-// dormant. It is wired up now so cutover (T016) flips a single flag rather than
-// adding wiring.
-// ---------------------------------------------------------------------------
 const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) => {
   setDebugMode(env.ENVIRONMENT !== 'production');
   initializeDeps(env.DB);

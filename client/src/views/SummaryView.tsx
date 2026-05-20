@@ -49,16 +49,24 @@ function MovementSection<T extends AnyMovement>({
   columns,
   onNavigate,
   actions,
+  sectionId,
+  expanded,
+  onChange,
 }: {
   title: string;
   items: T[];
   columns: ColumnDef<T>[];
   onNavigate: (id: number) => void;
   actions?: ReactNode;
+  sectionId: string;
+  expanded: boolean;
+  onChange: (sectionId: string, isExpanded: boolean) => void;
 }) {
   if (items.length === 0) return null;
   return (
     <Accordion
+      expanded={expanded}
+      onChange={(_, isExpanded) => onChange(sectionId, isExpanded)}
       disableGutters
       elevation={0}
       sx={{
@@ -103,6 +111,10 @@ export function SummaryView() {
   const navigate = useNavigate();
   const year = Number(searchParams.get('year') ?? currentYear);
   const [hideInterchange, setHideInterchange] = useState(true);
+  const [expandedSection, setExpandedSection] = useState<string | false>(false);
+
+  const handleSectionChange = (id: string, isExpanded: boolean) =>
+    setExpandedSection(isExpanded ? id : false);
 
   const movementsQuery = useMovementsQuery(year);
 
@@ -238,26 +250,44 @@ export function SummaryView() {
         <MovementSection<InjuredRecord>
           title="Injured" items={data.injured}
           columns={injuredCols} onNavigate={goToPlayer}
+          sectionId="injured"
+          expanded={expandedSection === 'injured'}
+          onChange={handleSectionChange}
         />
         <MovementSection<DroppedRecord>
           title="Dropped" items={data.dropped}
           columns={droppedCols} onNavigate={goToPlayer}
+          sectionId="dropped"
+          expanded={expandedSection === 'dropped'}
+          onChange={handleSectionChange}
         />
         <MovementSection<BenchedRecord>
           title="Benched" items={data.benched}
           columns={benchedCols} onNavigate={goToPlayer}
+          sectionId="benched"
+          expanded={expandedSection === 'benched'}
+          onChange={handleSectionChange}
         />
         <MovementSection<ReturningFromInjuryRecord>
           title="Returning from Injury" items={data.returningFromInjury}
           columns={returningCols} onNavigate={goToPlayer}
+          sectionId="returning"
+          expanded={expandedSection === 'returning'}
+          onChange={handleSectionChange}
         />
         <MovementSection<CoveringInjuryRecord>
           title="Covering Injury" items={data.coveringInjury}
           columns={coveringCols} onNavigate={goToPlayer}
+          sectionId="covering"
+          expanded={expandedSection === 'covering'}
+          onChange={handleSectionChange}
         />
         <MovementSection<PromotedRecord>
           title="Promoted" items={promotedFiltered}
           columns={promotedCols} onNavigate={goToPlayer}
+          sectionId="promoted"
+          expanded={expandedSection === 'promoted'}
+          onChange={handleSectionChange}
           actions={
             <FormControlLabel
               control={<Checkbox size="small" checked={hideInterchange} onChange={e => setHideInterchange(e.target.checked)} />}
@@ -268,6 +298,9 @@ export function SummaryView() {
         <MovementSection<PositionChangedRecord>
           title="Position Changed" items={data.positionChanged}
           columns={positionCols} onNavigate={goToPlayer}
+          sectionId="positionChanged"
+          expanded={expandedSection === 'positionChanged'}
+          onChange={handleSectionChange}
         />
       </Box>
     </Box>
