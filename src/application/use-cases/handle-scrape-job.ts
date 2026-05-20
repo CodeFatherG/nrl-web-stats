@@ -21,7 +21,8 @@ import type { ScrapeTeamListsUseCase } from './scrape-team-lists.js';
 import type { ScrapeCasualtyWardUseCase } from './scrape-casualty-ward.js';
 import type { ComputePlayerMovementsUseCase } from './compute-player-movements.js';
 import type { LockGameStrengthRatingsUseCase } from './lock-game-strength-ratings.js';
-import type { PrecomputeProjectionsUseCase } from './precompute-projections.js';
+import type { PrecomputePlayerProjectionUseCase } from './precompute-player-projection.js';
+import type { PrecomputeTeamRankingsUseCase } from './precompute-team-rankings.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -39,9 +40,11 @@ export interface HandleScrapeJobDeps {
   scrapeCasualtyWard: ScrapeCasualtyWardUseCase;
   computePlayerMovements: ComputePlayerMovementsUseCase;
   lockGameStrength: LockGameStrengthRatingsUseCase;
-  /** Spec 034: handles the `precompute-projections` job variant. Optional so
-   *  legacy test wiring that predates this feature doesn't have to construct it. */
-  precomputeProjections?: PrecomputeProjectionsUseCase;
+  /** Spec 034: per-player leaf job dispatched by the fan-out discovery pass.
+   *  Optional so test wiring without precompute doesn't have to construct it. */
+  precomputePlayerProjection?: PrecomputePlayerProjectionUseCase;
+  /** Spec 034: per (team, mode) leaf job. */
+  precomputeTeamRankings?: PrecomputeTeamRankingsUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
@@ -156,11 +159,26 @@ export class HandleScrapeJobUseCase {
       case 'lock-game-strength-ratings':
         await this.deps.lockGameStrength.execute(job.year, job.round);
         return;
-      case 'precompute-projections':
-        if (!this.deps.precomputeProjections) {
-          throw new Error('precompute-projections dispatched but no PrecomputeProjectionsUseCase wired');
+      case 'precompute-player-projection':
+        if (!this.deps.precomputePlayerProjection) {
+          throw new Error('precompute-player-projection dispatched but no PrecomputePlayerProjectionUseCase wired');
         }
-        await this.deps.precomputeProjections.execute({ year: job.year, asOfRound: job.asOfRound });
+        await this.deps.precomputePlayerProjection.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          playerId: job.playerId,
+        });
+        return;
+      case 'precompute-team-rankings':
+        if (!this.deps.precomputeTeamRankings) {
+          throw new Error('precompute-team-rankings dispatched but no PrecomputeTeamRankingsUseCase wired');
+        }
+        await this.deps.precomputeTeamRankings.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+          mode: job.mode,
+        });
         return;
       default: {
         // Exhaustiveness check — the discriminated union should make this unreachable.

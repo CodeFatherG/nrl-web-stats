@@ -83,6 +83,16 @@ export interface ProjectionRepository {
 
   findPrecomputeStatus(year: number): Promise<PrecomputeStatus | null>;
 
+  /** Cheap coverage probe for the precompute discovery predicate.
+   *  Returns playerId → asOfRound for every player aggregate present in the
+   *  given year. MUST NOT read aggregate bodies — implementations should rely
+   *  on metadata-only listing (KV `list`) or in-memory map traversal. */
+  listPlayerAggregateAsOfRounds(year: number): Promise<Map<string, number>>;
+
+  /** Coverage probe for team-rankings precompute discovery. Key shape:
+   *  `${teamCode}:${mode}`. Same constraints as listPlayerAggregateAsOfRounds. */
+  listTeamRankingsAsOfRounds(year: number): Promise<Map<string, number>>;
+
   // Write side — may throw `ProjectionStoreQuotaExhaustedError` on quota
   // exhaustion; transient backend errors propagate.
 

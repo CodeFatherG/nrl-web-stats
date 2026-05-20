@@ -30,16 +30,28 @@ import {
 
 const KEY_PREFIX = 'projections:v1';
 
+function playerPrefix(year: number): string {
+  return `${KEY_PREFIX}:${year}:player:`;
+}
+
 function playerKey(year: number, playerId: string): string {
-  return `${KEY_PREFIX}:${year}:player:${playerId}`;
+  return `${playerPrefix(year)}${playerId}`;
+}
+
+function teamRankingsPrefix(year: number): string {
+  return `${KEY_PREFIX}:${year}:team-rankings:`;
 }
 
 function teamRankingsKey(year: number, teamCode: string, mode: RankingMode): string {
-  return `${KEY_PREFIX}:${year}:team-rankings:${teamCode}:${mode}`;
+  return `${teamRankingsPrefix(year)}${teamCode}:${mode}`;
 }
 
 function statusKey(year: number): string {
   return `${KEY_PREFIX}:${year}:status`;
+}
+
+interface CoverageMetadata {
+  readonly asOfRound: number;
 }
 
 // ── Quota-exhausted detection ────────────────────────────────────────────────
@@ -88,10 +100,21 @@ export class KvProjectionRepository implements ProjectionRepository {
 
   // Write side ----------------------------------------------------------------
 
+  async listPlayerAggregateAsOfRounds(year: number): Promise<Map<string, number>> {
+    return this.listCoverage(playerPrefix(year), key => key.slice(playerPrefix(year).length));
+  }
+
+  async listTeamRankingsAsOfRounds(year: number): Promise<Map<string, number>> {
+    return this.listCoverage(teamRankingsPrefix(year), key => key.slice(teamRankingsPrefix(year).length));
+  }
+
+  // Write side ----------------------------------------------------------------
+
   async savePlayerAggregate(aggregate: PlayerProjectionAggregate): Promise<void> {
     await this.put(
       playerKey(aggregate.year, aggregate.playerId),
       encodePlayerAggregate(aggregate),
+      { asOfRound: aggregate.asOfRound },
     );
   }
 
@@ -99,6 +122,7 @@ export class KvProjectionRepository implements ProjectionRepository {
     await this.put(
       teamRankingsKey(aggregate.year, aggregate.teamCode, aggregate.mode),
       encodeTeamRankingsAggregate(aggregate),
+      { asOfRound: aggregate.asOfRound },
     );
   }
 
@@ -108,9 +132,9 @@ export class KvProjectionRepository implements ProjectionRepository {
 
   // Internal helpers ---------------------------------------------------------
 
-  private async put(key: string, value: string): Promise<void> {
+  private async put(key: string, value: string, metadata?: CoverageMetadata): Promise<void> {
     try {
-      await this.kv.put(key, value);
+      await this.kv.put(key, value, metadata ? { metadata } : undefined);
     } catch (err) {
       if (isQuotaExhaustedError(err)) {
         throw new ProjectionStoreQuotaExhaustedError(
@@ -120,5 +144,30 @@ export class KvProjectionRepository implements ProjectionRepository {
       }
       throw err;
     }
+  }
+
+  /** Page through `kv.list({ prefix })` and project each entry to its
+   *  asOfRound metadata. Entries without metadata are skipped (legacy writes
+   *  pre-dating the coverage probe) — they'll be treated as "stale" by the
+   *  predicate and re-precomputed on the next discovery tick. */
+  private async listCoverage(
+    prefix: string,
+    keyToIdent: (key: string) => string,
+  ): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.kv.list<CoverageMetadata>({ prefix, cursor });
+      for (const entry of page.keys) {
+        if (!entry.metadata) continue;
+        const ident = keyToIdent(entry.name);
+        if (ident.length === 0) continue;
+        out.set(ident, entry.metadata.asOfRound);
+      }
+      if (page.list_complete) break;
+      cursor = page.cursor;
+      if (!cursor) break;
+    }
+    return out;
   }
 }

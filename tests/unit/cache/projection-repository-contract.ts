@@ -183,6 +183,43 @@ export function runProjectionRepositoryContractTests(
       });
     });
 
+    describe('coverage listing', () => {
+      it('listPlayerAggregateAsOfRounds returns playerId → asOfRound for the requested year only', async () => {
+        await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:a', year: 2026, asOfRound: 5 }));
+        await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:b', year: 2026, asOfRound: 10 }));
+        await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:c', year: 2025, asOfRound: 99 }));
+
+        const coverage = await repo.listPlayerAggregateAsOfRounds(2026);
+        expect(coverage.size).toBe(2);
+        expect(coverage.get('p:a')).toBe(5);
+        expect(coverage.get('p:b')).toBe(10);
+        expect(coverage.has('p:c')).toBe(false);
+      });
+
+      it('listPlayerAggregateAsOfRounds returns an empty map when nothing is stored', async () => {
+        const coverage = await repo.listPlayerAggregateAsOfRounds(2026);
+        expect(coverage.size).toBe(0);
+      });
+
+      it('listTeamRankingsAsOfRounds returns ${teamCode}:${mode} → asOfRound for the requested year only', async () => {
+        await repo.saveTeamRankingsAggregate(makeTeamRankingsAggregate({ teamCode: 'BRI', mode: 'composite', asOfRound: 7 }));
+        await repo.saveTeamRankingsAggregate(makeTeamRankingsAggregate({ teamCode: 'BRI', mode: 'captaincy', asOfRound: 7 }));
+        await repo.saveTeamRankingsAggregate(makeTeamRankingsAggregate({ teamCode: 'NZL', mode: 'composite', year: 2025, asOfRound: 99 }));
+
+        const coverage = await repo.listTeamRankingsAsOfRounds(2026);
+        expect(coverage.get('BRI:composite')).toBe(7);
+        expect(coverage.get('BRI:captaincy')).toBe(7);
+        expect(coverage.has('NZL:composite')).toBe(false);
+      });
+
+      it('listPlayerAggregateAsOfRounds reflects the most-recent asOfRound after overwrite', async () => {
+        await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:a', asOfRound: 5 }));
+        await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:a', asOfRound: 11 }));
+        const coverage = await repo.listPlayerAggregateAsOfRounds(2026);
+        expect(coverage.get('p:a')).toBe(11);
+      });
+    });
+
     describe('identity preservation', () => {
       it('findPlayerAggregate returns only aggregates with matching (year, playerId)', async () => {
         await repo.savePlayerAggregate(makePlayerAggregate({ playerId: 'p:a', year: 2026 }));

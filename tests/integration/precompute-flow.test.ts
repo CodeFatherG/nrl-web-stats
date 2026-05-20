@@ -1,30 +1,32 @@
 /**
- * T035 — End-to-end integration test for the precompute write-path.
+ * End-to-end integration test for the precompute write-path (fan-out version).
  *
  * Flow:
  *   1. Seed minimal "complete round" state in fakes.
- *   2. EnqueueDueScrapesUseCase observes the watermark and publishes one
- *      precompute-projections job.
- *   3. HandleScrapeJobUseCase dispatches the job to PrecomputeProjectionsUseCase.
- *   4. Aggregates and PrecomputeStatus are written to the in-memory repo.
- *   5. The four read-side use cases now serve from the repo (warm hit).
+ *   2. EnqueueDueScrapesUseCase emits N `precompute-player-projection` +
+ *      M `precompute-team-rankings` sub-jobs (no status write yet).
+ *   3. HandleScrapeJobUseCase dispatches each sub-job to its leaf use case.
+ *   4. After every leaf job runs, the next discovery tick observes full
+ *      coverage and writes the PrecomputeStatus itself.
+ *   5. The read-side use cases now serve from the repo (warm hit).
  *
- * Uses the in-memory projection adapter (no Miniflare KV needed — the KV
- * adapter is exercised separately in tests/integration/kv-projection-repository.test.ts).
- *
- * Feature: 034-precomputed-projections (US4).
+ * Uses the in-memory projection adapter; the KV adapter is exercised
+ * separately in tests/integration/kv-projection-repository.test.ts.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EnqueueDueScrapesUseCase } from '../../src/application/use-cases/enqueue-due-scrapes.js';
 import { HandleScrapeJobUseCase } from '../../src/application/use-cases/handle-scrape-job.js';
-import { PrecomputeProjectionsUseCase } from '../../src/application/use-cases/precompute-projections.js';
+import { PrecomputePlayerProjectionUseCase } from '../../src/application/use-cases/precompute-player-projection.js';
+import { PrecomputeTeamRankingsUseCase } from '../../src/application/use-cases/precompute-team-rankings.js';
 import { GetPlayerProjectionUseCase } from '../../src/application/use-cases/get-player-projection.js';
 import { GetContextualProfileUseCase } from '../../src/application/use-cases/get-contextual-profile.js';
 import { GetTeamProjectionRankingsUseCase } from '../../src/application/use-cases/get-team-projection-rankings.js';
 import { InMemoryProjectionRepository } from '../../src/infrastructure/cache/in-memory-projection-repository.js';
 import { AnalyticsCache } from '../../src/analytics/analytics-cache.js';
 import type { JobBatch, JobHandle, JobProducer, ScrapeJob } from '../../src/application/ports/job-queue.js';
+import { VALID_TEAM_CODES } from '../../src/models/team.js';
+import { ALL_RANKING_MODES } from '../../src/analytics/player-projection-types.js';
 
 class CapturingProducer implements JobProducer {
   published: ScrapeJob[] = [];
@@ -33,12 +35,11 @@ class CapturingProducer implements JobProducer {
 }
 
 function makeHandle(body: ScrapeJob): JobHandle<ScrapeJob> {
-  let settled = false;
   return {
     body,
     attemptCount: 1,
-    ack() { settled = true; },
-    retry() { settled = true; },
+    ack() {},
+    retry() {},
   };
 }
 
@@ -50,14 +51,14 @@ function makeBatch(body: ScrapeJob): JobBatch<ScrapeJob> {
   };
 }
 
-describe('End-to-end precompute flow (US4)', () => {
+describe('End-to-end precompute flow (fan-out)', () => {
   let repo: InMemoryProjectionRepository;
 
   beforeEach(() => {
     repo = new InMemoryProjectionRepository();
   });
 
-  it('discovery → dispatcher → precompute writes aggregates, status; reads then warm-hit', async () => {
+  it('discovery emits sub-jobs; dispatcher runs them; next tick writes status; reads warm-hit', async () => {
     // ── Fakes ──────────────────────────────────────────────────────────
     const watermark = 5;
     const player = { id: 'p:1', name: 'Test', teamCode: 'BRO', position: 'PROP', seasons: [] };
@@ -102,7 +103,6 @@ describe('End-to-end precompute flow (US4)', () => {
     const playerProjectionUC = new GetPlayerProjectionUseCase(
       playerRepo, scUseCase, repo, async () => watermark,
     );
-    // Override computeLive to return our fixture directly (the real path needs SC data we don't have).
     playerProjectionUC.computeLive = async () => baseProfile as any;
     const contextualProfileUC = new GetContextualProfileUseCase(
       playerRepo, scUseCase, playerProjectionUC, matchRepo, new AnalyticsCache(), repo, async () => watermark,
@@ -114,15 +114,17 @@ describe('End-to-end precompute flow (US4)', () => {
     teamRankingsUC.computeLive = async (year, teamCode, mode) =>
       ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any);
 
-    const precomputeUC = new PrecomputeProjectionsUseCase({
+    const precomputePlayerUC = new PrecomputePlayerProjectionUseCase({
       projectionRepository: repo,
-      playerRepository: playerRepo,
       playerProjectionLive: playerProjectionUC,
       contextualProfileLive: contextualProfileUC,
+    });
+    const precomputeTeamUC = new PrecomputeTeamRankingsUseCase({
+      projectionRepository: repo,
       teamRankingsLive: teamRankingsUC,
     });
 
-    // ── Step 1: discovery publishes the precompute job ────────────────
+    // ── Step 1: discovery emits sub-jobs (no status write yet) ────────
     const producer = new CapturingProducer();
     const enqueueUC = new EnqueueDueScrapesUseCase({
       matchRepository: matchRepo,
@@ -141,12 +143,14 @@ describe('End-to-end precompute flow (US4)', () => {
     });
     await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T06:00:00Z'), currentYear: 2026 });
 
-    const precomputeJobs = producer.published.filter((j) => j.type === 'precompute-projections');
-    expect(precomputeJobs).toHaveLength(1);
-    const precomputeJob = precomputeJobs[0] as Extract<ScrapeJob, { type: 'precompute-projections' }>;
-    expect(precomputeJob.asOfRound).toBe(watermark);
+    const playerJobs = producer.published.filter(j => j.type === 'precompute-player-projection');
+    const teamJobs = producer.published.filter(j => j.type === 'precompute-team-rankings');
+    expect(playerJobs).toHaveLength(1);
+    expect(teamJobs).toHaveLength(VALID_TEAM_CODES.length * ALL_RANKING_MODES.length);
+    // Status NOT written yet — only sub-jobs published.
+    expect(await repo.findPrecomputeStatus(2026)).toBeNull();
 
-    // ── Step 2: dispatcher routes job to PrecomputeProjectionsUseCase ──
+    // ── Step 2: dispatcher runs every sub-job ─────────────────────────
     const dispatcher = new HandleScrapeJobUseCase({
       scrapeMatchResults: {} as any,
       scrapePlayerStats: {} as any,
@@ -155,21 +159,30 @@ describe('End-to-end precompute flow (US4)', () => {
       scrapeCasualtyWard: {} as any,
       computePlayerMovements: {} as any,
       lockGameStrength: {} as any,
-      precomputeProjections: precomputeUC,
+      precomputePlayerProjection: precomputePlayerUC,
+      precomputeTeamRankings: precomputeTeamUC,
     });
-    await dispatcher.handle(makeBatch(precomputeJob));
+    for (const job of [...playerJobs, ...teamJobs]) {
+      await dispatcher.handle(makeBatch(job));
+    }
 
-    // ── Step 3: assert aggregates + status are persisted ──────────────
-    const status = await repo.findPrecomputeStatus(2026);
-    expect(status).toEqual({ year: 2026, asOfRound: watermark });
+    // ── Step 3: aggregates persisted, status STILL not written ────────
     const playerAgg = await repo.findPlayerAggregate(2026, 'p:1');
     expect(playerAgg).not.toBeNull();
     expect(playerAgg?.asOfRound).toBe(watermark);
-    // 17 teams × 4 modes = 68 team rankings aggregates written
     const composite = await repo.findTeamRankingsAggregate(2026, 'BRO', 'composite');
     expect(composite).not.toBeNull();
+    // Status is the responsibility of discovery on the next tick.
+    expect(await repo.findPrecomputeStatus(2026)).toBeNull();
 
-    // ── Step 4: read-side use cases now serve from the repo (warm) ────
+    // ── Step 4: next discovery tick observes full coverage → writes status
+    producer.published = [];
+    await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T07:00:00Z'), currentYear: 2026 });
+    expect(producer.published.filter(j => j.type.startsWith('precompute-'))).toHaveLength(0);
+    const status = await repo.findPrecomputeStatus(2026);
+    expect(status).toEqual({ year: 2026, asOfRound: watermark });
+
+    // ── Step 5: read-side use cases now serve from the repo (warm) ────
     const warmProfile = await playerProjectionUC.execute(2026, 'p:1');
     expect(warmProfile?.projectedTotal).toBe(baseProfile.projectedTotal);
     const warmContextual = await contextualProfileUC.execute(2026, 'p:1');
@@ -177,9 +190,9 @@ describe('End-to-end precompute flow (US4)', () => {
     const warmRankings = await teamRankingsUC.execute(2026, 'BRO', 'composite');
     expect(warmRankings.teamCode).toBe('BRO');
 
-    // ── Step 5: discovery on the next tick does NOT republish (watermark unchanged)
+    // ── Step 6: a third tick is a complete no-op (status >= watermark) ─
     producer.published = [];
-    await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T07:00:00Z'), currentYear: 2026 });
-    expect(producer.published.filter((j) => j.type === 'precompute-projections')).toHaveLength(0);
+    await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T08:00:00Z'), currentYear: 2026 });
+    expect(producer.published.filter(j => j.type.startsWith('precompute-'))).toHaveLength(0);
   });
 });

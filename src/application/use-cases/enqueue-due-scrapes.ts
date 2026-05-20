@@ -35,6 +35,8 @@ import {
 } from './scrape-match-results.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 import { logger } from '../../utils/logger.js';
+import { ALL_RANKING_MODES } from '../../analytics/player-projection-types.js';
+import { VALID_TEAM_CODES } from '../../models/team.js';
 
 /** Repository surface for D1-backed supplementary-stats queries that discovery needs. */
 export interface SupplementaryStatsRepoLike {
@@ -268,18 +270,76 @@ export class EnqueueDueScrapesUseCase {
     }
 
     // --------------------------------------------------------------------
-    // 10. Precompute projections — fire when watermark > last successful
-    //     precompute's asOfRound. Single shared predicate with the read-path
-    //     staleness check (spec 034, FR-003 / FR-007).
+    // 10. Precompute projections — fan-out per (player) and per (team, mode).
+    //     Predicate-based completion: status advances on the tick that
+    //     observes full coverage at the watermark. Sub-jobs are idempotent
+    //     against the same asOfRound, so re-emission on partial failure
+    //     simply re-runs the missing ones (spec 034, FR-003 / FR-007).
     // --------------------------------------------------------------------
     const watermark = await this.deps.watermarkFn(currentYear);
     if (watermark > 0) {
       const status = await this.deps.projectionRepository.findPrecomputeStatus(currentYear);
       if (status === null || watermark > status.asOfRound) {
-        await tryPublish(
-          { type: 'precompute-projections', version: 1, year: currentYear, asOfRound: watermark },
-          () => Promise.resolve(true) // pure D1 read + compute, always "available"
-        );
+        // Cheap coverage probe — one KV `list` call per category, NOT per player.
+        const [playerCoverage, teamCoverage] = await Promise.all([
+          this.deps.projectionRepository.listPlayerAggregateAsOfRounds(currentYear),
+          this.deps.projectionRepository.listTeamRankingsAsOfRounds(currentYear),
+        ]);
+
+        // Expected player set = anyone with a season summary in this year.
+        const expectedPlayers = await this.deps.playerRepository.findAllSeasonSummaries(currentYear);
+        const seenPlayerIds = new Set<string>();
+        let missingPlayers = 0;
+        for (const summary of expectedPlayers) {
+          if (seenPlayerIds.has(summary.playerId)) continue;
+          seenPlayerIds.add(summary.playerId);
+          const coveredAt = playerCoverage.get(summary.playerId) ?? -1;
+          if (coveredAt >= watermark) continue;
+          missingPlayers += 1;
+          await tryPublish(
+            {
+              type: 'precompute-player-projection',
+              version: 1,
+              year: currentYear,
+              asOfRound: watermark,
+              playerId: summary.playerId,
+            },
+            () => Promise.resolve(true)
+          );
+        }
+
+        // Expected team-mode set = 17 teams × 4 modes.
+        let missingTeamModes = 0;
+        for (const teamCode of VALID_TEAM_CODES) {
+          for (const mode of ALL_RANKING_MODES) {
+            const coveredAt = teamCoverage.get(`${teamCode}:${mode}`) ?? -1;
+            if (coveredAt >= watermark) continue;
+            missingTeamModes += 1;
+            await tryPublish(
+              {
+                type: 'precompute-team-rankings',
+                version: 1,
+                year: currentYear,
+                asOfRound: watermark,
+                teamCode,
+                mode,
+              },
+              () => Promise.resolve(true)
+            );
+          }
+        }
+
+        // Predicate: full coverage at the watermark → advance status now.
+        // The status write happens here, NOT inside any leaf job — only
+        // discovery has the global view to know everything is current.
+        // Suppressed under shadowMode (dry-run must have no side effects).
+        if (missingPlayers === 0 && missingTeamModes === 0 && !shadowMode) {
+          await this.deps.projectionRepository.savePrecomputeStatus({
+            year: currentYear,
+            asOfRound: watermark,
+          });
+          logger.info('precompute.status.advanced', { year: currentYear, asOfRound: watermark });
+        }
       }
     }
 

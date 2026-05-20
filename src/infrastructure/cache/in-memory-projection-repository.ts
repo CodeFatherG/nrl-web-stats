@@ -46,6 +46,22 @@ export class InMemoryProjectionRepository implements ProjectionRepository {
     return this.precomputeStatuses.get(year) ?? null;
   }
 
+  async listPlayerAggregateAsOfRounds(year: number): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const agg of this.playerAggregates.values()) {
+      if (agg.year === year) out.set(agg.playerId, agg.asOfRound);
+    }
+    return out;
+  }
+
+  async listTeamRankingsAsOfRounds(year: number): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const agg of this.teamRankingsAggregates.values()) {
+      if (agg.year === year) out.set(`${agg.teamCode}:${agg.mode}`, agg.asOfRound);
+    }
+    return out;
+  }
+
   async savePlayerAggregate(aggregate: PlayerProjectionAggregate): Promise<void> {
     this.playerAggregates.set(playerKey(aggregate.year, aggregate.playerId), aggregate);
   }

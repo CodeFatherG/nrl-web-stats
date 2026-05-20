@@ -1,33 +1,13 @@
 /**
- * T029 — Tests for PrecomputeProjectionsUseCase.
- * Feature: 034-precomputed-projections (US4).
+ * Tests for the two leaf precompute use cases.
+ * Feature: 034-precomputed-projections (fan-out refactor).
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PrecomputeProjectionsUseCase } from '../../src/application/use-cases/precompute-projections.js';
+import { PrecomputePlayerProjectionUseCase } from '../../src/application/use-cases/precompute-player-projection.js';
+import { PrecomputeTeamRankingsUseCase } from '../../src/application/use-cases/precompute-team-rankings.js';
 import { InMemoryProjectionRepository } from '../../src/infrastructure/cache/in-memory-projection-repository.js';
 import { ProjectionStoreQuotaExhaustedError } from '../../src/domain/repositories/projection-repository.js';
-import type { PlayerRepository } from '../../src/domain/repositories/player-repository.js';
-import { VALID_TEAM_CODES } from '../../src/models/team.js';
-
-function fakePlayerRepo(playerIds: string[]): PlayerRepository {
-  return {
-    findAllSeasonSummaries: async () => playerIds.map((id) => ({
-      playerId: id,
-      playerName: `Player ${id}`,
-      teamCode: 'BRI',
-      position: 'PROP',
-      gamesPlayed: 1,
-      totalTries: 0,
-      totalRunMetres: 0,
-      totalTacklesMade: 0,
-      totalPoints: 0,
-      averageFantasyPoints: 0,
-      totalTackleBreaks: 0,
-      totalLineBreaks: 0,
-    })),
-  } as unknown as PlayerRepository;
-}
 
 function fakeBaseProfile(playerId: string) {
   return {
@@ -61,81 +41,70 @@ function fakeContextualProfile(playerId: string) {
   };
 }
 
-describe('PrecomputeProjectionsUseCase (US4)', () => {
+describe('PrecomputePlayerProjectionUseCase', () => {
   let repo: InMemoryProjectionRepository;
 
   beforeEach(() => {
     repo = new InMemoryProjectionRepository();
   });
 
-  it('writes one player aggregate per active player and one team-rankings aggregate per (team, mode)', async () => {
-    const uc = new PrecomputeProjectionsUseCase({
+  it('computes baseProfile once and passes it to contextual.computeLive', async () => {
+    const contextualSpy = vi.fn(async (_y: number, id: string, opts?: { baseProfile?: any }) => ({
+      kind: 'ok' as const,
+      result: fakeContextualProfile(id) as any,
+      _capturedBaseProfile: opts?.baseProfile,
+    }));
+    const playerSpy = vi.fn(async (_y: number, id: string) => fakeBaseProfile(id) as any);
+
+    const uc = new PrecomputePlayerProjectionUseCase({
       projectionRepository: repo,
-      playerRepository: fakePlayerRepo(['p:1', 'p:2', 'p:3']),
-      playerProjectionLive: { computeLive: async (_y, id) => fakeBaseProfile(id) as any },
-      contextualProfileLive: { computeLive: async (_y, id) => ({ kind: 'ok', result: fakeContextualProfile(id) as any }) },
-      teamRankingsLive: { computeLive: async (year, teamCode, mode) => ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any) },
+      playerProjectionLive: { computeLive: playerSpy },
+      contextualProfileLive: { computeLive: contextualSpy as any },
     });
 
-    const summary = await uc.execute({ year: 2026, asOfRound: 12 });
+    const result = await uc.execute({ year: 2026, asOfRound: 12, playerId: 'p:1' });
 
-    expect(summary.playersWritten).toBe(3);
-    expect(summary.teamRankingsWritten).toBe(VALID_TEAM_CODES.length * 4);
-    // Status is written.
-    const status = await repo.findPrecomputeStatus(2026);
-    expect(status).toEqual({ year: 2026, asOfRound: 12 });
+    expect(result.written).toBe(true);
+    expect(playerSpy).toHaveBeenCalledTimes(1);
+    expect(contextualSpy).toHaveBeenCalledTimes(1);
+    // The opts arg must carry the same baseProfile object — proves the dedup.
+    expect(contextualSpy.mock.calls[0][2]).toEqual({ baseProfile: fakeBaseProfile('p:1') });
+
+    const stored = await repo.findPlayerAggregate(2026, 'p:1');
+    expect(stored).not.toBeNull();
+    expect(stored!.asOfRound).toBe(12);
+    expect(stored!.baseProfile.playerId).toBe('p:1');
   });
 
-  it('PrecomputeStatus is written LAST (after all aggregates)', async () => {
-    const writes: string[] = [];
-    const trackingRepo = {
-      ...repo,
-      savePlayerAggregate: vi.fn(async (a) => { writes.push(`player:${a.playerId}`); await repo.savePlayerAggregate(a); }),
-      saveTeamRankingsAggregate: vi.fn(async (a) => { writes.push(`team:${a.teamCode}:${a.mode}`); await repo.saveTeamRankingsAggregate(a); }),
-      savePrecomputeStatus: vi.fn(async (s) => { writes.push(`status:${s.year}`); await repo.savePrecomputeStatus(s); }),
-      findPlayerAggregate: repo.findPlayerAggregate.bind(repo),
-      findTeamRankingsAggregate: repo.findTeamRankingsAggregate.bind(repo),
-      findPrecomputeStatus: repo.findPrecomputeStatus.bind(repo),
-    };
-
-    const uc = new PrecomputeProjectionsUseCase({
-      projectionRepository: trackingRepo as any,
-      playerRepository: fakePlayerRepo(['p:1']),
-      playerProjectionLive: { computeLive: async (_y, id) => fakeBaseProfile(id) as any },
-      contextualProfileLive: { computeLive: async (_y, id) => ({ kind: 'ok', result: fakeContextualProfile(id) as any }) },
-      teamRankingsLive: { computeLive: async (year, teamCode, mode) => ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any) },
-    });
-    await uc.execute({ year: 2026, asOfRound: 12 });
-
-    expect(writes[writes.length - 1]).toBe('status:2026');
-  });
-
-  it('fail-fast on first save error: status NOT advanced', async () => {
-    const brokenRepo = {
-      ...repo,
-      savePlayerAggregate: vi.fn(async () => { throw new Error('disk full'); }),
-      saveTeamRankingsAggregate: repo.saveTeamRankingsAggregate.bind(repo),
-      savePrecomputeStatus: vi.fn(async () => { throw new Error('should not be called'); }),
-      findPlayerAggregate: repo.findPlayerAggregate.bind(repo),
-      findTeamRankingsAggregate: repo.findTeamRankingsAggregate.bind(repo),
-      findPrecomputeStatus: repo.findPrecomputeStatus.bind(repo),
-    };
-
-    const uc = new PrecomputeProjectionsUseCase({
-      projectionRepository: brokenRepo as any,
-      playerRepository: fakePlayerRepo(['p:1']),
-      playerProjectionLive: { computeLive: async (_y, id) => fakeBaseProfile(id) as any },
-      contextualProfileLive: { computeLive: async (_y, id) => ({ kind: 'ok', result: fakeContextualProfile(id) as any }) },
-      teamRankingsLive: { computeLive: async () => ({ year: 2026, teamCode: 'BRI', mode: 'composite', rankedPlayers: [], excludedCount: 0 } as any) },
+  it('skips write when baseProfile is null (no usable data)', async () => {
+    const uc = new PrecomputePlayerProjectionUseCase({
+      projectionRepository: repo,
+      playerProjectionLive: { computeLive: async () => null },
+      contextualProfileLive: { computeLive: async () => ({ kind: 'ok', result: {} as any }) },
     });
 
-    await expect(uc.execute({ year: 2026, asOfRound: 12 })).rejects.toThrow(/disk full/);
-    expect(brokenRepo.savePrecomputeStatus).not.toHaveBeenCalled();
+    const result = await uc.execute({ year: 2026, asOfRound: 12, playerId: 'p:1' });
+    expect(result.written).toBe(false);
+    expect(result.skipReason).toBe('no-base-profile');
+    expect(await repo.findPlayerAggregate(2026, 'p:1')).toBeNull();
   });
 
-  it('ProjectionStoreQuotaExhaustedError propagates unchanged (consumer classifies as terminal)', async () => {
+  it('skips write when contextual outcome is not ok', async () => {
+    const uc = new PrecomputePlayerProjectionUseCase({
+      projectionRepository: repo,
+      playerProjectionLive: { computeLive: async (_y, id) => fakeBaseProfile(id) as any },
+      contextualProfileLive: { computeLive: async () => ({ kind: 'no_projection' as const }) },
+    });
+
+    const result = await uc.execute({ year: 2026, asOfRound: 12, playerId: 'p:1' });
+    expect(result.written).toBe(false);
+    expect(result.skipReason).toBe('no-contextual-profile');
+    expect(await repo.findPlayerAggregate(2026, 'p:1')).toBeNull();
+  });
+
+  it('propagates ProjectionStoreQuotaExhaustedError unchanged', async () => {
     const quotaErr = new ProjectionStoreQuotaExhaustedError('quota exhausted');
-    const quotaRepo = {
+    const brokenRepo = {
       ...repo,
       savePlayerAggregate: vi.fn(async () => { throw quotaErr; }),
       saveTeamRankingsAggregate: repo.saveTeamRankingsAggregate.bind(repo),
@@ -143,29 +112,65 @@ describe('PrecomputeProjectionsUseCase (US4)', () => {
       findPlayerAggregate: repo.findPlayerAggregate.bind(repo),
       findTeamRankingsAggregate: repo.findTeamRankingsAggregate.bind(repo),
       findPrecomputeStatus: repo.findPrecomputeStatus.bind(repo),
+      listPlayerAggregateAsOfRounds: repo.listPlayerAggregateAsOfRounds.bind(repo),
+      listTeamRankingsAsOfRounds: repo.listTeamRankingsAsOfRounds.bind(repo),
     };
 
-    const uc = new PrecomputeProjectionsUseCase({
-      projectionRepository: quotaRepo as any,
-      playerRepository: fakePlayerRepo(['p:1']),
+    const uc = new PrecomputePlayerProjectionUseCase({
+      projectionRepository: brokenRepo as any,
       playerProjectionLive: { computeLive: async (_y, id) => fakeBaseProfile(id) as any },
       contextualProfileLive: { computeLive: async (_y, id) => ({ kind: 'ok', result: fakeContextualProfile(id) as any }) },
-      teamRankingsLive: { computeLive: async () => ({ year: 2026, teamCode: 'BRI', mode: 'composite', rankedPlayers: [], excludedCount: 0 } as any) },
     });
 
-    await expect(uc.execute({ year: 2026, asOfRound: 12 })).rejects.toBeInstanceOf(ProjectionStoreQuotaExhaustedError);
+    await expect(uc.execute({ year: 2026, asOfRound: 12, playerId: 'p:1' }))
+      .rejects.toBeInstanceOf(ProjectionStoreQuotaExhaustedError);
+  });
+});
+
+describe('PrecomputeTeamRankingsUseCase', () => {
+  let repo: InMemoryProjectionRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryProjectionRepository();
   });
 
-  it('skips players whose live computation returns null (no usable data)', async () => {
-    const uc = new PrecomputeProjectionsUseCase({
+  it('writes a team-rankings aggregate for (year, teamCode, mode)', async () => {
+    const uc = new PrecomputeTeamRankingsUseCase({
       projectionRepository: repo,
-      playerRepository: fakePlayerRepo(['p:1', 'p:2', 'p:3']),
-      playerProjectionLive: { computeLive: async (_y, id) => id === 'p:2' ? null : fakeBaseProfile(id) as any },
-      contextualProfileLive: { computeLive: async (_y, id) => ({ kind: 'ok', result: fakeContextualProfile(id) as any }) },
-      teamRankingsLive: { computeLive: async (year, teamCode, mode) => ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any) },
+      teamRankingsLive: { computeLive: async (year, teamCode, mode) =>
+        ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any) },
     });
 
-    const summary = await uc.execute({ year: 2026, asOfRound: 12 });
-    expect(summary.playersWritten).toBe(2); // p:1 + p:3
+    await uc.execute({ year: 2026, asOfRound: 12, teamCode: 'BRI', mode: 'composite' });
+
+    const stored = await repo.findTeamRankingsAggregate(2026, 'BRI', 'composite');
+    expect(stored).not.toBeNull();
+    expect(stored!.asOfRound).toBe(12);
+    expect(stored!.teamCode).toBe('BRI');
+    expect(stored!.mode).toBe('composite');
+  });
+
+  it('propagates ProjectionStoreQuotaExhaustedError unchanged', async () => {
+    const quotaErr = new ProjectionStoreQuotaExhaustedError('quota exhausted');
+    const brokenRepo = {
+      ...repo,
+      savePlayerAggregate: repo.savePlayerAggregate.bind(repo),
+      saveTeamRankingsAggregate: vi.fn(async () => { throw quotaErr; }),
+      savePrecomputeStatus: repo.savePrecomputeStatus.bind(repo),
+      findPlayerAggregate: repo.findPlayerAggregate.bind(repo),
+      findTeamRankingsAggregate: repo.findTeamRankingsAggregate.bind(repo),
+      findPrecomputeStatus: repo.findPrecomputeStatus.bind(repo),
+      listPlayerAggregateAsOfRounds: repo.listPlayerAggregateAsOfRounds.bind(repo),
+      listTeamRankingsAsOfRounds: repo.listTeamRankingsAsOfRounds.bind(repo),
+    };
+
+    const uc = new PrecomputeTeamRankingsUseCase({
+      projectionRepository: brokenRepo as any,
+      teamRankingsLive: { computeLive: async (year, teamCode, mode) =>
+        ({ year, teamCode, mode, rankedPlayers: [], excludedCount: 0 } as any) },
+    });
+
+    await expect(uc.execute({ year: 2026, asOfRound: 12, teamCode: 'BRI', mode: 'composite' }))
+      .rejects.toBeInstanceOf(ProjectionStoreQuotaExhaustedError);
   });
 });

@@ -19,6 +19,7 @@ import type {
   OpponentDefensiveProfile,
   ProjectionValues,
 } from '../../analytics/contextual-projection-types.js';
+import type { PlayerProjectionProfile } from '../../analytics/player-projection-types.js';
 import {
   buildOpponentDefenseProfile,
   computeOpponentMultiplier,
@@ -117,13 +118,21 @@ export class GetContextualProfileUseCase {
     }
   }
 
-  /** Pure live computation — exposed for PrecomputeProjectionsUseCase (US4)
-   *  so it can build aggregates without recursing through the repo-first path. */
-  async computeLive(year: number, playerId: string): Promise<ContextualProfileOutcome> {
+  /** Pure live computation — exposed for the precompute use cases so they can
+   *  build aggregates without recursing through the repo-first path.
+   *
+   *  `opts.baseProfile`: when provided, skips the internal projectionUseCase
+   *  call. The precompute path passes the baseProfile it just computed so each
+   *  player's projection work happens once, not twice. */
+  async computeLive(
+    year: number,
+    playerId: string,
+    opts?: { baseProfile?: PlayerProjectionProfile | null },
+  ): Promise<ContextualProfileOutcome> {
     const player = await this.playerRepository.findById(playerId);
     if (!player) return { kind: 'player_not_found' };
 
-    const baseProfile = await this.projectionUseCase.execute(year, playerId);
+    const baseProfile = opts?.baseProfile ?? await this.projectionUseCase.execute(year, playerId);
     if (!baseProfile) return { kind: 'no_projection' };
 
     const matches = await this.matchRepository.findByYear(year);

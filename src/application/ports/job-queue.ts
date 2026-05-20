@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import type { RankingMode } from '../../analytics/player-projection-types.js';
 
 // ---------------------------------------------------------------------------
 // ScrapeJob — discriminated union of every unit of scrape work
@@ -61,15 +62,26 @@ export interface LockGameStrengthRatingsJob extends BaseJob {
   readonly round: number;
 }
 
-/** Precompute projection artifacts for (year) against a specific watermark.
- *  Published by EnqueueDueScrapesUseCase when the watermark advances past the
- *  last successful precompute. Consumer: PrecomputeProjectionsUseCase. */
-export interface PrecomputeProjectionsJob extends BaseJob {
-  readonly type: 'precompute-projections';
+/** Precompute one (player, year) projection aggregate against a specific
+ *  watermark. Published by EnqueueDueScrapesUseCase for every player whose
+ *  aggregate is missing or stale relative to the current watermark. */
+export interface PrecomputePlayerProjectionJob extends BaseJob {
+  readonly type: 'precompute-player-projection';
   readonly year: number;
-  /** Watermark observed when the job was published. The consumer treats this
-   *  as the as-of round for every artifact written in the run. */
+  /** Watermark observed at discovery time; consumer writes the aggregate with
+   *  this as `asOfRound` so the read-path freshness check matches exactly. */
   readonly asOfRound: number;
+  readonly playerId: string;
+}
+
+/** Precompute one (year, teamCode, mode) team-rankings aggregate against a
+ *  specific watermark. 17 teams × 4 modes = 68 sub-jobs per full run. */
+export interface PrecomputeTeamRankingsJob extends BaseJob {
+  readonly type: 'precompute-team-rankings';
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly teamCode: string;
+  readonly mode: RankingMode;
 }
 
 export type ScrapeJob =
@@ -80,7 +92,8 @@ export type ScrapeJob =
   | ScrapeCasualtyWardJob
   | ComputePlayerMovementsJob
   | LockGameStrengthRatingsJob
-  | PrecomputeProjectionsJob;
+  | PrecomputePlayerProjectionJob
+  | PrecomputeTeamRankingsJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -140,11 +153,23 @@ const LockGameStrengthRatingsJobSchema = z.object({
   round: RoundSchema,
 });
 
-const PrecomputeProjectionsJobSchema = z.object({
-  type: z.literal('precompute-projections'),
+const RankingModeSchema = z.enum(['composite', 'captaincy', 'selection', 'trade']);
+
+const PrecomputePlayerProjectionJobSchema = z.object({
+  type: z.literal('precompute-player-projection'),
   version: z.literal(1),
   year: YearSchema,
   asOfRound: z.number().int().nonnegative(),
+  playerId: z.string().min(1),
+});
+
+const PrecomputeTeamRankingsJobSchema = z.object({
+  type: z.literal('precompute-team-rankings'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+  teamCode: z.string().min(1),
+  mode: RankingModeSchema,
 });
 
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
@@ -155,7 +180,8 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeCasualtyWardJobSchema,
   ComputePlayerMovementsJobSchema,
   LockGameStrengthRatingsJobSchema,
-  PrecomputeProjectionsJobSchema,
+  PrecomputePlayerProjectionJobSchema,
+  PrecomputeTeamRankingsJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

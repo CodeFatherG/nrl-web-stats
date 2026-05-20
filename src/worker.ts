@@ -52,7 +52,8 @@ import type { ProjectionRepository } from './domain/repositories/projection-repo
 import { KvProjectionRepository } from './infrastructure/cache/kv-projection-repository.js';
 import { InMemoryProjectionRepository } from './infrastructure/cache/in-memory-projection-repository.js';
 import { currentWatermark } from './application/services/current-watermark.js';
-import { PrecomputeProjectionsUseCase } from './application/use-cases/precompute-projections.js';
+import { PrecomputePlayerProjectionUseCase } from './application/use-cases/precompute-player-projection.js';
+import { PrecomputeTeamRankingsUseCase } from './application/use-cases/precompute-team-rankings.js';
 
 // Environment bindings type
 export interface Env {
@@ -134,7 +135,20 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
       );
       const watermarkFn = (year: number) =>
         currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
-      return new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      // SPEC-034-READTHROUGH — /projection populates the FULL aggregate on
+      // miss by also computing contextualProfile. To avoid infinite recursion
+      // (contextualProfile internally calls projectionUseCase.execute → which
+      // is THIS use case), we build a NO-read-through inner /projection for
+      // contextualProfile to use, and a WITH-read-through outer /projection
+      // for the route handler.
+      const innerPlayerProj = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      const contextualProfileForReadThrough = new GetContextualProfileUseCase(
+        playerRepo, scUseCase, innerPlayerProj, matchRepository, analyticsCache, projectionRepository, watermarkFn,
+      );
+      return new GetPlayerProjectionUseCase(
+        playerRepo, scUseCase, projectionRepository, watermarkFn,
+        contextualProfileForReadThrough,
+      );
     },
     createGetTeamProjectionRankingsUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
@@ -404,19 +418,20 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
   );
   const lockGsrUC = deps.createLockGameStrengthUseCase(env.DB);
 
-  // Spec 034 (US4): construct PrecomputeProjectionsUseCase for the
-  // precompute-projections job variant. We use deps' repo-wrapped read-side
-  // use cases here because they expose computeLive() — the precompute calls
-  // that method directly and therefore never recurses through the repo-first
-  // read path.
+  // Spec 034: per-leaf precompute use cases (fan-out). We use deps' repo-wrapped
+  // read-side use cases here because they expose computeLive() — the precompute
+  // calls that method directly and therefore never recurses through the
+  // repo-first read path.
   const playerProjectionUC = deps.createGetPlayerProjectionUseCase(env.DB);
   const teamRankingsUC = deps.createGetTeamProjectionRankingsUseCase(env.DB);
   const contextualProfileUC = deps.createGetContextualProfileUseCase(env.DB);
-  const precomputeProjectionsUC = new PrecomputeProjectionsUseCase({
+  const precomputePlayerProjectionUC = new PrecomputePlayerProjectionUseCase({
     projectionRepository: deps.projectionRepository,
-    playerRepository: playerRepo,
     playerProjectionLive: playerProjectionUC,
     contextualProfileLive: contextualProfileUC,
+  });
+  const precomputeTeamRankingsUC = new PrecomputeTeamRankingsUseCase({
+    projectionRepository: deps.projectionRepository,
     teamRankingsLive: teamRankingsUC,
   });
 
@@ -428,7 +443,8 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     scrapeCasualtyWard: scrapeCasualtyUC,
     computePlayerMovements: computeMovementsUC,
     lockGameStrength: lockGsrUC,
-    precomputeProjections: precomputeProjectionsUC,
+    precomputePlayerProjection: precomputePlayerProjectionUC,
+    precomputeTeamRankings: precomputeTeamRankingsUC,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

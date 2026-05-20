@@ -95,6 +95,8 @@ function makeDeps(overrides: Partial<EnqueueDueScrapesDeps> & { producer: FakePr
       findPlayerAggregate: async () => null,
       findTeamRankingsAggregate: async () => null,
       findPrecomputeStatus: async () => null,
+      listPlayerAggregateAsOfRounds: async () => new Map(),
+      listTeamRankingsAsOfRounds: async () => new Map(),
       savePlayerAggregate: async () => {},
       saveTeamRankingsAggregate: async () => {},
       savePrecomputeStatus: async () => {},
