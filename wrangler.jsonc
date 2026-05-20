@@ -43,6 +43,23 @@
       "migrations_dir": "migrations"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "SCRAPE_QUEUE",
+        "queue": "nrl-scrape-queue-staging"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "nrl-scrape-queue-staging",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "nrl-scrape-dlq-staging"
+      }
+    ]
+  },
   "env": {
     "production": {
       "name": "nrl-schedule",
@@ -63,7 +80,24 @@
           "database_id": "085f5b77-3d16-4fad-9ded-a8e2436eb05c",
           "migrations_dir": "migrations"
         }
-      ]
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "SCRAPE_QUEUE",
+            "queue": "nrl-scrape-queue-production"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "nrl-scrape-queue-production",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_retries": 3,
+            "dead_letter_queue": "nrl-scrape-dlq-production"
+          }
+        ]
+      }
     }
   }
 }

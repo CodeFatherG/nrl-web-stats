@@ -224,6 +224,13 @@ export class NrlComPlayerStatsAdapter implements PlayerStatsSource {
     }
   }
 
+  async isAvailable(_year: number, _round: number): Promise<boolean> {
+    // nrl.com player stats publish within minutes of full-time. Predicates
+    // (findRoundsNeedingPlayerStats, findRoundsInPlayerStatsUpdateWindow) already
+    // gate on D1 state; no separate upstream probe is worth the request cost.
+    return true;
+  }
+
   private async fetchMatchData(
     fixture: DrawMatchFixture,
     year: number,

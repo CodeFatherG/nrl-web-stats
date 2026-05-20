@@ -7,7 +7,7 @@ import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-matc
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsNeedingSupplementaryStats, findRoundsInPlayerStatsUpdateWindow } from './application/use-cases/scrape-match-results.js';
+import { ScrapeMatchResultsUseCase } from './application/use-cases/scrape-match-results.js';
 import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
@@ -43,12 +43,18 @@ import { LockGameStrengthRatingsUseCase } from './application/use-cases/lock-gam
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
+import type { ScrapeJob } from './application/ports/job-queue.js';
+import { CloudflareQueueProducer } from './infrastructure/queue/cloudflare-queue-producer.js';
+import { fromCfMessageBatch, type CfMessageBatchLike } from './infrastructure/queue/cloudflare-job-batch.js';
+import { EnqueueDueScrapesUseCase } from './application/use-cases/enqueue-due-scrapes.js';
+import { HandleScrapeJobUseCase } from './application/use-cases/handle-scrape-job.js';
 
 // Environment bindings type
 export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
   DB: D1Database;
+  SCRAPE_QUEUE: Queue<ScrapeJob>;
 }
 
 // Stateless module-level singletons
@@ -309,402 +315,96 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   const matchCount = await matchRepository.getMatchCount();
   logger.info('[CRON] D1 state', { loadedYears, matchCount });
 
-  // Post-game result scraping: find rounds with completed games needing scrape
-  const currentTime = new Date(event.scheduledTime);
-  const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
-
-  logger.info('[CRON] findRoundsNeedingScrape result', {
-    currentTime: currentTime.toISOString(),
-    roundsToScrape,
-    count: roundsToScrape.length,
-  });
-
-  // Create per-request use cases with D1 binding
-  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
-  const scrapePlayerStatsUseCase = new ScrapePlayerStatsUseCase(
-    playerStatsSource,
-    new D1PlayerRepository(env.DB),
-    suppRepo
-  );
-  const scrapeSupplementaryUseCase = new ScrapeSupplementaryStatsUseCase(
-    supplementaryStatsSource,
-    suppRepo
-  );
-  const lockGSRUseCase = deps.createLockGameStrengthUseCase(env.DB);
-
-  for (const { year, round } of roundsToScrape) {
-    try {
-      logger.info('[CRON] Starting match results scrape', { year, round });
-      const result = await deps.scrapeMatchResultsUseCase.execute(year, round);
-      logger.info('[CRON] Match results scrape complete', {
-        year,
-        round,
-        success: result.success,
-        enriched: result.enrichedCount,
-        created: result.createdCount,
-        skipped: result.skippedCount,
-        warnings: result.warnings.length,
-      });
-
-      // After match results are scraped, also scrape player stats
-      logger.info('[CRON] Starting player stats scrape', { year, round });
-      const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
-      logger.info('[CRON] Player stats scrape complete', {
-        year,
-        round,
-        playersProcessed: playerResult.playersProcessed,
-        matchesScraped: playerResult.matchesScraped,
-        created: playerResult.created,
-        updated: playerResult.updated,
-        skipped: playerResult.skipped,
-        warnings: playerResult.warnings.length,
-      });
-
-      // Also scrape supplementary stats (may fail if source lags 24-48h — non-fatal)
-      try {
-        logger.info('[CRON] Starting supplementary stats scrape', { year, round });
-        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('[CRON] Supplementary stats scrape complete', {
-          year,
-          round,
-          playersScraped: suppResult.playersScraped,
-          cached: suppResult.cached,
-        });
-
-        // Attempt GSR locking after supplementary stats scrape (idempotent — checks completeness internally)
-        try {
-          await lockGSRUseCase.execute(year, round);
-        } catch (gsrError) {
-          logger.error('[CRON] GSR locking failed (non-fatal, will retry next cycle)', {
-            year, round,
-            error: gsrError instanceof Error ? gsrError.message : 'Unknown error',
-          });
-        }
-      } catch (suppError) {
-        logger.error('[CRON] Supplementary stats scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: suppError instanceof Error ? suppError.message : 'Unknown error',
-          stack: suppError instanceof Error ? suppError.stack : undefined,
-        });
-      }
-    } catch (error) {
-      logger.error('[CRON] Scheduled scrape failed', {
-        year,
-        round,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-    }
-  }
-
-  // Also find completed rounds missing player stats
-  const playerRepo = new D1PlayerRepository(env.DB);
-  const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
-
-  logger.info('[CRON] findRoundsNeedingPlayerStats result', {
-    rounds: roundsNeedingPlayerStats,
-    count: roundsNeedingPlayerStats.length,
-  });
-
-  // Scrape player stats for completed rounds that were missed (e.g. match results
-  // were scraped via the UI before the cron had a chance to trigger player stats)
-  const alreadyQueued = new Set(roundsToScrape.map(r => `${r.year}-${r.round}`));
-  const playerStatsOnly = roundsNeedingPlayerStats.filter(
-    r => !alreadyQueued.has(`${r.year}-${r.round}`)
-  );
-
-  logger.info('[CRON] Player stats backfill candidates', {
-    total: roundsNeedingPlayerStats.length,
-    alreadyQueued: alreadyQueued.size,
-    backfillCount: playerStatsOnly.length,
-    rounds: playerStatsOnly,
-  });
-
-  if (playerStatsOnly.length > 0) {
-    for (const { year, round } of playerStatsOnly) {
-      try {
-        logger.info('[CRON] Starting backfill player stats scrape', { year, round });
-        const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
-        logger.info('[CRON] Backfill player stats scrape complete', {
-          year,
-          round,
-          playersProcessed: playerResult.playersProcessed,
-          matchesScraped: playerResult.matchesScraped,
-          created: playerResult.created,
-          updated: playerResult.updated,
-          skipped: playerResult.skipped,
-          warnings: playerResult.warnings.length,
-        });
-
-        // Also backfill supplementary stats (non-fatal)
-        try {
-          const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-          logger.info('[CRON] Backfill supplementary stats scrape complete', {
-            year,
-            round,
-            playersScraped: suppResult.playersScraped,
-            cached: suppResult.cached,
-          });
-        } catch (suppError) {
-          logger.error('[CRON] Backfill supplementary stats scrape failed (will retry next cycle)', {
-            year,
-            round,
-            error: suppError instanceof Error ? suppError.message : 'Unknown error',
-            stack: suppError instanceof Error ? suppError.stack : undefined,
-          });
-        }
-      } catch (error) {
-        logger.error('[CRON] Backfill player stats scrape failed', {
-          year,
-          round,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-      }
-    }
-  }
-
-  // Independent supplementary stats discovery
-  const roundsNeedingSuppStats = await findRoundsNeedingSupplementaryStats(matchRepository, suppRepo);
-
-  // Exclude rounds already handled above
-  const allHandled = new Set([
-    ...roundsToScrape.map(r => `${r.year}-${r.round}`),
-    ...playerStatsOnly.map(r => `${r.year}-${r.round}`),
-  ]);
-  const suppStatsOnly = roundsNeedingSuppStats.filter(
-    r => !allHandled.has(`${r.year}-${r.round}`)
-  );
-
-  logger.info('[CRON] Supplementary stats backfill candidates', {
-    total: roundsNeedingSuppStats.length,
-    backfillCount: suppStatsOnly.length,
-    rounds: suppStatsOnly,
-  });
-
-  if (suppStatsOnly.length > 0) {
-    for (const { year, round } of suppStatsOnly) {
-      try {
-        logger.info('[CRON] Starting independent supplementary stats scrape', { year, round });
-        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('[CRON] Independent supplementary stats scrape complete', {
-          year,
-          round,
-          playersScraped: suppResult.playersScraped,
-          cached: suppResult.cached,
-        });
-      } catch (suppError) {
-        logger.error('[CRON] Independent supplementary stats scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: suppError instanceof Error ? suppError.message : 'Unknown error',
-          stack: suppError instanceof Error ? suppError.stack : undefined,
-        });
-      }
-    }
-  }
-
-  // Player stats revision window: re-scrape rounds that have complete stats but no supp stats yet.
-  // nrl.com may revise stats after game completion — we keep ingesting until supp stats lock the round.
-  const updateWindowRounds = await findRoundsInPlayerStatsUpdateWindow(matchRepository, playerRepo, suppRepo);
-  const updateWindowOnly = updateWindowRounds.filter(r => !allHandled.has(`${r.year}-${r.round}`));
-
-  logger.info('[CRON] Player stats update-window candidates', {
-    total: updateWindowRounds.length,
-    backfillCount: updateWindowOnly.length,
-    rounds: updateWindowOnly,
-  });
-
-  if (updateWindowOnly.length > 0) {
-    for (const { year, round } of updateWindowOnly) {
-      try {
-        logger.info('[CRON] Starting update-window player stats re-scrape', { year, round });
-        const updateResult = await scrapePlayerStatsUseCase.execute(year, round);
-        logger.info('[CRON] Update-window player stats re-scrape complete', {
-          year,
-          round,
-          playersProcessed: updateResult.playersProcessed,
-          matchesScraped: updateResult.matchesScraped,
-          updated: updateResult.updated,
-          skipped: updateResult.skipped,
-          skipReason: updateResult.skipReason,
-        });
-      } catch (updateError) {
-        logger.error('[CRON] Update-window player stats re-scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: updateError instanceof Error ? updateError.message : 'Unknown error',
-        });
-      }
-    }
-  }
-
-  // Price/break-even backfill: re-scrape rounds where price or break_even are NULL (migration leftovers)
-  const roundsWithNullPriceBE = await suppRepo.findRoundsWithNullPriceBreakEven();
-
-  logger.info('[CRON] Price/break-even backfill candidates', {
-    roundsDetected: roundsWithNullPriceBE.length,
-    rounds: roundsWithNullPriceBE,
-  });
-
-  if (roundsWithNullPriceBE.length > 0) {
-    let filled = 0;
-    let skipped = 0;
-    for (const { year, round } of roundsWithNullPriceBE) {
-      try {
-        logger.info('[CRON] Starting price/BE backfill scrape', { year, round });
-        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
-        logger.info('[CRON] Price/BE backfill scrape complete', {
-          year,
-          round,
-          playersScraped: backfillResult.playersScraped,
-        });
-        filled++;
-      } catch (backfillError) {
-        logger.error('[CRON] Price/BE backfill scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
-        });
-        skipped++;
-      }
-    }
-    logger.info('[CRON] Price/BE backfill complete', { filled, skipped, total: roundsWithNullPriceBE.length });
-  }
-
-  // Team list scraping: initial Tuesday scrape + window-based updates (24h/90min before match)
-  const currentYear = new Date(event.scheduledTime).getFullYear();
+  // ---------------------------------------------------------------------
+  // T016 cutover: discovery use case publishes one job per due unit of
+  // scrape work. The queue consumer (`queue` handler below) runs each job
+  // in its own invocation. Per-job retry/DLQ semantics come from the
+  // platform's max_retries config in wrangler.jsonc.
+  //
+  // Previously this block ran every Scrape*UseCase inline; ~400 lines of
+  // sequential scrape calls have been replaced by the single discovery
+  // execution below. See specs/033-scrape-job-queue/plan.md §Phase 4.
+  // ---------------------------------------------------------------------
   try {
-    const teamListUseCase = new ScrapeTeamListsUseCase(
+    const playerRepo = new D1PlayerRepository(env.DB);
+    const teamListRepo = new D1TeamListRepository(env.DB);
+    const gsrRepo = new D1GameStrengthRepository(env.DB);
+    const suppRepo = new D1SupplementaryStatsRepository(env.DB);
+    const producer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+    const enqueueUseCase = new EnqueueDueScrapesUseCase({
+      matchRepository,
+      playerRepository: playerRepo,
+      supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
+      gameStrengthRepo: gsrRepo,
+      matchResultSource,
+      playerStatsSource,
+      supplementaryStatsSource,
       teamListSource,
-      new D1TeamListRepository(env.DB),
-      matchRepository
-    );
-
-    // Find the current/upcoming round and scrape team lists
-    const allMatches = await matchRepository.findByYear(currentYear);
-    const upcomingRounds = [...new Set(
-      allMatches
-        .filter(m => m.status !== 'Completed')
-        .map(m => m.round)
-    )].sort((a, b) => a - b);
-
-    if (upcomingRounds.length > 0) {
-      // Scrape the next upcoming round
-      const nextRound = upcomingRounds[0];
-      logger.info('[CRON] Starting team list scrape', { year: currentYear, round: nextRound });
-      const tlResult = await teamListUseCase.execute(currentYear, nextRound);
-      logger.info('[CRON] Team list scrape complete', {
-        year: currentYear,
-        round: nextRound,
-        scraped: tlResult.scrapedCount,
-        skipped: tlResult.skippedCount,
-        warnings: tlResult.warnings.length,
-      });
-
-      try {
-        const computeUseCase = new ComputePlayerMovementsUseCase(
-          new D1TeamListRepository(env.DB),
-          matchRepository,
-          new D1CasualtyWardRepository(env.DB),
-          playerMovementsCache
-        );
-        await computeUseCase.execute(currentYear, nextRound);
-        logger.info('[CRON] Player movements computed', { year: currentYear, round: nextRound });
-      } catch (computeError) {
-        logger.error('[CRON] Player movements computation failed (will retry next cycle)', {
-          error: computeError instanceof Error ? computeError.message : 'Unknown error',
-        });
-      }
-    }
-
-    // Window-based updates: 24 hours and 90 minutes before kickoff
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    const NINETY_MINUTES = 90 * 60 * 1000;
-
-    const windowResult24h = await teamListUseCase.scrapeMatchesInWindow(currentYear, TWENTY_FOUR_HOURS, currentTime);
-    if (windowResult24h.scrapedCount > 0) {
-      logger.info('[CRON] 24h window team list update', { scraped: windowResult24h.scrapedCount });
-    }
-
-    const windowResult90m = await teamListUseCase.scrapeMatchesInWindow(currentYear, NINETY_MINUTES, currentTime);
-    if (windowResult90m.scrapedCount > 0) {
-      logger.info('[CRON] 90min window team list update', { scraped: windowResult90m.scrapedCount });
-    }
-
-    // Backfill completed matches missing team lists
-    const backfillResult = await teamListUseCase.backfillCompleted(currentYear);
-    if (backfillResult.backfilledCount > 0) {
-      logger.info('[CRON] Team list backfill complete', { backfilled: backfillResult.backfilledCount });
-    }
-  } catch (tlError) {
-    logger.error('[CRON] Team list scraping failed (will retry next cycle)', {
-      error: tlError instanceof Error ? tlError.message : 'Unknown error',
-    });
-  }
-
-  // Casualty ward scrape: runs on Tuesday/Wednesday crons to track player injuries
-  try {
-    const casualtyWardUseCase = new ScrapeCasualtyWardUseCase(
       casualtyWardSource,
-      new D1CasualtyWardRepository(env.DB),
-      new D1PlayerRepository(env.DB)
-    );
-    logger.info('[CRON] Starting casualty ward scrape');
-    const cwResult = await casualtyWardUseCase.execute();
-    logger.info('[CRON] Casualty ward scrape complete', {
-      success: cwResult.success,
-      newEntries: cwResult.newEntries,
-      closedEntries: cwResult.closedEntries,
-      updatedEntries: cwResult.updatedEntries,
-      totalOpen: cwResult.totalOpen,
-      warnings: cwResult.warnings.length,
+      producer,
     });
-  } catch (cwError) {
-    logger.error('[CRON] Casualty ward scrape failed (will retry next cycle)', {
-      error: cwError instanceof Error ? cwError.message : 'Unknown error',
+    await enqueueUseCase.execute({
+      scheduledTime: new Date(event.scheduledTime),
+      currentYear: new Date(event.scheduledTime).getFullYear(),
+      shadowMode: false,
     });
-  }
-
-  // Team code backfill: re-scrape rounds where team_code is NULL (migration leftovers)
-  const roundsWithNullTeamCode = await suppRepo.findRoundsWithNullTeamCode();
-
-  logger.info('[CRON] Team code backfill candidates', {
-    roundsDetected: roundsWithNullTeamCode.length,
-    rounds: roundsWithNullTeamCode,
-  });
-
-  if (roundsWithNullTeamCode.length > 0) {
-    let filled = 0;
-    let skipped = 0;
-    for (const { year, round } of roundsWithNullTeamCode) {
-      try {
-        logger.info('[CRON] Starting team code backfill scrape', { year, round });
-        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
-        logger.info('[CRON] Team code backfill scrape complete', {
-          year,
-          round,
-          playersScraped: backfillResult.playersScraped,
-        });
-        filled++;
-      } catch (backfillError) {
-        logger.error('[CRON] Team code backfill scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
-        });
-        skipped++;
-      }
-    }
-    logger.info('[CRON] Team code backfill complete', { filled, skipped, total: roundsWithNullTeamCode.length });
+  } catch (discoveryError) {
+    logger.error('[CRON] Discovery failed — no jobs published this tick', {
+      error: discoveryError instanceof Error ? discoveryError.message : 'Unknown error',
+      stack: discoveryError instanceof Error ? discoveryError.stack : undefined,
+    });
   }
 
   logger.info('[CRON] Scheduled handler complete');
 };
 
-// Export for Cloudflare Workers — combine Hono fetch handler with scheduled handler
+
+// ---------------------------------------------------------------------------
+// Queue consumer handler — processes ScrapeJob messages via HandleScrapeJobUseCase.
+// In shadow mode (current phase) no jobs are published, so this handler is
+// dormant. It is wired up now so cutover (T016) flips a single flag rather than
+// adding wiring.
+// ---------------------------------------------------------------------------
+const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) => {
+  setDebugMode(env.ENVIRONMENT !== 'production');
+  initializeDeps(env.DB);
+
+  // Per-request scrape use cases — each holds a D1 binding so they're built
+  // here rather than at module load time.
+  const playerRepo = new D1PlayerRepository(env.DB);
+  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
+  const teamListRepo = new D1TeamListRepository(env.DB);
+  const casualtyRepo = new D1CasualtyWardRepository(env.DB);
+  const scrapePlayerStatsUC = new ScrapePlayerStatsUseCase(playerStatsSource, playerRepo, suppRepo);
+  const scrapeSuppUC = new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, suppRepo);
+  const scrapeTeamListsUC = new ScrapeTeamListsUseCase(teamListSource, teamListRepo, deps.matchRepository);
+  const scrapeCasualtyUC = new ScrapeCasualtyWardUseCase(casualtyWardSource, casualtyRepo, playerRepo);
+  const computeMovementsUC = new ComputePlayerMovementsUseCase(
+    teamListRepo,
+    deps.matchRepository,
+    casualtyRepo,
+    playerMovementsCache
+  );
+  const lockGsrUC = deps.createLockGameStrengthUseCase(env.DB);
+
+  const dispatcher = new HandleScrapeJobUseCase({
+    scrapeMatchResults: deps.scrapeMatchResultsUseCase,
+    scrapePlayerStats: scrapePlayerStatsUC,
+    scrapeSupplementaryStats: scrapeSuppUC,
+    scrapeTeamLists: scrapeTeamListsUC,
+    scrapeCasualtyWard: scrapeCasualtyUC,
+    computePlayerMovements: computeMovementsUC,
+    lockGameStrength: lockGsrUC,
+  });
+
+  const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);
+  await dispatcher.handle(jobBatch);
+};
+
+// Export for Cloudflare Workers — combine Hono fetch handler with scheduled and queue handlers
 export default {
   fetch: app.fetch,
   scheduled,
+  queue,
 };

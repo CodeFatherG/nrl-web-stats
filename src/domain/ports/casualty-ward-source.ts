@@ -19,4 +19,11 @@ export interface CasualtyWardPlayerData {
 export interface CasualtyWardSource {
   /** Fetch all currently injured players from the casualty ward. */
   fetchCasualtyWard(): Promise<Result<CasualtyWardPlayerData[]>>;
+
+  /**
+   * Cheap upstream-availability probe — returns false if the casualty ward
+   * endpoint is unreachable. Implementations MUST swallow exceptions and return
+   * false rather than throwing.
+   */
+  isAvailable(): Promise<boolean>;
 }

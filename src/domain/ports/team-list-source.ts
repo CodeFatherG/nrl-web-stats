@@ -28,4 +28,11 @@ export interface TeamListSource {
     year: number,
     round: number
   ): Promise<Result<TeamList[]>>;
+
+  /**
+   * Cheap upstream-availability probe — returns false if the upstream has not
+   * yet published the draw / match centre data for (year, round). Implementations
+   * MUST swallow exceptions and return false rather than throwing.
+   */
+  isAvailable(year: number, round: number): Promise<boolean>;
 }

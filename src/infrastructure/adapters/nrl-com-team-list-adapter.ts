@@ -158,6 +158,13 @@ export class NrlComTeamListAdapter implements TeamListSource {
     }
   }
 
+  async isAvailable(_year: number, _round: number): Promise<boolean> {
+    // Team-list discovery is gated on match scheduling state in D1 (only emitted
+    // for the current/upcoming round and active scrape windows). The draw API is
+    // always reachable for any valid season+round; no separate probe needed.
+    return true;
+  }
+
   async fetchTeamListForMatch(
     matchCentreUrl: string,
     matchId: string,

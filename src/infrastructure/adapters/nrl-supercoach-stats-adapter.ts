@@ -207,4 +207,34 @@ export class NrlSupercoachStatsAdapter implements SupplementaryStatsSource {
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  /**
+   * Probe whether nrlsupercoachstats.com has published any rows for (year, round).
+   * Cheap: fetches page 1 (single request, no rate-limit waits) and checks whether
+   * any row carries `Rd === round`. Network or schema errors → false (no throws into
+   * discovery). True is only returned when at least one row for the round is observed.
+   */
+  async isAvailable(year: number, round: number): Promise<boolean> {
+    try {
+      const url = this.buildUrl(year, 1);
+      const response = await fetch(url, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'User-Agent': 'Mozilla/5.0',
+        },
+      });
+      if (!response.ok) return false;
+
+      const json = await response.json();
+      const parse = JqGridResponseSchema.safeParse(json);
+      if (!parse.success) return false;
+
+      for (const row of parse.data.rows) {
+        if (parseInt(row.Rd, 10) === round) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 }

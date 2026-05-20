@@ -33,4 +33,12 @@ export interface SupplementaryStatsSource {
     year: number,
     round: number
   ): Promise<Result<SupplementaryPlayerStats[]>>;
+
+  /**
+   * Cheap upstream-availability probe. Supercoach stats can lag 24-48h after
+   * round completion; discovery uses this to avoid publishing jobs that are
+   * guaranteed to find nothing. Implementations MUST swallow exceptions and
+   * return false rather than throwing.
+   */
+  isAvailable(year: number, round: number): Promise<boolean>;
 }
