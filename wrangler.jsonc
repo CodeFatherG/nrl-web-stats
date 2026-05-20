@@ -21,46 +21,54 @@
       "invocation_logs": true
     }
   },
-  "vars": {
-    "ENVIRONMENT": "staging"
-  },
   "dev": {
     "port": 8787,
     "local_protocol": "http"
   },
-  "triggers": {
-    "crons": [
-      "0 6 * * MON",
-      "*/10 4-12 * 3-10 THU,FRI,SAT,SUN,MON",
-      "0 * * 3-10 TUE,WED"
-    ]
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "nrl-data-staging",
-      "database_id": "ef358e55-5af1-434c-9621-fde624bb4448",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "queues": {
-    "producers": [
-      {
-        "binding": "SCRAPE_QUEUE",
-        "queue": "nrl-scrape-queue-staging"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "nrl-scrape-queue-staging",
-        "max_batch_size": 1,
-        "max_batch_timeout": 5,
-        "max_retries": 3,
-        "dead_letter_queue": "nrl-scrape-dlq-staging"
-      }
-    ]
-  },
+  // ---------------------------------------------------------------------
+  // Environments. Always deploy with --env staging or --env production.
+  // Bare `wrangler deploy` is intentionally not configured to deploy
+  // anywhere meaningful — forcing an explicit target prevents accidents.
+  // ---------------------------------------------------------------------
   "env": {
+    "staging": {
+      "name": "nrl-schedule-staging",
+      "vars": {
+        "ENVIRONMENT": "staging"
+      },
+      "triggers": {
+        "crons": [
+          "0 6 * * MON",
+          "*/10 4-12 * 3-10 THU,FRI,SAT,SUN,MON",
+          "0 * * 3-10 TUE,WED"
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nrl-data-staging",
+          "database_id": "ef358e55-5af1-434c-9621-fde624bb4448",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "SCRAPE_QUEUE",
+            "queue": "nrl-scrape-queue-staging"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "nrl-scrape-queue-staging",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_retries": 3,
+            "dead_letter_queue": "nrl-scrape-dlq-staging"
+          }
+        ]
+      }
+    },
     "production": {
       "name": "nrl-schedule",
       "vars": {
