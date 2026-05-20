@@ -9,8 +9,9 @@
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
-import type { GetPlayerProjectionUseCase } from './get-player-projection.js';
+import type { GetPlayerProjectionUseCase, WatermarkFn } from './get-player-projection.js';
 import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
 import type {
   ContextualEligibleGame,
@@ -47,9 +48,30 @@ export class GetContextualProfileUseCase {
     private readonly projectionUseCase: GetPlayerProjectionUseCase,
     private readonly matchRepository: MatchRepository,
     private readonly analyticsCache: AnalyticsCache,
+    private readonly projectionRepository: ProjectionRepository,
+    private readonly watermarkFn: WatermarkFn,
   ) {}
 
   async execute(year: number, playerId: string): Promise<ContextualProfileOutcome> {
+    // ── Repo-first read path (spec 034, US3) ─────────────────────────────
+    try {
+      const agg = await this.projectionRepository.findPlayerAggregate(year, playerId);
+      if (agg !== null && agg.asOfRound >= (await this.watermarkFn(year))) {
+        return { kind: 'ok', result: agg.contextualProfile };
+      }
+    } catch (err) {
+      logger.warn('contextual profile repository read failed; falling back to live', {
+        playerId, year, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // ── Live fallback ────────────────────────────────────────────────────
+    return this.computeLive(year, playerId);
+  }
+
+  /** Pure live computation — exposed for PrecomputeProjectionsUseCase (US4)
+   *  so it can build aggregates without recursing through the repo-first path. */
+  async computeLive(year: number, playerId: string): Promise<ContextualProfileOutcome> {
     const player = await this.playerRepository.findById(playerId);
     if (!player) return { kind: 'player_not_found' };
 

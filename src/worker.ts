@@ -48,6 +48,11 @@ import { CloudflareQueueProducer } from './infrastructure/queue/cloudflare-queue
 import { fromCfMessageBatch, type CfMessageBatchLike } from './infrastructure/queue/cloudflare-job-batch.js';
 import { EnqueueDueScrapesUseCase } from './application/use-cases/enqueue-due-scrapes.js';
 import { HandleScrapeJobUseCase } from './application/use-cases/handle-scrape-job.js';
+import type { ProjectionRepository } from './domain/repositories/projection-repository.js';
+import { KvProjectionRepository } from './infrastructure/cache/kv-projection-repository.js';
+import { InMemoryProjectionRepository } from './infrastructure/cache/in-memory-projection-repository.js';
+import { currentWatermark } from './application/services/current-watermark.js';
+import { PrecomputeProjectionsUseCase } from './application/use-cases/precompute-projections.js';
 
 // Environment bindings type
 export interface Env {
@@ -55,6 +60,9 @@ export interface Env {
   ENVIRONMENT: string;
   DB: D1Database;
   SCRAPE_QUEUE: Queue<ScrapeJob>;
+  /** Cloudflare KV — precomputed projection artifacts (spec 034). Optional in
+   *  local/dev: when absent the worker falls back to InMemoryProjectionRepository. */
+  CACHE?: KVNamespace;
 }
 
 // Stateless module-level singletons
@@ -72,13 +80,22 @@ let depsInitialized = false;
 let legacyStoreHydrated = false;
 const deps = {} as HandlerDeps;
 
-function initializeDeps(db?: D1Database): void {
+function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
   if (depsInitialized) return;
 
   // Use D1 when available, fall back to in-memory for environments without D1 (e.g. tests)
   const matchRepository = db ? new D1MatchRepository(db) : new InMemoryMatchRepository();
 
+  // Composition root for the projection store. Swapping this single line to
+  // a different concrete adapter (e.g. UpstashProjectionRepository) is the
+  // ONLY change required to switch backends — every use case, handler, and
+  // test depends on the domain port only (spec 034, FR-013, SC-006).
+  const projectionRepository: ProjectionRepository = cache
+    ? new KvProjectionRepository(cache)
+    : new InMemoryProjectionRepository();
+
   Object.assign(deps, {
+    projectionRepository,
     scrapeDrawUseCase: new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository),
     scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
     matchRepository,
@@ -107,50 +124,62 @@ function initializeDeps(db?: D1Database): void {
     createCasualtyWardRepository: (reqDb: D1Database) => new D1CasualtyWardRepository(reqDb),
     createGetPlayerProjectionUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetPlayerProjectionUseCase(playerRepo, scUseCase);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      return new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
     },
     createGetTeamProjectionRankingsUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
     },
     createSupplementaryStatsRepository: (reqDb: D1Database) => new D1SupplementaryStatsRepository(reqDb),
     createGetContextualProjectionUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
-      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache, projectionRepository, watermarkFn);
     },
     createGetContextualProfileUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
-      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache, projectionRepository, watermarkFn);
     },
     playerMovementsCache,
     createComputePlayerMovementsUseCase: (reqDb: D1Database) =>
@@ -244,7 +273,7 @@ const app = new Hono<{ Bindings: Env }>();
 // Initialize logger and D1-dependent deps on first request
 app.use('*', async (c, next) => {
   setDebugMode(c.env?.ENVIRONMENT !== 'production');
-  initializeDeps(c.env?.DB);
+  initializeDeps(c.env?.DB, c.env?.CACHE);
   await hydrateLegacyStore();
   await refreshRatingsIfStale();
   await next();
@@ -307,7 +336,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
 
   // Ensure deps are initialized for scheduled handler
   logger.info('[CRON] Initializing deps', { depsAlreadyInitialized: depsInitialized });
-  initializeDeps(env.DB);
+  initializeDeps(env.DB, env.CACHE);
   const matchRepository = deps.matchRepository;
 
   // Log loaded years to verify D1 connectivity
@@ -321,6 +350,8 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     const gsrRepo = new D1GameStrengthRepository(env.DB);
     const suppRepo = new D1SupplementaryStatsRepository(env.DB);
     const producer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+    const watermarkFn = (year: number) =>
+      currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
     const enqueueUseCase = new EnqueueDueScrapesUseCase({
       matchRepository,
       playerRepository: playerRepo,
@@ -333,6 +364,8 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       teamListSource,
       casualtyWardSource,
       producer,
+      projectionRepository: deps.projectionRepository,
+      watermarkFn,
     });
     await enqueueUseCase.execute({
       scheduledTime: new Date(event.scheduledTime),
@@ -351,7 +384,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
 
 const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) => {
   setDebugMode(env.ENVIRONMENT !== 'production');
-  initializeDeps(env.DB);
+  initializeDeps(env.DB, env.CACHE);
 
   // Per-request scrape use cases — each holds a D1 binding so they're built
   // here rather than at module load time.
@@ -371,6 +404,22 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
   );
   const lockGsrUC = deps.createLockGameStrengthUseCase(env.DB);
 
+  // Spec 034 (US4): construct PrecomputeProjectionsUseCase for the
+  // precompute-projections job variant. We use deps' repo-wrapped read-side
+  // use cases here because they expose computeLive() — the precompute calls
+  // that method directly and therefore never recurses through the repo-first
+  // read path.
+  const playerProjectionUC = deps.createGetPlayerProjectionUseCase(env.DB);
+  const teamRankingsUC = deps.createGetTeamProjectionRankingsUseCase(env.DB);
+  const contextualProfileUC = deps.createGetContextualProfileUseCase(env.DB);
+  const precomputeProjectionsUC = new PrecomputeProjectionsUseCase({
+    projectionRepository: deps.projectionRepository,
+    playerRepository: playerRepo,
+    playerProjectionLive: playerProjectionUC,
+    contextualProfileLive: contextualProfileUC,
+    teamRankingsLive: teamRankingsUC,
+  });
+
   const dispatcher = new HandleScrapeJobUseCase({
     scrapeMatchResults: deps.scrapeMatchResultsUseCase,
     scrapePlayerStats: scrapePlayerStatsUC,
@@ -379,6 +428,7 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     scrapeCasualtyWard: scrapeCasualtyUC,
     computePlayerMovements: computeMovementsUC,
     lockGameStrength: lockGsrUC,
+    precomputeProjections: precomputeProjectionsUC,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

@@ -89,3 +89,81 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 |------|-------------|---------------|--------|
 | `0 6 * * MON` | Monday 6am | Monday 4pm | Invalidate all fixture cache entries |
 | `*/30 7-12 * 3-10 THU,FRI,SAT,SUN` | Every 30min, 7am–12pm, Thu–Sun, Mar–Oct | Every 30min, 5pm–10pm | Scrape match results and player stats for completed rounds |
+
+## Precomputed Projections (spec 034)
+
+The four SuperCoach projection endpoints — player projection, contextual projection, contextual profile, and team rankings — read from a precomputed projection store before falling back to live computation. The store sits behind a domain port; the production backend is Cloudflare Workers KV.
+
+### Layering
+
+| Layer | File | Purpose |
+|---|---|---|
+| Domain port | `src/domain/repositories/projection-repository.ts` | `ProjectionRepository` interface + `ProjectionStoreQuotaExhaustedError`. Domain vocabulary only — no "cache", "TTL", "key", or backend names. |
+| KV adapter | `src/infrastructure/cache/kv-projection-repository.ts` | Cloudflare KV implementation. Internal key format, JSON envelope, quota-exhausted detection all live here. |
+| In-memory adapter | `src/infrastructure/cache/in-memory-projection-repository.ts` | Unit-test default + local-dev fallback when `env.CACHE` is unset. |
+| Watermark service | `src/application/services/current-watermark.ts` | Shared `currentWatermark(year)` used by both the read-path staleness check and the discovery trigger predicate. |
+| Precompute use case | `src/application/use-cases/precompute-projections.ts` | Writes every player aggregate, every (team, mode) rankings aggregate, and the precompute status record (written last for monotonic advancement). |
+| Read-path use cases | `src/application/use-cases/get-{player-projection,team-projection-rankings,contextual-projection,contextual-profile}.ts` | All four: try repo, fall back to live on miss/stale, never write. |
+| Composition root | `src/worker.ts` | The only file that names a concrete adapter. Swapping KV → Upstash requires editing only this file. |
+
+### Trigger: a job, not a cron
+
+The precompute fires via a new `precompute-projections` variant of the `ScrapeJob` discriminated union. `EnqueueDueScrapesUseCase` evaluates a watermark predicate every discovery tick: when `currentWatermark(year) > status.asOfRound` (or no status exists), it publishes one job. The job is consumed by `HandleScrapeJobUseCase`, which dispatches to `PrecomputeProjectionsUseCase`. There is no separate cron entry, no fan-in counter, and no delayed delivery — the existing discovery cadence is the trigger cadence.
+
+### Watermark definition (single source of truth)
+
+A round `R` for year `Y` is "complete" iff **every** scheduled fixture in `R` has: a match result row, player stats rows for both teams, and supplementary stats for the round. The watermark is `max{R : R complete}`; 0 when no round qualifies. This same function gates both the trigger and the read-path staleness check — they cannot drift.
+
+### Failure handling
+
+| Failure | Behaviour |
+|---|---|
+| Read-side: miss / stale aggregate | Fall through to live computation (transparent to user) |
+| Read-side: store unavailable | Logged, fall through to live (SC-008) |
+| Write-side: any error mid-run | Precompute throws, queue retry/DLQ applies |
+| Write-side: KV daily-write quota exhausted | Wrapped in `ProjectionStoreQuotaExhaustedError`; `classifyError` in the dispatcher classifies as **terminal** → straight to DLQ (no retry, since the budget cannot replenish until the daily reset). The next discovery tick after reset republishes the job automatically. |
+
+### Schema evolution
+
+The wire envelope carries a `schemaVersion` field. On schema-version mismatch, the adapter returns `null` (treated as a miss). To roll out an aggregate-shape change, bump `CURRENT_SCHEMA_VERSION` in `src/infrastructure/cache/projection-envelope.ts` and deploy — old artifacts read as misses, the next precompute overwrites them.
+
+### Wrangler bindings
+
+```jsonc
+"kv_namespaces": [
+  { "binding": "CACHE", "id": "<staging-or-production-namespace-id>" }
+]
+```
+
+Both `env.staging` and `env.production` declare the binding with the same `"CACHE"` name; the namespace IDs differ.
+
+### On-demand precompute (operator runbook, FR-008)
+
+There is **no in-app HTTP trigger or admin endpoint**. On-demand precompute is an operator action, supported in two ways:
+
+**Production / staging** — publish a job directly to the queue:
+
+```bash
+wrangler queues producer send nrl-scrape-queue-staging \
+  --body '{"type":"precompute-projections","version":1,"year":2026,"asOfRound":12}' \
+  --env staging
+wrangler tail --env staging  # watch the consumer
+```
+
+Swap the queue name and `--env` for production. Use cases: backfill after a manual data fix, recovery from a DLQed run, forcing a refresh outside the normal discovery cadence.
+
+**Local dev** — invoke `PrecomputeProjectionsUseCase.execute()` directly with the in-memory adapter (no KV needed). See `specs/034-precomputed-projections/quickstart.md` §3a for the snippet.
+
+### Swapping the backend (FR-013 / SC-006)
+
+To replace Cloudflare KV with a different store (e.g. Upstash Redis):
+1. Implement `ProjectionRepository` in `src/infrastructure/cache/<your>-projection-repository.ts`.
+2. Edit `src/worker.ts` — replace the single `new KvProjectionRepository(env.CACHE)` line with the new adapter constructor.
+3. Update `wrangler.jsonc` to add the new binding(s) and remove `kv_namespaces`.
+
+No use case, handler, domain type, or production test should require changes.
+
+### Budget
+
+- Single weekly precompute: ~569 writes (one per active player + 17 teams × 4 modes + 1 status). Comfortably inside the 1,000 writes/day free-tier ceiling, with ~431 writes of headroom.
+- Overlap risk: a concurrent precompute against the same watermark would consume another ~569 writes — exceeding the daily cap. Tolerated because (a) overlap is rare in practice (queue redelivery or sub-precompute-duration discovery cadence are both unusual), and (b) the second run's first write raises `ProjectionStoreQuotaExhaustedError` and routes to DLQ — operationally visible.

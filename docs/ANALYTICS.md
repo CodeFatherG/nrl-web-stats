@@ -96,8 +96,12 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 **Endpoints**:
 - `GET /api/supercoach/:year/player/:playerId/projection`
 - `GET /api/supercoach/:year/team/:teamCode/rankings?mode=composite|captaincy|selection|trade`
+- `GET /api/supercoach/:year/player/:playerId/contextual-projection?opponent=&venue=&weather=`
+- `GET /api/supercoach/:year/player/:playerId/contextual-profile`
 
 **Service**: `src/analytics/player-projection-service.ts`
+
+**Precomputed read path (spec 034)**: All four endpoints above first attempt to read a precomputed aggregate from the projection store before falling back to the live computation described below. The precompute is triggered automatically by the discovery use case whenever the watermark (latest complete round, where a round is "complete" iff every fixture has match result + player stats for both teams + supplementary stats) advances past the most recent successful precompute. Freshness is bound by the watermark, not by a clock-based TTL — users see updated projections immediately after the next precompute run following a scrape. See `docs/ARCHITECTURE.md` §Precomputed Projections for the layering, trigger predicate, failure modes, and operator runbook.
 
 **Purpose**: Decompose each player's Supercoach scoring history into two independent components — a predictable *floor* driven by volume stats, and a volatile *spike* driven by event stats. This separation makes the model more useful than raw averages for different Supercoach decisions: captaincy picks, trade targets, and team selection all weight floor vs. spike differently.
 

@@ -2,10 +2,12 @@
  * GetTeamProjectionRankingsUseCase — builds ranked projection profiles for all
  * players in a team with D1 data for a season.
  *
- * Feature: 025-supercoach-player-projections
+ * Feature: 025-supercoach-player-projections (original live path)
+ *          034-precomputed-projections — repo-first with live fallback (US2).
  */
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
+import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
 import type {
   EligibleGame,
@@ -19,6 +21,7 @@ import {
   DEFAULT_COMPOSITE_WEIGHTS,
 } from '../../analytics/player-projection-service.js';
 import type { CompositeWeights } from '../../analytics/player-projection-types.js';
+import type { WatermarkFn } from './get-player-projection.js';
 import { logger } from '../../utils/logger.js';
 
 /** Mode-specific composite weight overrides */
@@ -33,9 +36,41 @@ export class GetTeamProjectionRankingsUseCase {
   constructor(
     private readonly playerRepository: PlayerRepository,
     private readonly supercoachUseCase: GetSupercoachScoresUseCase,
+    private readonly projectionRepository: ProjectionRepository,
+    private readonly watermarkFn: WatermarkFn,
   ) {}
 
   async execute(
+    year: number,
+    teamCode: string,
+    mode: RankingMode = 'composite',
+  ): Promise<TeamProjectionRankings> {
+    // ── Repo-first read path (spec 034, US2) ─────────────────────────────
+    try {
+      const agg = await this.projectionRepository.findTeamRankingsAggregate(year, teamCode, mode);
+      if (agg !== null) {
+        const watermark = await this.watermarkFn(year);
+        if (agg.asOfRound >= watermark) {
+          return agg.rankings;
+        }
+      }
+    } catch (err) {
+      // SC-008: store outages must never propagate to users.
+      logger.warn('team rankings repository read failed; falling back to live', {
+        teamCode,
+        mode,
+        year,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return this.computeLive(year, teamCode, mode);
+  }
+
+  /** Pure live computation — no repository touch. Exposed for the precompute
+   *  use case (US4) so it can write fresh artifacts without recursing through
+   *  the repo-first read path. */
+  async computeLive(
     year: number,
     teamCode: string,
     mode: RankingMode = 'composite',

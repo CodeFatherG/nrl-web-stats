@@ -61,6 +61,17 @@ export interface LockGameStrengthRatingsJob extends BaseJob {
   readonly round: number;
 }
 
+/** Precompute projection artifacts for (year) against a specific watermark.
+ *  Published by EnqueueDueScrapesUseCase when the watermark advances past the
+ *  last successful precompute. Consumer: PrecomputeProjectionsUseCase. */
+export interface PrecomputeProjectionsJob extends BaseJob {
+  readonly type: 'precompute-projections';
+  readonly year: number;
+  /** Watermark observed when the job was published. The consumer treats this
+   *  as the as-of round for every artifact written in the run. */
+  readonly asOfRound: number;
+}
+
 export type ScrapeJob =
   | ScrapeMatchResultsJob
   | ScrapePlayerStatsJob
@@ -68,7 +79,8 @@ export type ScrapeJob =
   | ScrapeTeamListsJob
   | ScrapeCasualtyWardJob
   | ComputePlayerMovementsJob
-  | LockGameStrengthRatingsJob;
+  | LockGameStrengthRatingsJob
+  | PrecomputeProjectionsJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -128,6 +140,13 @@ const LockGameStrengthRatingsJobSchema = z.object({
   round: RoundSchema,
 });
 
+const PrecomputeProjectionsJobSchema = z.object({
+  type: z.literal('precompute-projections'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+});
+
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeMatchResultsJobSchema,
   ScrapePlayerStatsJobSchema,
@@ -136,6 +155,7 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeCasualtyWardJobSchema,
   ComputePlayerMovementsJobSchema,
   LockGameStrengthRatingsJobSchema,
+  PrecomputeProjectionsJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

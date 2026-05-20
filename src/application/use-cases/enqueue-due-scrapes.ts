@@ -19,6 +19,7 @@
 import type { JobProducer, ScrapeJob, ScrapeJobType } from '../ports/job-queue.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
+import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
@@ -59,6 +60,11 @@ export interface EnqueueDueScrapesDeps {
   teamListSource: TeamListSource;
   casualtyWardSource: CasualtyWardSource;
   producer: JobProducer;
+  /** Spec 034 (FR-007): the projection store + a watermark function so the
+   *  discovery use case can publish a PrecomputeProjections job when the
+   *  watermark has advanced past the last successful precompute. */
+  projectionRepository: ProjectionRepository;
+  watermarkFn: (year: number) => Promise<number>;
 }
 
 export interface EnqueueDueScrapesInput {
@@ -259,6 +265,22 @@ export class EnqueueDueScrapesUseCase {
         { type: 'lock-game-strength-ratings', version: 1, year: currentYear, round },
         () => Promise.resolve(true) // pure D1 read + compute, always "available"
       );
+    }
+
+    // --------------------------------------------------------------------
+    // 10. Precompute projections — fire when watermark > last successful
+    //     precompute's asOfRound. Single shared predicate with the read-path
+    //     staleness check (spec 034, FR-003 / FR-007).
+    // --------------------------------------------------------------------
+    const watermark = await this.deps.watermarkFn(currentYear);
+    if (watermark > 0) {
+      const status = await this.deps.projectionRepository.findPrecomputeStatus(currentYear);
+      if (status === null || watermark > status.asOfRound) {
+        await tryPublish(
+          { type: 'precompute-projections', version: 1, year: currentYear, asOfRound: watermark },
+          () => Promise.resolve(true) // pure D1 read + compute, always "available"
+        );
+      }
     }
 
     const summary: EnqueueDueScrapesSummary = {

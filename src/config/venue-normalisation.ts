@@ -37,11 +37,15 @@ export const VENUE_NORMALISATION: Record<string, string> = {
 
   // Campbelltown Stadium
   'Campbelltown Stadium': 'campbelltown',
+  'Campbelltown Sports Stadium': 'campbelltown',
   'Ramsgate Road Ground': 'campbelltown',
 
-  // PointsBet Stadium / Shark Park (Cronulla)
+  // PointsBet Stadium / Shark Park / Ocean Protect Stadium (Cronulla)
   'PointsBet Stadium': 'pointsbet',
   'Shark Park': 'pointsbet',
+  'Shark Stadium': 'pointsbet',
+  'Sharks Stadium': 'pointsbet',
+  'Ocean Protect Stadium': 'pointsbet',
 
   // BlueBet Stadium / Penrith Stadium
   'BlueBet Stadium': 'bluebet',
@@ -97,6 +101,57 @@ export const VENUE_NORMALISATION: Record<string, string> = {
   // Allegiant Stadium (Las Vegas)
   'Allegiant Stadium': 'allegiant',
   'Allegiant Stadium Las Vegas': 'allegiant',
+
+  // Go Media Stadium / Mt Smart Stadium (Auckland — NZL home ground)
+  'Go Media Stadium': 'go_media',
+  'Mt Smart Stadium': 'go_media',
+  'Mount Smart Stadium': 'go_media',
+
+  // Jubilee Stadium / Kogarah Oval (St George home ground)
+  'Jubilee Stadium': 'jubilee',
+  'Jubilee Oval': 'jubilee',
+  'UOW Jubilee Oval': 'jubilee',
+  'Kogarah Oval': 'jubilee',
+  'Netstrata Jubilee Stadium': 'jubilee',
+
+  // Glen Willow Oval (Mudgee — regional fixtures)
+  'Glen Willow Oval': 'glen_willow',
+  'Glen Willow Sporting Complex': 'glen_willow',
+
+  // Carrington Park (Bathurst — regional fixtures)
+  'Carrington Park': 'carrington_park',
+
+  // HBF Park (Perth — rectangular stadium, distinct from Optus Stadium)
+  'HBF Park': 'hbf_park',
+  'nib Stadium': 'hbf_park',
+  'Perth Oval': 'hbf_park',
+
+  // Kayo Stadium (Redcliffe — Dolphins home ground)
+  'Kayo Stadium': 'kayo_stadium',
+  'Moreton Daily Stadium': 'kayo_stadium',
+  'Dolphin Oval': 'kayo_stadium',
+  'Redcliffe Showgrounds': 'kayo_stadium',
+
+  // Polytec Stadium
+  'Polytec Stadium': 'polytec',
+
+  // Hnry Stadium (Wellington Regional Stadium / Sky Stadium)
+  'Hnry Stadium': 'hnry',
+  'Sky Stadium': 'hnry',
+  'Wellington Regional Stadium': 'hnry',
+
+  // One NZ Stadium
+  'One NZ Stadium': 'one_nz',
+
+  // Belmore Sports Ground / Belmore Oval (Canterbury traditional home)
+  'Belmore Sports Ground': 'belmore',
+  'Belmore Oval': 'belmore',
+
+  // Apollo Projects Stadium (Christchurch — NZL home fixture, also AMI / Orangetheory / Rugby League Park)
+  'Apollo Projects Stadium': 'apollo_projects',
+  'Orangetheory Stadium': 'apollo_projects',
+  'AMI Stadium': 'apollo_projects',
+  'Rugby League Park': 'apollo_projects',
 };
 
 /** All valid canonical venue IDs — used for query param validation. */
