@@ -130,7 +130,10 @@ describe('End-to-end precompute flow (fan-out)', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: { isRoundCached: async () => true, findRoundsWithNullPriceBreakEven: async () => [], findRoundsWithNullTeamCode: async () => [] },
-      teamListRepository: { hasTeamList: async () => true } as any,
+      teamListRepository: {
+        hasTeamList: async () => true,
+        findRoundsWithCompleteTeamLists: async () => new Set<number>(),
+      } as any,
       gameStrengthRepo: { findByRound: async () => null },
       matchResultSource: { isAvailable: async () => false } as any,
       playerStatsSource: { isAvailable: async () => false } as any,
@@ -140,6 +143,12 @@ describe('End-to-end precompute flow (fan-out)', () => {
       producer,
       projectionRepository: repo,
       watermarkFn: async () => watermark,
+      playerMovementsRepository: {
+        findByYearAndRound: async () => null,
+        findMostRecentRound: async () => null,
+        listCoveredRounds: async () => new Set<number>(),
+        save: async () => {},
+      },
     });
     await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T06:00:00Z'), currentYear: 2026 });
 

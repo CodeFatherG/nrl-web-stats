@@ -28,4 +28,17 @@ export interface TeamListRepository {
 
   /** Returns the set of round numbers that have any team list entries for the given year. */
   getRoundsWithTeamLists(year: number): Promise<Set<number>>;
+
+  /**
+   * Returns the set of round numbers for the given year where every team
+   * expected to play in that round has a lineup present in `team_lists`.
+   *
+   * "Every team expected to play" is determined by the `matches` table:
+   * a round needs `2 × COUNT(matches)` distinct `team_code` rows in
+   * `team_lists` to count as complete.
+   *
+   * Used by the precompute-player-movements discovery predicate to enqueue
+   * jobs for completed-but-not-yet-precomputed rounds (spec 035 FR-007).
+   */
+  findRoundsWithCompleteTeamLists(year: number): Promise<ReadonlySet<number>>;
 }

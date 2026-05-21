@@ -123,7 +123,7 @@ export function SummaryView() {
 
   const data = movementsQuery.data;
 
-  if (!data || data.pending) {
+  if (!data || !data.available) {
     return (
       <Box>
         <PageHeader title="Summary" subtitle="Player Movements" />

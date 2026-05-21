@@ -62,7 +62,6 @@ export interface PositionChangedRecord extends MovementBase {
 }
 
 export interface PlayerMovementsResult {
-  pending: false;
   noPreviousRound?: boolean;
   season: number;
   round: number;
@@ -75,4 +74,6 @@ export interface PlayerMovementsResult {
   positionChanged: PositionChangedRecord[];
 }
 
-export type PlayerMovementsResponse = { pending: true } | PlayerMovementsResult;
+export type PlayerMovementsResponse =
+  | { available: false }
+  | ({ available: true } & PlayerMovementsResult);

@@ -1,7 +1,7 @@
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { CasualtyWardRepository } from '../../domain/repositories/casualty-ward-repository.js';
-import type { PlayerMovementsCache } from '../../analytics/player-movements-cache.js';
+import type { PlayerMovementsRepository } from '../../domain/repositories/player-movements-repository.js';
 import type {
   InjuredRecord,
   DroppedRecord,
@@ -31,12 +31,10 @@ export class ComputePlayerMovementsUseCase {
     private readonly teamListRepo: TeamListRepository,
     private readonly matchRepo: MatchRepository,
     private readonly casualtyWardRepo: CasualtyWardRepository,
-    private readonly cache: PlayerMovementsCache
+    private readonly repository: PlayerMovementsRepository
   ) {}
 
   async execute(year: number, round: number): Promise<void> {
-    this.cache.invalidate(year, round);
-
     const currentMatches = await this.matchRepo.findByYearAndRound(year, round);
     const expectedTeams = new Set<string>();
     const teamToMatchId = new Map<string, string>();
@@ -63,11 +61,12 @@ export class ComputePlayerMovementsUseCase {
     }
 
     if (round === 1) {
-      this.cache.set(year, round, {
-        pending: false,
-        noPreviousRound: true,
-        season: year,
+      await this.repository.save({
+        year,
         round,
+        computedAt: new Date().toISOString(),
+        season: year,
+        noPreviousRound: true,
         injured: [],
         dropped: [],
         benched: [],
@@ -461,10 +460,11 @@ export class ComputePlayerMovementsUseCase {
       }
     }
 
-    this.cache.set(year, round, {
-      pending: false,
-      season: year,
+    await this.repository.save({
+      year,
       round,
+      computedAt: new Date().toISOString(),
+      season: year,
       injured,
       dropped,
       benched,

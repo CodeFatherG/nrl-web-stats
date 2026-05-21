@@ -46,7 +46,7 @@ import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
 import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
 import type { ProjectionRepository } from '../domain/repositories/projection-repository.js';
-import type { PlayerMovementsCache } from '../analytics/player-movements-cache.js';
+import type { PlayerMovementsRepository } from '../domain/repositories/player-movements-repository.js';
 import type { ComputePlayerMovementsUseCase } from '../application/use-cases/compute-player-movements.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
@@ -115,8 +115,8 @@ export interface HandlerDeps {
   createGetContextualProjectionUseCase: (db: D1Database) => GetContextualProjectionUseCase;
   /** Factory to create a per-request GetContextualProfileUseCase from the DB binding */
   createGetContextualProfileUseCase: (db: D1Database) => GetContextualProfileUseCase;
-  /** In-memory cache for pre-computed player movements per round */
-  playerMovementsCache: PlayerMovementsCache;
+  /** Durable repository for precomputed player-movements artifacts (spec 035). */
+  playerMovementsRepository: PlayerMovementsRepository;
   /** Factory to create a per-request ComputePlayerMovementsUseCase from the DB binding */
   createComputePlayerMovementsUseCase: (db: D1Database) => ComputePlayerMovementsUseCase;
   /** Factory to create a per-request GetGameStrengthUseCase from the DB binding */
@@ -1646,43 +1646,30 @@ export function getPlayerMovements(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     try {
       const year = (await deps.matchRepository.getLoadedYears())[0];
-      let round = deps.playerMovementsCache.getMostRecentCachedRound(year);
+      const round = await deps.playerMovementsRepository.findMostRecentRound(year);
       if (round === null) {
-        // Cache is cold (fresh deploy / isolate restart). Derive the current round
-        // from match data and compute on-demand to warm the cache.
-        const allMatches = await deps.matchRepository.findByYear(year);
-        const now = new Date();
-        const inProgressRounds = [...new Set(
-          allMatches.filter(m => m.status === 'InProgress').map(m => m.round)
-        )];
-        let derivedRound: number | undefined;
-        if (inProgressRounds.length > 0) {
-          derivedRound = Math.max(...inProgressRounds);
-        } else {
-          const pastRounds = allMatches
-            .filter(m => m.scheduledTime !== null && new Date(m.scheduledTime) <= now)
-            .map(m => m.round);
-          if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
-        }
-        if (derivedRound === undefined) return c.json({ pending: true });
-        
-        const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
-
-        // Try the upcoming round first — team lists drop before kickoff
-        const nextRound = derivedRound + 1;
-        await computeUseCase.execute(year, nextRound);
-
-        if (deps.playerMovementsCache.get(year, nextRound)) {
-          round = nextRound;
-        } else {
-          // Team lists not yet complete for next round — fall back to latest played round
-          await computeUseCase.execute(year, derivedRound);
-          round = derivedRound;
-        }
+        return c.json({ available: false });
       }
-
-      const result = deps.playerMovementsCache.get(year, round);
-      return c.json(result ?? { pending: true });
+      const artifact = await deps.playerMovementsRepository.findByYearAndRound(year, round);
+      if (artifact === null) {
+        // Race: round vanished between findMostRecentRound and findByYearAndRound.
+        return c.json({ available: false });
+      }
+      // Explicit projection — DO NOT spread `artifact`. Storage-internal fields
+      // (computedAt, the duplicate `year` identity) must not leak (FR-004a).
+      return c.json({
+        available: true,
+        season:              artifact.season,
+        round:               artifact.round,
+        ...(artifact.noPreviousRound !== undefined && { noPreviousRound: artifact.noPreviousRound }),
+        injured:             artifact.injured,
+        dropped:             artifact.dropped,
+        benched:             artifact.benched,
+        returningFromInjury: artifact.returningFromInjury,
+        coveringInjury:      artifact.coveringInjury,
+        promoted:            artifact.promoted,
+        positionChanged:     artifact.positionChanged,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'INTERNAL_ERROR', `Failed to get player movements: ${message}`, 500);

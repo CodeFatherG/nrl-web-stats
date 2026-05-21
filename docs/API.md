@@ -1300,17 +1300,19 @@ The `id` values in this response are the valid values for the `venue` query para
 
 ### GET /api/player-movements
 
-Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is computed and cached automatically when all playing teams have submitted their team lists for a round.
+Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is read from a durable artifact store written by a `compute-player-movements` queue job when all playing teams have submitted their team lists for a round (spec 035).
 
-**Response — Pending** (200): Returned when team lists for the current round are not yet complete.
+The response is a discriminated envelope keyed by `available`.
+
+**Response — Not Yet Available** (200): Returned when no artifact exists for any round in the current year (e.g. team lists for the current round are not yet complete and no prior round has an artifact).
 ```json
-{ "pending": true }
+{ "available": false }
 ```
 
 **Response — No Previous Round** (200): Returned for Round 1 of a season (no prior round to compare against).
 ```json
 {
-  "pending": false,
+  "available": true,
   "noPreviousRound": true,
   "season": 2025,
   "round": 1,
@@ -1325,7 +1327,7 @@ Returns pre-computed player movements between the previous round and the current
 **Response — Full Result** (200):
 ```json
 {
-  "pending": false,
+  "available": true,
   "season": 2025,
   "round": 10,
   "dropped": [
@@ -1400,9 +1402,13 @@ Returns pre-computed player movements between the previous round and the current
 - `dropped`, `benched`, and `promoted` are mutually exclusive.
 - `positionChanged` and `returningFromInjury` can co-occur.
 
-**Computation Trigger**: The result is computed automatically after `POST /api/scrape/team-lists` when all teams playing in the round have submitted their lists. The number of expected teams is derived from the match schedule for that round (not a hardcoded constant), so bye weeks are handled automatically.
+**Computation Trigger**: The artifact is written by a `compute-player-movements` queue job. Two trigger paths exist (spec 035 FR-007):
+1. **Post-scrape signal** — `ScrapeTeamListsUseCase` publishes a precompute job after a successful round scrape when every expected team has a lineup present.
+2. **Cron discovery** — `EnqueueDueScrapesUseCase` publishes a precompute job for every round with complete team lists that has no movements artifact yet (gap-set predicate).
 
-**Cold Start**: In-memory cache — returns `{ pending: true }` after a worker cold start until the next scheduled cron or manual scrape trigger.
+Both paths can fire for the same `(year, round)`; the resulting double-runs are idempotent under last-write-wins.
+
+**Cold Start**: The artifact store is Cloudflare KV (durable across isolates), so cold isolates serve from the existing artifact without recomputing. When no `CACHE` binding is configured (local dev, tests), the worker falls back to an in-memory adapter and the endpoint returns `{ "available": false }` until the precompute job runs in the current isolate.
 
 **Errors**:
 - 400 `INVALID_PARAMS`: `season` or `round` is not a valid integer.

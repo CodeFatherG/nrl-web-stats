@@ -83,7 +83,7 @@ function makeMinimalDeps(executeImpl: (...args: any[]) => Promise<RoundGSR>): Ha
     createSupplementaryStatsRepository: () => ({} as any),
     createGetContextualProjectionUseCase: () => ({} as any),
     createGetContextualProfileUseCase: () => ({} as any),
-    playerMovementsCache: {} as any,
+    playerMovementsRepository: {} as any,
     createComputePlayerMovementsUseCase: () => ({} as any),
   };
 }

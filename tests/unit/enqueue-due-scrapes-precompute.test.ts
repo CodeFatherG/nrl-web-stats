@@ -51,7 +51,9 @@ function makeMinimalDeps(opts: {
       findAllSeasonSummaries: async () => opts.expectedPlayerIds.map(fakeSummary),
     } as any,
     supplementaryRepo: { isRoundCached: async () => false, findRoundsWithNullPriceBreakEven: async () => [], findRoundsWithNullTeamCode: async () => [] },
-    teamListRepository: {} as any,
+    teamListRepository: {
+      findRoundsWithCompleteTeamLists: async () => new Set<number>(),
+    } as any,
     gameStrengthRepo: { findByRound: async () => null },
     matchResultSource: { isAvailable: async () => false } as any,
     playerStatsSource: { isAvailable: async () => false } as any,
@@ -61,6 +63,12 @@ function makeMinimalDeps(opts: {
     producer: opts.producer,
     projectionRepository: opts.repo,
     watermarkFn: async () => opts.watermark,
+    playerMovementsRepository: {
+      findByYearAndRound: async () => null,
+      findMostRecentRound: async () => null,
+      listCoveredRounds: async () => new Set<number>(),
+      save: async () => {},
+    },
   };
 }
 

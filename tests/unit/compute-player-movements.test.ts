@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ComputePlayerMovementsUseCase } from '../../src/application/use-cases/compute-player-movements.js';
-import { PlayerMovementsCache } from '../../src/analytics/player-movements-cache.js';
+import { InMemoryPlayerMovementsRepository } from '../../src/infrastructure/persistence/in-memory-player-movements-repository.js';
 import type { TeamListRepository } from '../../src/domain/repositories/team-list-repository.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
 import type { CasualtyWardRepository } from '../../src/domain/repositories/casualty-ward-repository.js';
@@ -120,14 +120,14 @@ class InMemoryCasualtyWardRepo implements CasualtyWardRepository {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ComputePlayerMovementsUseCase', () => {
-  let cache: PlayerMovementsCache;
+  let cache: InMemoryPlayerMovementsRepository;
   let teamListRepo: InMemoryTeamListRepo;
   let matchRepo: InMemoryMatchRepo;
   let cwRepo: InMemoryCasualtyWardRepo;
   let useCase: ComputePlayerMovementsUseCase;
 
   beforeEach(() => {
-    cache = new PlayerMovementsCache();
+    cache = new InMemoryPlayerMovementsRepository();
     teamListRepo = new InMemoryTeamListRepo([
       { round: 9, lists: prevTeamLists },
       { round: 10, lists: currTeamLists },
@@ -142,19 +142,19 @@ describe('ComputePlayerMovementsUseCase', () => {
 
   it('stores result in cache after successful run', async () => {
     await useCase.execute(2025, 10);
-    expect(cache.get(2025, 10)).not.toBeNull();
+    expect(await cache.findByYearAndRound(2025, 10)).not.toBeNull();
   });
 
-  it('result has pending: false', async () => {
+  it('artifact is written (not null) after successful run', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
-    expect(result.pending).toBe(false);
+    const result = await cache.findByYearAndRound(2025, 10);
+    expect(result).not.toBeNull();
   });
 
   // Injured: Billy Smith (BRO #9) absent from round 10, open CW entry
   it('classifies Billy Smith as injured with injury details', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const billy = result.injured.find(r => r.playerName === 'Billy Smith');
     expect(billy).toBeDefined();
     expect(billy!.lastJersey).toBe(9);
@@ -166,7 +166,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Dropped: Nicho Hynes (SHA #7) absent from round 10, no open CW entry
   it('classifies Nicho Hynes as dropped (form)', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const nicho = result.dropped.find(r => r.playerName === 'Nicho Hynes');
     expect(nicho).toBeDefined();
     expect(nicho!.lastJersey).toBe(7);
@@ -175,14 +175,14 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Billy Smith must NOT appear in dropped
   it('does not classify Billy Smith as dropped', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     expect(result.dropped.find(r => r.playerName === 'Billy Smith')).toBeUndefined();
   });
 
   // Benched: Jordan Riki (BRO) was #13 in round 9, now #18 in round 10
   it('classifies Jordan Riki as benched with prevJersey and consecutiveRoundsBenched', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const riki = result.benched.find(r => r.playerName === 'Jordan Riki');
     expect(riki).toBeDefined();
     expect(riki!.prevJersey).toBe(13);
@@ -195,7 +195,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Promoted: Kobe Hetherington (BRO) was #18 in round 9, now #13 in round 10, replacing Jordan Riki
   it('classifies Kobe Hetherington as promoted with replacingPlayerId set', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const kobe = result.promoted.find(r => r.playerName === 'Kobe Hetherington');
     expect(kobe).toBeDefined();
     expect(kobe!.currentJersey).toBe(13);
@@ -206,7 +206,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Covering Injury: Cory Paix (BRO) fills #9 vacated by injured Billy Smith
   it('classifies Cory Paix as covering Billy Smith\'s injury', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const paix = result.coveringInjury.find(r => r.playerName === 'Cory Paix');
     expect(paix).toBeDefined();
     expect(paix!.currentJersey).toBe(9);
@@ -218,14 +218,14 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Cory Paix must NOT appear in promoted
   it('does not classify Cory Paix as promoted', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     expect(result.promoted.find(r => r.playerName === 'Cory Paix')).toBeUndefined();
   });
 
   // Position Changed: Jackson Hastings (NEW) #6 Halfback → Five-Eighth (starting position, both ≤ 13)
   it('classifies Jackson Hastings as position changed', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const hastings = result.positionChanged.find(r => r.playerName === 'Jackson Hastings');
     expect(hastings).toBeDefined();
     expect(hastings!.oldPosition).toBe('Halfback');
@@ -236,7 +236,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Promoted to slot vacated by a player who changed positions (not absent/benched)
   it('classifies David Smith as promoted replacing Jackson Hastings who moved position', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const david = result.promoted.find(r => r.playerName === 'David Smith');
     expect(david).toBeDefined();
     expect(david!.position).toBe('Halfback');
@@ -247,14 +247,14 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Interchange position change is NOT reported
   it('does not classify Jack Cogger (interchange) as position changed', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     expect(result.positionChanged.find(r => r.playerName === 'Jack Cogger')).toBeUndefined();
   });
 
   // Same-position players NOT in positionChanged
   it('does not classify unchanged players as position changed', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const reece = result.positionChanged.find(r => r.playerName === 'Reece Walsh');
     expect(reece).toBeUndefined();
   });
@@ -262,7 +262,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Returning from Injury: Valentine Holmes (NQC) closed CW entry, in round 10 starters
   it('classifies Valentine Holmes as returning from injury', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     const holmes = result.returningFromInjury.find(r => r.playerName === 'Valentine Holmes');
     expect(holmes).toBeDefined();
     expect(holmes!.currentJersey).toBe(3);
@@ -271,7 +271,7 @@ describe('ComputePlayerMovementsUseCase', () => {
   // Holmes must NOT appear in promoted — returningFromInjury takes priority
   it('does not classify Valentine Holmes as promoted', async () => {
     await useCase.execute(2025, 10);
-    const result = cache.get(2025, 10)!;
+    const result = await cache.findByYearAndRound(2025, 10)!;
     expect(result.promoted.find(r => r.playerName === 'Valentine Holmes')).toBeUndefined();
   });
 
@@ -283,7 +283,7 @@ describe('ComputePlayerMovementsUseCase', () => {
     ]);
     const partialUseCase = new ComputePlayerMovementsUseCase(partialRepo, matchRepo, cwRepo, cache);
     await partialUseCase.execute(2025, 10);
-    expect(cache.get(2025, 10)).toBeNull();
+    expect(await cache.findByYearAndRound(2025, 10)).toBeNull();
   });
 
   // Round 1 edge case: noPreviousRound
@@ -294,7 +294,7 @@ describe('ComputePlayerMovementsUseCase', () => {
     const r1MatchRepo = new InMemoryMatchRepo([{ round: 1, matches: round1Matches }]);
     const r1UseCase = new ComputePlayerMovementsUseCase(r1TeamRepo, r1MatchRepo, cwRepo, cache);
     await r1UseCase.execute(2025, 1);
-    const result = cache.get(2025, 1);
+    const result = await cache.findByYearAndRound(2025, 1);
     expect(result).not.toBeNull();
     expect(result!.noPreviousRound).toBe(true);
     expect(result!.dropped).toHaveLength(0);
@@ -344,12 +344,12 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
       { id: 2, playerId: '2002', playerName: 'Wing B', teamCode: 'TST', injury: 'Knee',      expectedReturn: 'Round 13', reportedDate: '2025-04-14', closedDate: null },
     ];
 
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     const cwRepo2 = new InMemoryCasualtyWardRepo(openCW, []);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
 
     // Sorted by playerId: 2001 < 2002 (injuries), 2003 < 2004 (movers) → 2003→2001, 2004→2002
     const w1 = result.coveringInjury.find(r => r.playerId === 2003);
@@ -379,12 +379,12 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
       ],
     };
 
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     const cwRepo2 = new InMemoryCasualtyWardRepo([], []);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
 
     // Sorted by playerId: 3001 < 3002 (prev wings), 3003 < 3004 (new wings) → 3003 replaces 3001, 3004 replaces 3002
     const p1 = result.promoted.find(r => r.playerId === 3003);
@@ -414,11 +414,11 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
         { playerId: 5502, jerseyNumber: 14, playerName: 'Prop Out',    position: 'Interchange' }, // benched
       ],
     };
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
 
     // Prop Out benched: vacated=[PropOut], arrivals=[IntPlayer] → replacedBy=IntPlayer
     const benched = result.benched.find(r => r.playerId === 5502);
@@ -456,12 +456,12 @@ describe('ComputePlayerMovementsUseCase — multi-slot position pairing', () => 
       ],
     };
 
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     const cwRepo2 = new InMemoryCasualtyWardRepo([], []);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, cwRepo2, cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
 
     // Sorted by playerId: prev[0]=4001, prev[1]=4002; curr[0]=4003, curr[1]=4004
     // → 4001 (slot 0) replaced by 4003; 4002 (slot 1) replaced by 4004
@@ -492,11 +492,11 @@ describe('ComputePlayerMovementsUseCase — Phase 1 Reserve extension', () => {
       matchId: '2025-R10-TST-OPP', teamCode: 'TST', year: 2025, round: 10, scrapedAt: '',
       members: [{ playerId: 5001, jerseyNumber: 18, playerName: 'Prop X', position: 'Reserve' }],
     };
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
     expect(result.dropped.find(r => r.playerId === 5001)).toBeDefined();
     expect(result.benched.find(r => r.playerId === 5001)).toBeUndefined();
   });
@@ -514,11 +514,11 @@ describe('ComputePlayerMovementsUseCase — Phase 1 Reserve extension', () => {
     const openCW: CasualtyWardEntry[] = [
       { id: 10, playerId: '5002', playerName: 'Prop Y', teamCode: 'TST', injury: 'Knee', expectedReturn: 'Round 12', reportedDate: '2025-04-14', closedDate: null },
     ];
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo(openCW, []), cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
     expect(result.injured.find(r => r.playerId === 5002)).toBeDefined();
     expect(result.benched.find(r => r.playerId === 5002)).toBeUndefined();
   });
@@ -539,11 +539,11 @@ describe('ComputePlayerMovementsUseCase — Phase 1 Reserve extension', () => {
         { playerId: 9998, jerseyNumber: 1,  playerName: 'TST FB',     position: 'Fullback' },
       ],
     };
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([{ round: 9, lists: [prevTST, oppPrev] as TeamList[] }, { round: 10, lists: [currTST, oppCurr] as TeamList[] }]);
     const mRepo = new InMemoryMatchRepo([{ round: 9, matches: testMatches9 }, { round: 10, matches: testMatches10 }]);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 10);
-    const result = cache2.get(2025, 10)!;
+    const result = await cache2.findByYearAndRound(2025, 10)!;
     expect(result.dropped.find(r => r.playerId === 5003)).toBeDefined();
   });
 });
@@ -589,10 +589,10 @@ describe('ComputePlayerMovementsUseCase — bye-round handling', () => {
   const match10 = makeMinimalMatch('2025-R10-OPP-OPP2', 10, 'OPP', 'OPP2'); // TST on bye
   const match11 = makeMinimalMatch('2025-R11-TST-OPP',  11, 'TST', 'OPP');
 
-  let byeResult: ReturnType<PlayerMovementsCache['get']>;
+  let byeResult: Awaited<ReturnType<InMemoryPlayerMovementsRepository['findByYearAndRound']>>;
 
   beforeEach(async () => {
-    const cache2 = new PlayerMovementsCache();
+    const cache2 = new InMemoryPlayerMovementsRepository();
     const tRepo = new InMemoryTeamListRepo([
       { round: 9,  lists: [tst9, opp9] as TeamList[] },
       { round: 10, lists: [opp10] as TeamList[] },       // TST absent — bye
@@ -603,12 +603,11 @@ describe('ComputePlayerMovementsUseCase — bye-round handling', () => {
       { round: 11, matches: [match11] },
     ]);
     await new ComputePlayerMovementsUseCase(tRepo, mRepo, new InMemoryCasualtyWardRepo([], []), cache2).execute(2025, 11);
-    byeResult = cache2.get(2025, 11);
+    byeResult = await cache2.findByYearAndRound(2025, 11);
   });
 
-  it('produces a result (not pending) for a team returning from a bye', () => {
+  it('produces a result for a team returning from a bye', () => {
     expect(byeResult).not.toBeNull();
-    expect(byeResult!.pending).toBe(false);
   });
 
   it('classifies a starter as benched when their team had a bye the previous round', () => {

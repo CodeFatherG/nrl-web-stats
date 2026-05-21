@@ -67,6 +67,7 @@ function fakeTeamListRepo(): TeamListRepository {
     hasTeamList: async () => true,
     hasTeamListsForMatch: async () => true,
     getRoundsWithTeamLists: async () => new Set(),
+    findRoundsWithCompleteTeamLists: async () => new Set(),
   };
 }
 
@@ -102,6 +103,12 @@ function makeDeps(overrides: Partial<EnqueueDueScrapesDeps> & { producer: FakePr
       savePrecomputeStatus: async () => {},
     },
     watermarkFn: overrides.watermarkFn ?? (async () => 0),
+    playerMovementsRepository: overrides.playerMovementsRepository ?? {
+      findByYearAndRound: async () => null,
+      findMostRecentRound: async () => null,
+      listCoveredRounds: async () => new Set<number>(),
+      save: async () => {},
+    },
   };
 }
 

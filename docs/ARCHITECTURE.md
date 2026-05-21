@@ -135,6 +135,44 @@ The wire envelope carries a `schemaVersion` field. On schema-version mismatch, t
 ]
 ```
 
+## Precomputed Player Movements (spec 035)
+
+The `GET /api/player-movements` endpoint reads from a durable artifact store written by a `compute-player-movements` queue job. This replaces the per-isolate `Map<string, PlayerMovementsResult>` that previously held the result. The store sits behind a domain port; the production backend is the same Cloudflare KV namespace used for projections (spec 034), but under a different prefix so the two artifact families coexist.
+
+### Layering
+
+| Layer | File | Purpose |
+|---|---|---|
+| Domain port | `src/domain/repositories/player-movements-repository.ts` | `PlayerMovementsRepository` interface + `PlayerMovementsStoreQuotaExhaustedError`. Domain vocabulary only — no "cache", "TTL", "KV". |
+| KV adapter | `src/infrastructure/persistence/kv-player-movements-repository.ts` | Keys `player-movements:v1:{year}:{round}`, listing-only `findMostRecentRound`/`listCoveredRounds`, quota-exhausted detection. |
+| In-memory adapter | `src/infrastructure/persistence/in-memory-player-movements-repository.ts` | Unit-test default + local-dev fallback when `env.CACHE` is unset. |
+| Wire envelope | `src/infrastructure/persistence/player-movements-envelope.ts` | `{ schemaVersion, computedAt, payload }`. Empty freshness block — round is in the key, not the envelope. |
+| Compute use case | `src/application/use-cases/compute-player-movements.ts` | Refactored to write through the repository. Phase 1/2/3 algorithm unchanged. |
+| Read handler | `src/api/handlers.ts` (`getPlayerMovements`) | Reads `findMostRecentRound` → `findByYearAndRound`; emits `{ available }` envelope. No live compute on the read path. |
+| Composition root | `src/worker.ts` | Selects `KvPlayerMovementsRepository` when `env.CACHE` is bound, `InMemoryPlayerMovementsRepository` otherwise. |
+
+### Trigger: a job with two enqueue paths
+
+The `compute-player-movements` variant of `ScrapeJob` is fired by either of:
+1. **Cron discovery** (`EnqueueDueScrapesUseCase`) — gap-set predicate. Each tick, query `TeamListRepository.findRoundsWithCompleteTeamLists(year)` and `PlayerMovementsRepository.listCoveredRounds(year)`; publish one job per round in the difference.
+2. **Post-scrape signal** (`ScrapeTeamListsUseCase`) — after a successful round scrape, if `expectedTeams === presentTeams`, publish a job directly.
+
+Both paths can fire for the same `(year, round)`. Double-runs are tolerated; writes are idempotent under last-write-wins.
+
+### Freshness model
+
+`(year, round)` is the artifact's identity. There is no staleness check on the read path — the store either has the artifact (correct) or it does not (return `{ available: false }`). Freshness is maintained on the write path: any subsequent team-list update for the round re-triggers the precompute via the post-scrape signal or the next cron tick, and the new artifact overwrites the old under last-write-wins.
+
+### Failure handling
+
+| Failure | Behaviour |
+|---|---|
+| Read-side: artifact missing | Handler returns HTTP 200 `{ "available": false }`. No live computation. |
+| Read-side: schema-version mismatch | Adapter returns `null` → handler emits `{ "available": false }`. Next precompute overwrites. |
+| Write-side: precondition fails (`expectedTeams > presentTeams`) | Use case logs a warning and returns without writing. Job is acked. The next discovery tick will retry. |
+| Write-side: KV quota exhausted | Wrapped in `PlayerMovementsStoreQuotaExhaustedError`; `classifyError` classifies as **terminal** → DLQ (no retry). The next tick after daily reset republishes. |
+| `env.CACHE` absent | Composition root selects `InMemoryPlayerMovementsRepository`. Reads + writes both work; contents do not survive isolate recycling. |
+
 Both `env.staging` and `env.production` declare the binding with the same `"CACHE"` name; the namespace IDs differ.
 
 ### On-demand precompute (operator runbook, FR-008)

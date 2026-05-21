@@ -20,6 +20,7 @@ import type { JobProducer, ScrapeJob, ScrapeJobType } from '../ports/job-queue.j
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
+import type { PlayerMovementsRepository } from '../../domain/repositories/player-movements-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
@@ -67,6 +68,10 @@ export interface EnqueueDueScrapesDeps {
    *  watermark has advanced past the last successful precompute. */
   projectionRepository: ProjectionRepository;
   watermarkFn: (year: number) => Promise<number>;
+  /** Spec 035 (FR-007): the player-movements artifact store, used to compute
+   *  the gap-set between rounds with complete team lists and rounds with a
+   *  movements artifact already written. */
+  playerMovementsRepository: PlayerMovementsRepository;
 }
 
 export interface EnqueueDueScrapesInput {
@@ -238,12 +243,18 @@ export class EnqueueDueScrapesUseCase {
     }
 
     // --------------------------------------------------------------------
-    // 7. Player movements — re-derive after team lists for the next upcoming round
+    // 7. Player movements — enqueue a precompute for every round with
+    //    complete team lists that does not yet have a stored artifact
+    //    (spec 035 FR-007). Gap-set discovery; idempotent under last-write-wins.
     // --------------------------------------------------------------------
-    const nextUpcoming = await this.findNextUpcomingRound(currentYear);
-    if (nextUpcoming !== null) {
+    const completedTeamListRounds =
+      await this.deps.teamListRepository.findRoundsWithCompleteTeamLists(currentYear);
+    const coveredMovementsRounds =
+      await this.deps.playerMovementsRepository.listCoveredRounds(currentYear);
+    for (const round of [...completedTeamListRounds].sort((a, b) => a - b)) {
+      if (coveredMovementsRounds.has(round)) continue;
       await tryPublish(
-        { type: 'compute-player-movements', version: 1, year: currentYear, round: nextUpcoming },
+        { type: 'compute-player-movements', version: 1, year: currentYear, round },
         () => Promise.resolve(true) // pure computation against persisted data; always "available"
       );
     }
@@ -404,14 +415,6 @@ export class EnqueueDueScrapesUseCase {
     }
 
     return [...rounds].sort((a, b) => a - b);
-  }
-
-  private async findNextUpcomingRound(year: number): Promise<number | null> {
-    const matches = await this.deps.matchRepository.findByYear(year);
-    const upcoming = [...new Set(
-      matches.filter(m => m.status !== MatchStatus.Completed).map(m => m.round)
-    )].sort((a, b) => a - b);
-    return upcoming[0] ?? null;
   }
 
   private async findGsrLockCandidates(year: number): Promise<number[]> {

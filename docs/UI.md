@@ -155,7 +155,7 @@ A year selector in the top bar changes the active season. Selecting a year updat
 - Sections per movement type: Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed
 - Mobile: chip list per section; desktop: DataTable per section
 - "Hide interchange promotions" checkbox in the Promoted section
-- Pending/no-data alerts when round data isn't available
+- Branches on `data.available` from the new `{ available }`-discriminated `/api/player-movements` response (spec 035). When `data.available === false`, displays a "not yet available" alert in place of the movement sections. The previous `data.pending` field is gone.
 
 ## Casualty Ward (`/casualty-ward`)
 

@@ -14,6 +14,7 @@
 import type { JobBatch, JobHandle, ScrapeJob } from '../ports/job-queue.js';
 import { ScrapeJobSchema } from '../ports/job-queue.js';
 import { ProjectionStoreQuotaExhaustedError } from '../../domain/repositories/projection-repository.js';
+import { PlayerMovementsStoreQuotaExhaustedError } from '../../domain/repositories/player-movements-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -54,6 +55,9 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   // discovery tick after the daily reset. Match by type, not by message.
   if (err instanceof ProjectionStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'projection-store-quota-exhausted' };
+  }
+  if (err instanceof PlayerMovementsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'player-movements-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);

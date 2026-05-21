@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ComputePlayerMovementsUseCase } from '../../src/application/use-cases/compute-player-movements.js';
-import { PlayerMovementsCache } from '../../src/analytics/player-movements-cache.js';
+import { InMemoryPlayerMovementsRepository } from '../../src/infrastructure/persistence/in-memory-player-movements-repository.js';
 import type { TeamListRepository } from '../../src/domain/repositories/team-list-repository.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
 import type { CasualtyWardRepository } from '../../src/domain/repositories/casualty-ward-repository.js';
@@ -120,14 +120,14 @@ function matchesFromTeamLists(year: number, round: number, teamLists: TeamList[]
 // ─── Test suite ───────────────────────────────────────────────────────────────
 
 describe('GET /api/player-movements', () => {
-  let cache: PlayerMovementsCache;
+  let repository: InMemoryPlayerMovementsRepository;
   let useCase: ComputePlayerMovementsUseCase;
 
   const prevMatches = matchesFromTeamLists(2025, 9, prevTeamLists);
   const currMatches = matchesFromTeamLists(2025, 10, currTeamLists);
 
   beforeEach(async () => {
-    cache = new PlayerMovementsCache();
+    repository = new InMemoryPlayerMovementsRepository();
     const teamListRepo = new InMemoryTeamListRepo([
       { round: 9, lists: prevTeamLists },
       { round: 10, lists: currTeamLists },
@@ -137,24 +137,29 @@ describe('GET /api/player-movements', () => {
       { round: 10, matches: currMatches },
     ]);
     const cwRepo = new InMemoryCasualtyWardRepo(openEntries, closedEntries);
-    useCase = new ComputePlayerMovementsUseCase(teamListRepo, matchRepo, cwRepo, cache);
+    useCase = new ComputePlayerMovementsUseCase(teamListRepo, matchRepo, cwRepo, repository);
     await useCase.execute(2025, 10);
   });
 
-  it('returns pending: false when all teams are present', () => {
-    const result = cache.get(2025, 10);
+  it('artifact is present (not null) when all teams are present', async () => {
+    const result = await repository.findByYearAndRound(2025, 10);
     expect(result).not.toBeNull();
-    expect(result!.pending).toBe(false);
   });
 
-  it('includes correct season and round in response', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('includes correct season and round in response', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.season).toBe(2025);
     expect(result.round).toBe(10);
   });
 
-  it('all seven movement arrays are present', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('public payload omits storage-internal computedAt and year fields (FR-004a)', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
+    expect(result).not.toHaveProperty('computedAt');
+    expect(result).not.toHaveProperty('year');
+  });
+
+  it('all seven movement arrays are present', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(Array.isArray(result.injured)).toBe(true);
     expect(Array.isArray(result.dropped)).toBe(true);
     expect(Array.isArray(result.benched)).toBe(true);
@@ -164,61 +169,61 @@ describe('GET /api/player-movements', () => {
     expect(Array.isArray(result.positionChanged)).toBe(true);
   });
 
-  it('injured[0] has lastJersey and injury fields', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('injured[0] has lastJersey and injury fields', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.injured.length).toBeGreaterThan(0);
     expect(result.injured[0]).toHaveProperty('lastJersey');
     expect(result.injured[0]).toHaveProperty('injury');
     expect(result.injured[0]).toHaveProperty('expectedReturn');
   });
 
-  it('dropped[0] has lastJersey field', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('dropped[0] has lastJersey field', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.dropped.length).toBeGreaterThan(0);
     expect(result.dropped[0]).toHaveProperty('lastJersey');
   });
 
-  it('benched[0] has consecutiveRoundsBenched field', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('benched[0] has consecutiveRoundsBenched field', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.benched.length).toBeGreaterThan(0);
     expect(result.benched[0]).toHaveProperty('consecutiveRoundsBenched');
   });
 
-  it('promoted[0] has currentJersey field', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('promoted[0] has currentJersey field', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.promoted.length).toBeGreaterThan(0);
     expect(result.promoted[0]).toHaveProperty('currentJersey');
   });
 
-  it('coveringInjury[0] has coveringPlayerName field', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('coveringInjury[0] has coveringPlayerName field', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.coveringInjury.length).toBeGreaterThan(0);
     expect(result.coveringInjury[0]).toHaveProperty('coveringPlayerName');
   });
 
-  it('positionChanged[0] has oldPosition and newPosition fields', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('positionChanged[0] has oldPosition and newPosition fields', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     expect(result.positionChanged.length).toBeGreaterThan(0);
     expect(result.positionChanged[0]).toHaveProperty('oldPosition');
     expect(result.positionChanged[0]).toHaveProperty('newPosition');
   });
 
-  it('all records have playerName as string', () => {
-    const result = cache.get(2025, 10) as PlayerMovementsResult;
+  it('all records have playerName as string', async () => {
+    const result = (await repository.findByYearAndRound(2025, 10)) as PlayerMovementsResult;
     for (const record of [...result.injured, ...result.dropped, ...result.benched, ...result.returningFromInjury, ...result.coveringInjury, ...result.promoted, ...result.positionChanged]) {
       expect(typeof record.playerName).toBe('string');
       expect(record.playerName.length).toBeGreaterThan(0);
     }
   });
 
-  it('returns { pending: true } when round has no data', () => {
-    const result = cache.get(2025, 11);
+  it('returns null when round has no artifact', async () => {
+    const result = await repository.findByYearAndRound(2025, 11);
     expect(result).toBeNull();
   });
 
-  it('pending state when only partial team lists exist', async () => {
-    const partialCache = new PlayerMovementsCache();
-    const partialRepo = new InMemoryTeamListRepo([
+  it('no artifact is written when only partial team lists exist', async () => {
+    const partialRepo = new InMemoryPlayerMovementsRepository();
+    const partialTeamListRepo = new InMemoryTeamListRepo([
       { round: 9, lists: prevTeamLists },
       { round: 10, lists: currTeamLists.slice(0, 8) },
     ]);
@@ -227,12 +232,12 @@ describe('GET /api/player-movements', () => {
       { round: 10, matches: currMatches },
     ]);
     const partialUseCase = new ComputePlayerMovementsUseCase(
-      partialRepo,
+      partialTeamListRepo,
       matchRepo,
       new InMemoryCasualtyWardRepo(openEntries, closedEntries),
-      partialCache
+      partialRepo
     );
     await partialUseCase.execute(2025, 10);
-    expect(partialCache.get(2025, 10)).toBeNull();
+    expect(await partialRepo.findByYearAndRound(2025, 10)).toBeNull();
   });
 });

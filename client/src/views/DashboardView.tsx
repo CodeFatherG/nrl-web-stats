@@ -45,7 +45,7 @@ export function DashboardView() {
 
   const movementCount = useMemo(() => {
     const data = movementsQuery.data;
-    if (!data || data.pending || data.noPreviousRound) return 0;
+    if (!data || !data.available || data.noPreviousRound) return 0;
     return (
       data.injured.length +
       data.dropped.length +

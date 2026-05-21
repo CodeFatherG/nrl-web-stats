@@ -34,8 +34,10 @@ import { GetPlayerProjectionUseCase } from './application/use-cases/get-player-p
 import { GetTeamProjectionRankingsUseCase } from './application/use-cases/get-team-projection-rankings.js';
 import { GetContextualProjectionUseCase } from './application/use-cases/get-contextual-projection.js';
 import { GetContextualProfileUseCase } from './application/use-cases/get-contextual-profile.js';
-import { playerMovementsCache } from './analytics/player-movements-cache.js';
 import { ComputePlayerMovementsUseCase } from './application/use-cases/compute-player-movements.js';
+import type { PlayerMovementsRepository } from './domain/repositories/player-movements-repository.js';
+import { KvPlayerMovementsRepository } from './infrastructure/persistence/kv-player-movements-repository.js';
+import { InMemoryPlayerMovementsRepository } from './infrastructure/persistence/in-memory-player-movements-repository.js';
 import { gameStrengthCache } from './analytics/game-strength-cache.js';
 import { D1GameStrengthRepository } from './infrastructure/persistence/d1-game-strength-repository.js';
 import { GetGameStrengthUseCase } from './application/use-cases/get-game-strength.js';
@@ -94,6 +96,12 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
   const projectionRepository: ProjectionRepository = cache
     ? new KvProjectionRepository(cache)
     : new InMemoryProjectionRepository();
+
+  // Composition root for the player-movements artifact store (spec 035).
+  // Same selection rule as projectionRepository above.
+  const playerMovementsRepository: PlayerMovementsRepository = cache
+    ? new KvPlayerMovementsRepository(cache)
+    : new InMemoryPlayerMovementsRepository();
 
   Object.assign(deps, {
     projectionRepository,
@@ -195,13 +203,13 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
       const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
       return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache, projectionRepository, watermarkFn);
     },
-    playerMovementsCache,
+    playerMovementsRepository,
     createComputePlayerMovementsUseCase: (reqDb: D1Database) =>
       new ComputePlayerMovementsUseCase(
         new D1TeamListRepository(reqDb),
         matchRepository,
         new D1CasualtyWardRepository(reqDb),
-        playerMovementsCache
+        playerMovementsRepository
       ),
     createGetGameStrengthUseCase: (reqDb: D1Database) => {
       const scUseCase = new GetSupercoachScoresUseCase(
@@ -380,6 +388,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       producer,
       projectionRepository: deps.projectionRepository,
       watermarkFn,
+      playerMovementsRepository: deps.playerMovementsRepository,
     });
     await enqueueUseCase.execute({
       scheduledTime: new Date(event.scheduledTime),
@@ -408,13 +417,19 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
   const casualtyRepo = new D1CasualtyWardRepository(env.DB);
   const scrapePlayerStatsUC = new ScrapePlayerStatsUseCase(playerStatsSource, playerRepo, suppRepo);
   const scrapeSuppUC = new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, suppRepo);
-  const scrapeTeamListsUC = new ScrapeTeamListsUseCase(teamListSource, teamListRepo, deps.matchRepository);
+  const queueProducer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+  const scrapeTeamListsUC = new ScrapeTeamListsUseCase(
+    teamListSource,
+    teamListRepo,
+    deps.matchRepository,
+    queueProducer,
+  );
   const scrapeCasualtyUC = new ScrapeCasualtyWardUseCase(casualtyWardSource, casualtyRepo, playerRepo);
   const computeMovementsUC = new ComputePlayerMovementsUseCase(
     teamListRepo,
     deps.matchRepository,
     casualtyRepo,
-    playerMovementsCache
+    deps.playerMovementsRepository
   );
   const lockGsrUC = deps.createLockGameStrengthUseCase(env.DB);
 
