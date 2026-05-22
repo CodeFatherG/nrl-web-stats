@@ -1484,11 +1484,22 @@ Returns Game Strength Ratings (GSR) for every non-bye fixture in the specified N
 - `sampleSizeWarning` — `true` when either team has fewer than `minRoundsForReliability` completed matches in history.
 - `leagueAvgTeamScore` — Mean of all participating teams' `weightedAvgScored` values; used as the normalisation denominator.
 
-**Caching / Stability**:
-- Ratings for the round immediately following each completed round are **locked to D1** at round-completion time and never change.
-- Ratings for further future rounds are held in an **in-memory cache** and rebuilt whenever a round completes.
-- Ratings for the current or past rounds that were not locked are **computed on-demand**.
-- Non-default `halfLife` requests always compute on-demand (not cached or locked).
+**Storage / Stability** (spec 036):
+- Ratings for rounds immediately following each completed round are **locked to D1** (`game_strength_ratings` table) at round-completion time and never change.
+- Ratings for further future rounds are held in a **KV-backed durable provisional store** (key prefix `gsr-provisional:v1:`) and rebuilt whenever a round completes. The store is shared across isolates and regions, so cold isolates see the same values as warm ones.
+- For default-half-life requests where neither the D1 locked row nor a KV provisional entry exists, the response is HTTP 200 with body `{ "available": false }` (see below). The handler does NOT compute on the request thread.
+- Non-default `halfLife` requests always compute on-demand and never return `{ "available": false }`. They bypass both storage layers (the artifact's identity is `(year, round)` only — half-life is a computation parameter, not part of the key).
+- When the `CACHE` binding is absent (local dev, unit tests), the worker uses a per-isolate in-memory fallback for the provisional half.
+
+**Response Shape**:
+
+The response is one of two shapes:
+
+```text
+GSRResponse = GSRPayload | { "available": false }
+```
+
+The `{ "available": false }` branch is returned (with HTTP 200) when a default-half-life request finds no precomputed artifact yet. The frontend can branch on the presence of the `available` field (see `client/src/services/api.ts` helper `isGSRAvailable`).
 
 **Errors**:
 - 400 `INVALID_YEAR` — `year` is before 1998 or not an integer.
@@ -1497,4 +1508,4 @@ Returns Game Strength Ratings (GSR) for every non-bye fixture in the specified N
 - 404 `NO_FIXTURES_FOUND` — No fixtures found for the given year and round.
 - 500 `INTERNAL_ERROR` — Unexpected server error.
 
-See `specs/032-game-strength-rating/contracts/game-strength-endpoint.md` for the full schema.
+See `specs/032-game-strength-rating/contracts/game-strength-endpoint.md` for the full schema and `specs/036-game-strength-artifact/` for the storage substrate change.

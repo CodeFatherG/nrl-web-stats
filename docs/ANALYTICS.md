@@ -469,16 +469,25 @@ Fixed: `base`, `scoring`, `create`, `evade`, `defence`, `negative`. The `base` c
 
 `sampleSizeWarning: true` is set on any team entry where `teamSamplesUsed < minRoundsForReliability` or `opponentSamplesUsed < minRoundsForReliability`. Default threshold: 3 rounds. The rating is still returned as a best-effort value.
 
-### Caching and Locking Behaviour
+### Storage and Locking Behaviour
 
-| Scenario | Storage | Stability |
-|----------|---------|-----------|
-| Round immediately after a completed round | D1 (`game_strength_ratings` table) | Locked — never changes |
-| Further future rounds | In-memory `GameStrengthCache` | Rebuilt on each round completion |
-| Non-default `halfLife` requests | None | Always computed on-demand |
-| On-demand fallback (cold cache) | None | Computed per request |
+Spec 036 unified the storage substrate behind a single `GameStrengthRepository` port (a composite adapter routing internally to D1 and KV).
 
-**Trigger**: `LockGameStrengthRatingsUseCase.execute(year, completedRound)` is called automatically after each supplementary stats scrape in the cron handler. It is idempotent — if the next round's GSR is already locked, it exits immediately. Completeness is verified by checking that all matches in the completed round have `isComplete: true` before locking.
+| Scenario | Backing store | Stability |
+|----------|--------------|-----------|
+| Round immediately after a completed round | D1 (`game_strength_ratings` table) | Locked — `INSERT OR IGNORE`; never overwritten |
+| Further future rounds | KV (`gsr-provisional:v1:{year}:{round}`) — durable, shared across isolates | Last-write-wins; rebuilt on each recompute |
+| Local dev / unit tests without `CACHE` | Per-isolate in-memory Map (provisional half only) | Lost on isolate recycle |
+| Non-default `halfLife` requests | None | Always computed on-demand (FR-008) |
+| Default-half-life requests with no precomputed artifact | None | Returns `null` → handler emits `{ available: false }`. Readers never compute on the request thread. |
+
+**Read path**: callers go through `GameStrengthRepository.read(year, round)`, which consults the D1 locked store first, then the KV provisional store, then returns `null`. The artifact returned carries `locked: boolean` and `lockedAt: string | null` so callers learn the state without knowing which storage backed it.
+
+**Recompute trigger**: a `recompute-game-strength` queue job (spec 033) dispatches `LockGameStrengthRatingsUseCase.execute(year, completedRound)`. Two enqueue paths:
+1. Post-scrape signal from `ScrapeSupplementaryStatsUseCase` on successful round completion.
+2. Cron-discovery gap-fill in `EnqueueDueScrapesUseCase` — publishes ONE job per year per tick when `(locked ∪ provisional)` does not cover every round the season expects.
+
+Both paths are idempotent (D1 INSERT OR IGNORE, KV last-write-wins). Custom-half-life requests bypass the repository entirely (artifact identity is `(year, round)` only).
 
 ### Implementation Notes
 

@@ -173,6 +173,54 @@ Both paths can fire for the same `(year, round)`. Double-runs are tolerated; wri
 | Write-side: KV quota exhausted | Wrapped in `PlayerMovementsStoreQuotaExhaustedError`; `classifyError` classifies as **terminal** → DLQ (no retry). The next tick after daily reset republishes. |
 | `env.CACHE` absent | Composition root selects `InMemoryPlayerMovementsRepository`. Reads + writes both work; contents do not survive isolate recycling. |
 
+## Game Strength Ratings (spec 036)
+
+The `GET /api/supercoach/:year/game-strength/:round` endpoint reads from a unified `GameStrengthRepository` port whose composite adapter routes internally to two backing stores:
+
+| Store | Backend | Holds | Stability |
+|-------|---------|-------|-----------|
+| Locked | D1 (`game_strength_ratings` table) | The canonical, immutable rating for each round once supplementary stats for the previous round are scraped. INSERT OR IGNORE. | Permanent — never overwritten. |
+| Provisional | Cloudflare KV (`gsr-provisional:v1:{year}:{round}`) OR in-memory Map (no `CACHE` binding) | Best-current rating for future rounds, recomputed every time a round locks. | Last-write-wins; deleted by year on each recompute cycle. |
+
+This replaces the per-isolate `gameStrengthCache` Map that previously held provisional ratings (deleted by spec 036). Cold isolates and warm isolates now see the same provisional values.
+
+### Layering
+
+| Layer | File | Purpose |
+|---|---|---|
+| Domain port | `src/domain/repositories/game-strength-repository.ts` | `GameStrengthRepository` interface + `GameStrengthArtifact` read return type + `GameStrengthStoreQuotaExhaustedError`. Domain vocabulary only — no "cache", "TTL", "KV", "D1". |
+| Composite adapter | `src/infrastructure/persistence/composite-game-strength-repository.ts` | Routes `read` D1-first then KV; routes write operations to the appropriate backend; re-wraps sub-adapter quota errors as the port's named error. |
+| D1 sub-adapter | `src/infrastructure/persistence/d1-game-strength-repository.ts` | INSERT OR IGNORE; surfaces `locked_at` on reads. |
+| KV sub-adapter | `src/infrastructure/persistence/kv-provisional-game-strength-repository.ts` | Keys `gsr-provisional:v1:{year}:{round}`; listing-only `listProvisionalRounds`; quota-exhausted detection. |
+| In-memory sub-adapter | `src/infrastructure/persistence/in-memory-provisional-game-strength-repository.ts` | Unit-test default + local-dev fallback when `env.CACHE` is unset. |
+| Wire envelope (KV-only) | `src/infrastructure/persistence/provisional-game-strength-envelope.ts` | `{ schemaVersion, computedAt, payload: RoundGSR }`. Empty metadata field. |
+| Use cases | `src/application/use-cases/get-game-strength.ts`, `lock-game-strength-ratings.ts` | Take ONE `GameStrengthRepository` constructor arg. |
+| Read handler | `src/api/handlers.ts` (`getGameStrengthRatings`) | Returns the bare `RoundGSR` on hit, `{ "available": false }` on miss (default half-life only). |
+| Composition root | `src/worker.ts` | Builds the composite per-request (D1 sub-adapter is request-scoped). |
+
+### Trigger: `recompute-game-strength` queue job
+
+The `recompute-game-strength` variant of `ScrapeJob` (renamed from `lock-game-strength-ratings` by spec 036) is fired by either of:
+1. **Cron discovery** (`EnqueueDueScrapesUseCase`) — gap-set predicate. Each tick, compute `(allRounds in year) ∖ (listLockedRounds(year) ∪ listProvisionalRounds(year))`; publish ONE job per year per tick when the gap is non-empty AND at least one round has supp-stats cached (for the `completedRound` parameter).
+2. **Post-scrape signal** (`ScrapeSupplementaryStatsUseCase`) — after a successful supp-stats scrape, publish a job with `completedRound = round-just-scraped`. Constructor takes optional `JobProducer`; failure to publish is logged but does not fail the scrape.
+
+Both paths converge on the same idempotent handler (`LockGameStrengthRatingsUseCase`). Redundant invocations are tolerated (D1 INSERT OR IGNORE; KV last-write-wins).
+
+### Failure handling
+
+| Failure | Behaviour |
+|---|---|
+| Read-side: neither store has the artifact | Handler returns HTTP 200 `{ "available": false }`. No live computation (for default half-life). |
+| Read-side: schema-version mismatch in KV | KV sub-adapter returns `null` → composite falls back to provisional miss → handler emits `{ "available": false }`. Next recompute overwrites. |
+| Write-side: D1 INSERT OR IGNORE no-ops on conflict | Benign — round was already locked. Job continues with provisional writes. |
+| Write-side: KV provisional quota exhausted | Wrapped in `GameStrengthStoreQuotaExhaustedError`; `classifyError` classifies as **terminal** → DLQ. The D1 lock from earlier in the same batch is NOT rolled back. Next tick after daily reset republishes. |
+| Write-side: KV `deleteProvisional` fails after a successful lock | Logged, tolerated (FR-012). The stale provisional is shadowed by the locked D1 row on the read path. Next recompute retries the delete. |
+| `env.CACHE` absent | Composite uses `InMemoryProvisionalGameStrengthRepository`. D1 half is unaffected. Provisional state is per-isolate and not durable. |
+
+### Custom half-life path
+
+Custom half-life requests (`?halfLife=N` for any `N ≠ DEFAULT_HALF_LIFE`) bypass the repository entirely and compute on demand. The stored artifacts are keyed by `(year, round)` only — half-life is a computation parameter, not part of the artifact's identity.
+
 Both `env.staging` and `env.production` declare the binding with the same `"CACHE"` name; the namespace IDs differ.
 
 ### On-demand precompute (operator runbook, FR-008)

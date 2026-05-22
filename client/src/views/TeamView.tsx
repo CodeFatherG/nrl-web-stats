@@ -20,7 +20,7 @@ import { StrengthBadge } from '../components/StrengthBadge';
 import { GSRBadge } from '../components/GSRBadge';
 import { VenueBadge } from '../components/VenueBadge';
 import { useQueries } from '@tanstack/react-query';
-import { getGameStrengthRatings } from '../services/api';
+import { getGameStrengthRatings, isGSRAvailable } from '../services/api';
 import { formatMatchDate } from '../utils/formatMatchDate';
 import { createMatchId } from '../utils/matchId';
 import type { ScheduleFixture, FilterState } from '../types';
@@ -66,7 +66,7 @@ export function TeamView() {
 
   const gsrByRoundAndTeam = new Map<string, { gsr: number; warning: boolean }>();
   gsrQueries.forEach((q, i) => {
-    if (q.data) {
+    if (q.data && isGSRAvailable(q.data)) {
       const round = uniqueRounds[i];
       for (const match of q.data.matches) {
         gsrByRoundAndTeam.set(`${round}:${match.homeTeam.teamCode}`, { gsr: match.homeTeam.normalizedOverallGSR, warning: match.homeTeam.sampleSizeWarning });

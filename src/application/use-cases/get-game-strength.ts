@@ -1,7 +1,6 @@
 import type { FixtureRepository } from '../ports/fixture-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
-import type { D1GameStrengthRepository } from '../../infrastructure/persistence/d1-game-strength-repository.js';
-import type { GameStrengthCache } from '../../analytics/game-strength-cache.js';
+import type { GameStrengthRepository } from '../../domain/repositories/game-strength-repository.js';
 import type { RoundGSR, TeamMatchHistory } from '../../domain/game-strength.js';
 import type { TeamSeasonSupercoach } from '../../domain/supercoach-score.js';
 import {
@@ -18,19 +17,35 @@ export class GetGameStrengthUseCase {
   constructor(
     private readonly supercoachScores: GetSupercoachScoresUseCase,
     private readonly fixtures: FixtureRepository,
-    private readonly gsrRepository: D1GameStrengthRepository,
-    private readonly gsrCache: GameStrengthCache
+    private readonly repository: GameStrengthRepository
   ) {}
 
-  async execute(year: number, round: number, halfLife: number = DEFAULT_HALF_LIFE): Promise<RoundGSR> {
-    const useDefault = halfLife === DEFAULT_HALF_LIFE;
-
-    if (useDefault) {
-      const locked = await this.gsrRepository.findByRound(year, round);
-      if (locked) return locked;
-
-      const cached = this.gsrCache.get(year, round);
-      if (cached) return cached;
+  /**
+   * Resolve a `RoundGSR` for `(year, round)`.
+   *
+   * For the default half-life:
+   *   1. `repository.read(...)` — returns a locked artifact (D1-backed) if
+   *      one exists, otherwise a provisional artifact (KV-backed), otherwise
+   *      `null`. The locked-vs-provisional distinction is surfaced on the
+   *      domain shape (the artifact's `locked` field) but neither use case
+   *      callers nor the API handler need to act on it today.
+   *   2. `null` is returned when no artifact exists yet — the handler
+   *      surfaces this as `{ available: false }`. The use case MUST NOT
+   *      perform the cross-season team-history walk on the request thread.
+   *
+   * For a non-default half-life: bypass the repository entirely and compute
+   * on demand. Stored artifacts are keyed by `(year, round)` only — half-life
+   * is a computation parameter, not part of the artifact's identity. Custom
+   * half-life is an ad-hoc analysis path, not a production read.
+   */
+  async execute(
+    year: number,
+    round: number,
+    halfLife: number = DEFAULT_HALF_LIFE
+  ): Promise<RoundGSR | null> {
+    if (halfLife === DEFAULT_HALF_LIFE) {
+      const artifact = await this.repository.read(year, round);
+      return artifact?.gsr ?? null;
     }
 
     return this.computeOnDemand(year, round, halfLife);

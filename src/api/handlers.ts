@@ -47,6 +47,7 @@ import type { GetContextualProjectionUseCase } from '../application/use-cases/ge
 import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
 import type { ProjectionRepository } from '../domain/repositories/projection-repository.js';
 import type { PlayerMovementsRepository } from '../domain/repositories/player-movements-repository.js';
+import type { GameStrengthRepository } from '../domain/repositories/game-strength-repository.js';
 import type { ComputePlayerMovementsUseCase } from '../application/use-cases/compute-player-movements.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
@@ -126,6 +127,10 @@ export interface HandlerDeps {
   /** Precomputed projection store (spec 034). Use cases in subsequent phases
    *  read this first and fall back to live computation on miss/stale. */
   projectionRepository: ProjectionRepository;
+  /** Spec 036: factory for the unified game-strength-rating repository
+   *  (locked artifacts in D1 + provisional artifacts in KV, behind one port).
+   *  Per-request because the D1 sub-adapter is request-scoped. */
+  gameStrengthRepository: (db: D1Database) => GameStrengthRepository;
 }
 
 // Environment bindings type
@@ -1600,7 +1605,13 @@ export function getContextualProfile(deps: HandlerDeps) {
  * GET /api/supercoach/:year/game-strength/:round
  * Returns Game Strength Ratings for every non-bye fixture in the specified round.
  * Optional ?halfLife query param (default 6) controls recency decay.
- * Locked rounds are served from D1; future rounds from in-memory cache; others computed on-demand.
+ *
+ * For the default half-life: locked rounds are served from the D1
+ * `game_strength_ratings` table; future rounds from the durable provisional
+ * store (KV in production, in-memory in dev/test). Missing artifacts surface
+ * as `{ available: false }` — readers never compute on the request thread.
+ * For a custom half-life: always computed on demand (the stored artifacts
+ * are keyed by `(year, round)` only).
  */
 export function getGameStrengthRatings(deps: HandlerDeps) {
   return async (c: ApiContext) => {
@@ -1628,6 +1639,9 @@ export function getGameStrengthRatings(deps: HandlerDeps) {
     try {
       const useCase = deps.createGetGameStrengthUseCase(c.env.DB);
       const result = await useCase.execute(yearResult.data, roundResult.data, halfLife);
+      if (result === null) {
+        return c.json({ available: false } as const);
+      }
       return c.json(result);
     } catch (error) {
       if (error instanceof Error && (error as Error & { code?: string }).code === 'NO_FIXTURES_FOUND') {

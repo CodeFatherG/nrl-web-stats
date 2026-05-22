@@ -1,7 +1,6 @@
 import type { FixtureRepository } from '../ports/fixture-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
-import type { D1GameStrengthRepository } from '../../infrastructure/persistence/d1-game-strength-repository.js';
-import type { GameStrengthCache } from '../../analytics/game-strength-cache.js';
+import type { GameStrengthRepository } from '../../domain/repositories/game-strength-repository.js';
 import type { TeamMatchHistory } from '../../domain/game-strength.js';
 import {
   computeRoundGSR,
@@ -16,21 +15,23 @@ export class LockGameStrengthRatingsUseCase {
   constructor(
     private readonly supercoachScores: GetSupercoachScoresUseCase,
     private readonly fixtures: FixtureRepository,
-    private readonly gsrRepository: D1GameStrengthRepository,
-    private readonly gsrCache: GameStrengthCache
+    private readonly repository: GameStrengthRepository
   ) {}
 
   /**
    * Called after round `completedRound` supplementary data is fully scraped.
-   * Locks next round's GSR to D1 and caches all further future rounds in memory.
-   * Idempotent: safe to call multiple times for the same round.
+   * Locks next round's GSR and re-derives all further future rounds as
+   * provisional in one batched invocation. Idempotent: safe to call multiple
+   * times for the same round (writeLocked is INSERT OR IGNORE; provisional
+   * writes are last-write-wins).
    */
   async execute(year: number, completedRound: number): Promise<void> {
     const nextRound = completedRound + 1;
 
-    // Idempotency: skip if next round is already locked
-    const existing = await this.gsrRepository.findByRound(year, nextRound);
-    if (existing) {
+    // Idempotency: skip if next round is already locked. The locked-read
+    // also returns lockedAt; we only care that the artifact exists here.
+    const existing = await this.repository.read(year, nextRound);
+    if (existing && existing.locked) {
       logger.info('[GSR] Next round already locked, skipping', { year, nextRound });
       return;
     }
@@ -85,7 +86,7 @@ export class LockGameStrengthRatingsUseCase {
       // `season` reference dropped after this iteration; player data becomes GC-eligible.
     }
 
-    // Lock next round's GSR to D1
+    // Lock next round's GSR
     const nextFixtures = this.fixtures.findByRound(year, nextRound);
     const nextNonBye = buildNonByeFixtures(nextFixtures, year, nextRound);
 
@@ -96,13 +97,18 @@ export class LockGameStrengthRatingsUseCase {
         year,
         round: nextRound,
       });
-      await this.gsrRepository.save(year, nextRound, nextGSR);
+      await this.repository.writeLocked(year, nextRound, nextGSR);
       logger.info('[GSR] Locked GSR for next round', { year, round: nextRound });
     }
 
-    // Rebuild in-memory cache for all future rounds
-    this.gsrCache.clear();
+    // Rebuild the provisional store for all future rounds. The wholesale
+    // delete-then-write pattern is intentional: a previous recompute may
+    // have stored provisional entries that are now superseded (the year's
+    // fixture data could have shifted; rounds may have been added/removed).
+    // The next loop re-populates only the rounds that currently exist.
+    await this.repository.deleteAllProvisional(year);
 
+    let provisionalCount = 0;
     for (let r = nextRound + 1; r <= seasonEndRound; r++) {
       const futureFixtures = this.fixtures.findByRound(year, r);
       const futureNonBye = buildNonByeFixtures(futureFixtures, year, r);
@@ -114,14 +120,15 @@ export class LockGameStrengthRatingsUseCase {
         year,
         round: r,
       });
-      this.gsrCache.set(year, r, futureGSR);
+      await this.repository.writeProvisional(year, r, futureGSR);
+      provisionalCount++;
     }
 
-    logger.info('[GSR] Cache rebuilt for future rounds', {
+    logger.info('[GSR] Provisional store rebuilt for future rounds', {
       year,
       from: nextRound + 1,
       to: seasonEndRound,
-      cachedRounds: this.gsrCache.size(),
+      provisionalRounds: provisionalCount,
     });
   }
 }

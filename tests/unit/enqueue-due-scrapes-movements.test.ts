@@ -48,7 +48,15 @@ function makeMinimalDeps(opts: {
       findRoundsWithCompleteTeamLists: async () =>
         new Set(opts.completedTeamListRounds),
     } as any,
-    gameStrengthRepo: { findByRound: async () => null },
+    gameStrengthRepository: {
+      read: async () => null,
+      writeLocked: async () => {},
+      writeProvisional: async () => {},
+      deleteProvisional: async () => {},
+      deleteAllProvisional: async () => {},
+      listLockedRounds: async () => new Set<number>(),
+      listProvisionalRounds: async () => new Set<number>(),
+    },
     matchResultSource: { isAvailable: async () => false } as any,
     playerStatsSource: { isAvailable: async () => false } as any,
     supplementaryStatsSource: { isAvailable: async () => false } as any,

@@ -21,6 +21,7 @@ import type { MatchRepository } from '../../domain/repositories/match-repository
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { PlayerMovementsRepository } from '../../domain/repositories/player-movements-repository.js';
+import type { GameStrengthRepository } from '../../domain/repositories/game-strength-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
@@ -46,17 +47,13 @@ export interface SupplementaryStatsRepoLike {
   findRoundsWithNullTeamCode(): Promise<Array<{ year: number; round: number }>>;
 }
 
-/** Repository surface for the GSR-lock predicate. */
-export interface GameStrengthRepoLike {
-  findByRound(year: number, round: number): Promise<unknown | null>;
-}
-
 export interface EnqueueDueScrapesDeps {
   matchRepository: MatchRepository;
   playerRepository: PlayerRepository;
   supplementaryRepo: SupplementaryStatsRepoLike;
   teamListRepository: TeamListRepository;
-  gameStrengthRepo: GameStrengthRepoLike;
+  /** Spec 036: unified GSR port — locked + provisional behind one interface. */
+  gameStrengthRepository: GameStrengthRepository;
   matchResultSource: MatchResultSource;
   playerStatsSource: PlayerStatsSource;
   supplementaryStatsSource: SupplementaryStatsSource;
@@ -272,11 +269,16 @@ export class EnqueueDueScrapesUseCase {
     //    has no locked GSR yet. The use case re-checks completeness internally
     //    (it no-ops on already-locked rounds) so over-publishing is harmless.
     // --------------------------------------------------------------------
-    const gsrCandidates = await this.findGsrLockCandidates(currentYear);
-    for (const round of gsrCandidates) {
+    // Spec 036 (T029): publish ONE recompute-game-strength job per year per
+    // tick when a GSR coverage gap exists. The batched compute path inside
+    // LockGameStrengthRatingsUseCase fills the entire gap in one invocation
+    // (heap-pressure mitigation per spec FR-011, SC-008 — sequential
+    // per-team history fetches, no per-round fan-out).
+    const gsrCompletedRound = await this.findHighestCompletedSuppStatsRound(currentYear);
+    if (gsrCompletedRound !== null && await this.hasGsrCoverageGap(currentYear)) {
       await tryPublish(
-        { type: 'lock-game-strength-ratings', version: 1, year: currentYear, round },
-        () => Promise.resolve(true) // pure D1 read + compute, always "available"
+        { type: 'recompute-game-strength', version: 1, year: currentYear, completedRound: gsrCompletedRound },
+        () => Promise.resolve(true) // pure D1 + KV read + compute, always "available"
       );
     }
 
@@ -417,28 +419,42 @@ export class EnqueueDueScrapesUseCase {
     return [...rounds].sort((a, b) => a - b);
   }
 
-  private async findGsrLockCandidates(year: number): Promise<number[]> {
+  /**
+   * Spec 036 (FR-013): return the highest round for which supplementary
+   * stats are cached. This is the `completedRound` input to the recompute
+   * job — the lock use case derives `nextRound = completedRound + 1` and
+   * computes provisional ratings for everything beyond.
+   *
+   * Returns `null` if no completed match round has supp stats cached yet
+   * (nothing to recompute from).
+   */
+  private async findHighestCompletedSuppStatsRound(year: number): Promise<number | null> {
     const matches = await this.deps.matchRepository.findByYear(year);
-    if (matches.length === 0) return [];
-
+    if (matches.length === 0) return null;
     const completedRounds = [...new Set(
       matches.filter(m => m.status === MatchStatus.Completed).map(m => m.round)
-    )].sort((a, b) => a - b);
-
-    const candidates: number[] = [];
+    )].sort((a, b) => b - a); // descending
     for (const round of completedRounds) {
-      // Only worth a lock-gsr publish if supp stats are cached for this round
-      // (the use case computes the NEXT round's GSR; supp stats for the just-
-      // completed round are the input). Also skip if the next round is already
-      // locked — the use case would no-op anyway, but we avoid the dispatch.
       const hasSupp = await this.deps.supplementaryRepo.isRoundCached(year, round);
-      if (!hasSupp) continue;
-
-      const existing = await this.deps.gameStrengthRepo.findByRound(year, round + 1);
-      if (existing) continue;
-
-      candidates.push(round);
+      if (hasSupp) return round;
     }
-    return candidates;
+    return null;
+  }
+
+  /**
+   * Spec 036 (FR-013): a GSR coverage gap exists when the set of rounds
+   * with EITHER a locked D1 row OR a provisional KV entry is strictly
+   * smaller than the set of rounds the season expects (per match data).
+   */
+  private async hasGsrCoverageGap(year: number): Promise<boolean> {
+    const matches = await this.deps.matchRepository.findByYear(year);
+    if (matches.length === 0) return false;
+    const allRounds = new Set(matches.map(m => m.round));
+    const locked = await this.deps.gameStrengthRepository.listLockedRounds(year);
+    const provisional = await this.deps.gameStrengthRepository.listProvisionalRounds(year);
+    for (const round of allRounds) {
+      if (!locked.has(round) && !provisional.has(round)) return true;
+    }
+    return false;
   }
 }

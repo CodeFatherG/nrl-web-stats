@@ -603,7 +603,7 @@ export interface GSRMatch {
   awayTeam: GSRTeamRating;
 }
 
-export interface GSRResponse {
+export interface GSRPayload {
   year: number;
   round: number;
   leagueAvgTeamScore: number;
@@ -616,6 +616,24 @@ export interface GSRResponse {
   };
 }
 
+/**
+ * Server response for the GSR endpoint. Either the rating payload (locked
+ * or provisional — the wire shape is identical), or `{ available: false }`
+ * when no precomputed artifact exists yet for the requested `(year, round)`.
+ * The `available: false` branch is reachable only for default-half-life
+ * requests; custom half-life always computes on demand.
+ *
+ * Discriminate at the call site by checking for the `available` property:
+ *   if ('available' in data) { ... }  // miss
+ *   else                       { ... } // hit — data is GSRPayload
+ */
+export type GSRResponse = GSRPayload | { available: false };
+
 export async function getGameStrengthRatings(year: number, round: number): Promise<GSRResponse> {
   return fetchApi<GSRResponse>(`/supercoach/${year}/game-strength/${round}`);
+}
+
+/** Narrow a `GSRResponse` to a `GSRPayload` (the happy path). */
+export function isGSRAvailable(r: GSRResponse): r is GSRPayload {
+  return !('available' in r);
 }

@@ -38,8 +38,12 @@ import { ComputePlayerMovementsUseCase } from './application/use-cases/compute-p
 import type { PlayerMovementsRepository } from './domain/repositories/player-movements-repository.js';
 import { KvPlayerMovementsRepository } from './infrastructure/persistence/kv-player-movements-repository.js';
 import { InMemoryPlayerMovementsRepository } from './infrastructure/persistence/in-memory-player-movements-repository.js';
-import { gameStrengthCache } from './analytics/game-strength-cache.js';
 import { D1GameStrengthRepository } from './infrastructure/persistence/d1-game-strength-repository.js';
+import type { GameStrengthRepository } from './domain/repositories/game-strength-repository.js';
+import type { ProvisionalGameStrengthRepository } from './domain/repositories/provisional-game-strength-repository.js';
+import { KvProvisionalGameStrengthRepository } from './infrastructure/persistence/kv-provisional-game-strength-repository.js';
+import { InMemoryProvisionalGameStrengthRepository } from './infrastructure/persistence/in-memory-provisional-game-strength-repository.js';
+import { CompositeGameStrengthRepository } from './infrastructure/persistence/composite-game-strength-repository.js';
 import { GetGameStrengthUseCase } from './application/use-cases/get-game-strength.js';
 import { LockGameStrengthRatingsUseCase } from './application/use-cases/lock-game-strength-ratings.js';
 import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
@@ -103,8 +107,28 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
     ? new KvPlayerMovementsRepository(cache)
     : new InMemoryPlayerMovementsRepository();
 
+  // Composition root for the provisional game-strength-rating sub-adapter
+  // (spec 036). KV in production, in-memory otherwise; see
+  // tests/integration/no-cache-binding-fallback.test.ts. This is internal —
+  // application-layer callers see only the unified `GameStrengthRepository`
+  // port via the composite below.
+  const provisionalGsrSubAdapter: ProvisionalGameStrengthRepository = cache
+    ? new KvProvisionalGameStrengthRepository(cache)
+    : new InMemoryProvisionalGameStrengthRepository();
+
+  // Per-request D1 binding constructions still happen in the factories
+  // below; the composite is built per-request inside those factories so
+  // each request gets a D1 sub-adapter scoped to its own binding (the
+  // provisional sub-adapter is module-level and shared).
+  const buildGameStrengthRepository = (reqDb: D1Database): GameStrengthRepository =>
+    new CompositeGameStrengthRepository(
+      new D1GameStrengthRepository(reqDb),
+      provisionalGsrSubAdapter,
+    );
+
   Object.assign(deps, {
     projectionRepository,
+    gameStrengthRepository: buildGameStrengthRepository,
     scrapeDrawUseCase: new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository),
     scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
     matchRepository,
@@ -219,7 +243,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetGameStrengthUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+      return new GetGameStrengthUseCase(scUseCase, fixtureRepositoryAdapter, buildGameStrengthRepository(reqDb));
     },
     createLockGameStrengthUseCase: (reqDb: D1Database) => {
       const scUseCase = new GetSupercoachScoresUseCase(
@@ -229,7 +253,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepositoryAdapter, buildGameStrengthRepository(reqDb));
     },
   } satisfies HandlerDeps);
 
@@ -369,7 +393,6 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   try {
     const playerRepo = new D1PlayerRepository(env.DB);
     const teamListRepo = new D1TeamListRepository(env.DB);
-    const gsrRepo = new D1GameStrengthRepository(env.DB);
     const suppRepo = new D1SupplementaryStatsRepository(env.DB);
     const producer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
     const watermarkFn = (year: number) =>
@@ -379,7 +402,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
       teamListRepository: teamListRepo,
-      gameStrengthRepo: gsrRepo,
+      gameStrengthRepository: deps.gameStrengthRepository(env.DB),
       matchResultSource,
       playerStatsSource,
       supplementaryStatsSource,
@@ -416,8 +439,8 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
   const teamListRepo = new D1TeamListRepository(env.DB);
   const casualtyRepo = new D1CasualtyWardRepository(env.DB);
   const scrapePlayerStatsUC = new ScrapePlayerStatsUseCase(playerStatsSource, playerRepo, suppRepo);
-  const scrapeSuppUC = new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, suppRepo);
   const queueProducer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+  const scrapeSuppUC = new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, suppRepo, queueProducer);
   const scrapeTeamListsUC = new ScrapeTeamListsUseCase(
     teamListSource,
     teamListRepo,

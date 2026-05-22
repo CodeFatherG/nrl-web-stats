@@ -56,10 +56,16 @@ export interface ComputePlayerMovementsJob extends BaseJob {
   readonly round: number;
 }
 
-export interface LockGameStrengthRatingsJob extends BaseJob {
-  readonly type: 'lock-game-strength-ratings';
+/** Recompute the GSR for one year. Locks `completedRound + 1` to D1 (existing
+ *  immutability semantics preserved) and rebuilds the provisional KV entries
+ *  for `completedRound + 2 ... season-end` in one batched invocation.
+ *  Renamed from `lock-game-strength-ratings` by spec 036. */
+export interface RecomputeGameStrengthJob extends BaseJob {
+  readonly type: 'recompute-game-strength';
   readonly year: number;
-  readonly round: number;
+  /** The round whose supplementary stats just completed (the lock-precondition
+   *  round). Use case derives `nextRound = completedRound + 1` etc. */
+  readonly completedRound: number;
 }
 
 /** Precompute one (player, year) projection aggregate against a specific
@@ -91,7 +97,7 @@ export type ScrapeJob =
   | ScrapeTeamListsJob
   | ScrapeCasualtyWardJob
   | ComputePlayerMovementsJob
-  | LockGameStrengthRatingsJob
+  | RecomputeGameStrengthJob
   | PrecomputePlayerProjectionJob
   | PrecomputeTeamRankingsJob;
 
@@ -146,11 +152,11 @@ const ComputePlayerMovementsJobSchema = z.object({
   round: RoundSchema,
 });
 
-const LockGameStrengthRatingsJobSchema = z.object({
-  type: z.literal('lock-game-strength-ratings'),
+const RecomputeGameStrengthJobSchema = z.object({
+  type: z.literal('recompute-game-strength'),
   version: z.literal(1),
   year: YearSchema,
-  round: RoundSchema,
+  completedRound: z.number().int().nonnegative(),
 });
 
 const RankingModeSchema = z.enum(['composite', 'captaincy', 'selection', 'trade']);
@@ -179,7 +185,7 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeTeamListsJobSchema,
   ScrapeCasualtyWardJobSchema,
   ComputePlayerMovementsJobSchema,
-  LockGameStrengthRatingsJobSchema,
+  RecomputeGameStrengthJobSchema,
   PrecomputePlayerProjectionJobSchema,
   PrecomputeTeamRankingsJobSchema,
 ]);

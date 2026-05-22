@@ -15,6 +15,8 @@ import type { JobBatch, JobHandle, ScrapeJob } from '../ports/job-queue.js';
 import { ScrapeJobSchema } from '../ports/job-queue.js';
 import { ProjectionStoreQuotaExhaustedError } from '../../domain/repositories/projection-repository.js';
 import { PlayerMovementsStoreQuotaExhaustedError } from '../../domain/repositories/player-movements-repository.js';
+import { ProvisionalGameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/provisional-game-strength-repository.js';
+import { GameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/game-strength-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -58,6 +60,14 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   }
   if (err instanceof PlayerMovementsStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'player-movements-store-quota-exhausted' };
+  }
+  if (err instanceof GameStrengthStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'game-strength-store-quota-exhausted' };
+  }
+  // Kept for defense-in-depth in case any code path raises the sub-adapter's
+  // error directly without going through the composite's re-wrap.
+  if (err instanceof ProvisionalGameStrengthStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'provisional-game-strength-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -160,8 +170,8 @@ export class HandleScrapeJobUseCase {
       case 'compute-player-movements':
         await this.deps.computePlayerMovements.execute(job.year, job.round);
         return;
-      case 'lock-game-strength-ratings':
-        await this.deps.lockGameStrength.execute(job.year, job.round);
+      case 'recompute-game-strength':
+        await this.deps.lockGameStrength.execute(job.year, job.completedRound);
         return;
       case 'precompute-player-projection':
         if (!this.deps.precomputePlayerProjection) {
