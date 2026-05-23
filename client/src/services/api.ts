@@ -93,6 +93,13 @@ export async function getTeamStreaks(
 }
 
 // Analytics API
+// Spec 037 — discriminated wire envelope for the four analytics endpoints.
+// Hit: { available: true, asOfRound, data }. Miss: { available: false, ... }.
+// Clients MUST branch on `available` before reading `data` / `asOfRound`.
+export type AvailabilityEnvelope<T> =
+  | { available: true; asOfRound: number; data: T }
+  | { available: false; asOfRound: null; reason: string };
+
 export interface FormTrajectoryResponse {
   teamCode: string;
   teamName: string;
@@ -185,9 +192,9 @@ export async function getTeamForm(
   year: number,
   teamCode: string,
   window?: number
-): Promise<FormTrajectoryResponse> {
+): Promise<AvailabilityEnvelope<FormTrajectoryResponse>> {
   const params = window ? `?window=${window}` : '';
-  return fetchApi<FormTrajectoryResponse>(`/analytics/form/${year}/${teamCode}${params}`);
+  return fetchApi<AvailabilityEnvelope<FormTrajectoryResponse>>(`/analytics/form/${year}/${teamCode}${params}`);
 }
 
 export async function getPlayerTrends(
@@ -195,28 +202,28 @@ export async function getPlayerTrends(
   teamCode: string,
   window?: number,
   significantOnly?: boolean
-): Promise<PlayerTrendsResponse> {
+): Promise<AvailabilityEnvelope<PlayerTrendsResponse>> {
   const searchParams = new URLSearchParams();
   if (window) searchParams.set('window', String(window));
   if (significantOnly) searchParams.set('significantOnly', 'true');
   const qs = searchParams.toString();
-  return fetchApi<PlayerTrendsResponse>(`/analytics/trends/${year}/${teamCode}${qs ? `?${qs}` : ''}`);
+  return fetchApi<AvailabilityEnvelope<PlayerTrendsResponse>>(`/analytics/trends/${year}/${teamCode}${qs ? `?${qs}` : ''}`);
 }
 
 export async function getMatchOutlook(
   year: number,
   round: number,
   window?: number
-): Promise<MatchOutlookResponse> {
+): Promise<AvailabilityEnvelope<MatchOutlookResponse>> {
   const params = window ? `?window=${window}` : '';
-  return fetchApi<MatchOutlookResponse>(`/analytics/outlook/${year}/${round}${params}`);
+  return fetchApi<AvailabilityEnvelope<MatchOutlookResponse>>(`/analytics/outlook/${year}/${round}${params}`);
 }
 
 export async function getCompositionImpact(
   year: number,
   teamCode: string
-): Promise<CompositionImpactResponse> {
-  return fetchApi<CompositionImpactResponse>(`/analytics/composition/${year}/${teamCode}`);
+): Promise<AvailabilityEnvelope<CompositionImpactResponse>> {
+  return fetchApi<AvailabilityEnvelope<CompositionImpactResponse>>(`/analytics/composition/${year}/${teamCode}`);
 }
 
 export async function getMatchDetail(

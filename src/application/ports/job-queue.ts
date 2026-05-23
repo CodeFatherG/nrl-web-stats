@@ -90,6 +90,42 @@ export interface PrecomputeTeamRankingsJob extends BaseJob {
   readonly mode: RankingMode;
 }
 
+/** Spec 037 — precompute one (year, teamCode) team-form aggregate against
+ *  a specific watermark. Published by EnqueueDueScrapesUseCase and (after
+ *  watermark advance) by ScrapePlayerStatsUseCase. */
+export interface PrecomputeTeamFormJob extends BaseJob {
+  readonly type: 'precompute-team-form';
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly teamCode: string;
+}
+
+/** Spec 037 — precompute one (year, round) match-outlook aggregate. */
+export interface PrecomputeMatchOutlookJob extends BaseJob {
+  readonly type: 'precompute-match-outlook';
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly round: number;
+}
+
+/** Spec 037 — precompute one (year, teamCode) player-trends aggregate.
+ *  Identity is team-keyed because the existing use case computes team-wide
+ *  trend signals, not per-player trends. */
+export interface PrecomputePlayerTrendsJob extends BaseJob {
+  readonly type: 'precompute-player-trends';
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly teamCode: string;
+}
+
+/** Spec 037 — precompute one (year, teamCode) composition-impact aggregate. */
+export interface PrecomputeCompositionImpactJob extends BaseJob {
+  readonly type: 'precompute-composition-impact';
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly teamCode: string;
+}
+
 export type ScrapeJob =
   | ScrapeMatchResultsJob
   | ScrapePlayerStatsJob
@@ -99,7 +135,11 @@ export type ScrapeJob =
   | ComputePlayerMovementsJob
   | RecomputeGameStrengthJob
   | PrecomputePlayerProjectionJob
-  | PrecomputeTeamRankingsJob;
+  | PrecomputeTeamRankingsJob
+  | PrecomputeTeamFormJob
+  | PrecomputeMatchOutlookJob
+  | PrecomputePlayerTrendsJob
+  | PrecomputeCompositionImpactJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -178,6 +218,38 @@ const PrecomputeTeamRankingsJobSchema = z.object({
   mode: RankingModeSchema,
 });
 
+const PrecomputeTeamFormJobSchema = z.object({
+  type: z.literal('precompute-team-form'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+  teamCode: z.string().min(1),
+});
+
+const PrecomputeMatchOutlookJobSchema = z.object({
+  type: z.literal('precompute-match-outlook'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+  round: RoundSchema,
+});
+
+const PrecomputePlayerTrendsJobSchema = z.object({
+  type: z.literal('precompute-player-trends'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+  teamCode: z.string().min(1),
+});
+
+const PrecomputeCompositionImpactJobSchema = z.object({
+  type: z.literal('precompute-composition-impact'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+  teamCode: z.string().min(1),
+});
+
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeMatchResultsJobSchema,
   ScrapePlayerStatsJobSchema,
@@ -188,6 +260,10 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   RecomputeGameStrengthJobSchema,
   PrecomputePlayerProjectionJobSchema,
   PrecomputeTeamRankingsJobSchema,
+  PrecomputeTeamFormJobSchema,
+  PrecomputeMatchOutlookJobSchema,
+  PrecomputePlayerTrendsJobSchema,
+  PrecomputeCompositionImpactJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

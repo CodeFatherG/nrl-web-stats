@@ -23,7 +23,6 @@ import { GetPlayerProjectionUseCase } from '../../src/application/use-cases/get-
 import { GetContextualProfileUseCase } from '../../src/application/use-cases/get-contextual-profile.js';
 import { GetTeamProjectionRankingsUseCase } from '../../src/application/use-cases/get-team-projection-rankings.js';
 import { InMemoryProjectionRepository } from '../../src/infrastructure/cache/in-memory-projection-repository.js';
-import { AnalyticsCache } from '../../src/analytics/analytics-cache.js';
 import type { JobBatch, JobHandle, JobProducer, ScrapeJob } from '../../src/application/ports/job-queue.js';
 import { VALID_TEAM_CODES } from '../../src/models/team.js';
 import { ALL_RANKING_MODES } from '../../src/analytics/player-projection-types.js';
@@ -105,7 +104,7 @@ describe('End-to-end precompute flow (fan-out)', () => {
     );
     playerProjectionUC.computeLive = async () => baseProfile as any;
     const contextualProfileUC = new GetContextualProfileUseCase(
-      playerRepo, scUseCase, playerProjectionUC, matchRepo, new AnalyticsCache(), repo, async () => watermark,
+      playerRepo, scUseCase, playerProjectionUC, matchRepo, repo, async () => watermark,
     );
     contextualProfileUC.computeLive = async () => ({ kind: 'ok', result: contextualProfile as any });
     const teamRankingsUC = new GetTeamProjectionRankingsUseCase(
@@ -148,6 +147,28 @@ describe('End-to-end precompute flow (fan-out)', () => {
         findMostRecentRound: async () => null,
         listCoveredRounds: async () => new Set<number>(),
         save: async () => {},
+      },
+      // Spec 037 — four AnalyticsCache-replacing repos; this test doesn't
+      // exercise their gap-set sweeps, so a minimal stub suffices.
+      teamFormRepository: {
+        findTeamFormAggregate: async () => null,
+        listTeamFormAsOfRounds: async () => new Map(),
+        saveTeamFormAggregate: async () => {},
+      },
+      matchOutlookRepository: {
+        findMatchOutlookAggregate: async () => null,
+        listMatchOutlookAsOfRounds: async () => new Map(),
+        saveMatchOutlookAggregate: async () => {},
+      },
+      playerTrendsRepository: {
+        findPlayerTrendsAggregate: async () => null,
+        listPlayerTrendsAsOfRounds: async () => new Map(),
+        savePlayerTrendsAggregate: async () => {},
+      },
+      compositionImpactRepository: {
+        findCompositionImpactAggregate: async () => null,
+        listCompositionImpactAsOfRounds: async () => new Map(),
+        saveCompositionImpactAggregate: async () => {},
       },
     });
     await enqueueUC.execute({ scheduledTime: new Date('2026-05-20T06:00:00Z'), currentYear: 2026 });

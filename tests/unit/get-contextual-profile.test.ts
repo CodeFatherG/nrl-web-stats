@@ -11,7 +11,6 @@ import type { PlayerRepository } from '../../src/domain/repositories/player-repo
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
 import type { GetSupercoachScoresUseCase } from '../../src/application/use-cases/get-supercoach-scores.js';
 import type { GetPlayerProjectionUseCase } from '../../src/application/use-cases/get-player-projection.js';
-import { AnalyticsCache } from '../../src/analytics/analytics-cache.js';
 
 function makePlayerRepo(): PlayerRepository {
   return {
@@ -51,7 +50,7 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
 
     const uc = new GetContextualProfileUseCase(
       playerRepoSpy, makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     const result = await uc.execute(2026, 'p:test:1');
@@ -67,7 +66,7 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
 
     const uc = new GetContextualProfileUseCase(
       playerRepoSpy, makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     await uc.execute(2026, 'p:test:1');
@@ -83,7 +82,7 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
 
     const uc = new GetContextualProfileUseCase(
       playerRepoSpy, makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     await uc.execute(2026, 'p:test:1');
@@ -101,7 +100,7 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
 
     const uc = new GetContextualProfileUseCase(
       makePlayerRepo(), makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
     await uc.execute(2026, 'p:test:1');
     expect(saveAggSpy).not.toHaveBeenCalled();
@@ -118,7 +117,7 @@ describe('GetContextualProfileUseCase — repo-first (US3)', () => {
       savePlayerAggregate: async () => { throw new Error('store unavailable'); },
     });
     const uc = new GetContextualProfileUseCase(
-      makePlayerRepo(), makeScUseCase(), liveProjection, makeMatchRepo(), new AnalyticsCache(),
+      makePlayerRepo(), makeScUseCase(), liveProjection, makeMatchRepo(),
       brokenRepo as any, async () => 12,
     );
     // Must not throw despite the save failure.

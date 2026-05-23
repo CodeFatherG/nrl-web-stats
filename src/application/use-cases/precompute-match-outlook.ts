@@ -1,42 +1,43 @@
 /**
- * GetMatchOutlookUseCase — fetches the outlook for a (year, round).
+ * PrecomputeMatchOutlookUseCase — per-(year,round) leaf job for the
+ * match-outlook fan-out precompute pipeline.
  *
- * Spec 037 split: findPrecomputed (default windowSize) + computeLive (any).
+ * Feature: 037-analytics-cache-replacement (T050).
  */
 
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { FixtureRepository } from '../ports/fixture-repository.js';
 import type {
   MatchOutlookAggregate,
-  MatchOutlookPayload,
   MatchOutlookRepository,
+  MatchOutlookPayload,
 } from '../../domain/repositories/match-outlook-repository.js';
 import type { Match } from '../../domain/match.js';
 import { computeFormTrajectory } from '../../analytics/team-form-service.js';
 import { computeRoundOutlook } from '../../analytics/match-outlook-service.js';
 
-export const DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE = 5;
+const DEFAULT_WINDOW_SIZE = 5;
 
-export class GetMatchOutlookUseCase {
+export interface PrecomputeMatchOutlookInput {
+  readonly year: number;
+  readonly asOfRound: number;
+  readonly round: number;
+}
+
+export class PrecomputeMatchOutlookUseCase {
   constructor(
     private readonly matchRepository: MatchRepository,
     private readonly fixtureRepository: FixtureRepository,
     private readonly matchOutlookRepository: MatchOutlookRepository,
   ) {}
 
-  async findPrecomputed(
-    year: number,
-    round: number,
-  ): Promise<MatchOutlookAggregate | null> {
-    return this.matchOutlookRepository.findMatchOutlookAggregate(year, round);
-  }
+  async execute(input: PrecomputeMatchOutlookInput): Promise<void> {
+    const { year, asOfRound, round } = input;
 
-  async computeLive(
-    year: number,
-    round: number,
-    windowSize: number = DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE,
-  ): Promise<MatchOutlookPayload> {
-    const roundMatches = await this.matchRepository.findByYearAndRound(year, round);
+    const roundMatches = await this.matchRepository.findByYearAndRound(
+      year,
+      round,
+    );
     const allMatches = await this.matchRepository.findByYear(year);
     const allYears = await this.matchRepository.getLoadedYears();
     const allMatchesAllYears: Match[] = [];
@@ -55,7 +56,7 @@ export class GetMatchOutlookUseCase {
         teamFixtures,
         teamCode,
         year,
-        windowSize,
+        DEFAULT_WINDOW_SIZE,
       );
       formCache.set(teamCode, trajectory.rollingFormRating);
       return trajectory.rollingFormRating;
@@ -68,11 +69,19 @@ export class GetMatchOutlookUseCase {
       getFormRating,
     );
 
-    return {
+    const outlook: MatchOutlookPayload = {
       year,
       round,
       matches: outlooks,
       completedMatches: completed,
     };
+    const aggregate: MatchOutlookAggregate = {
+      year,
+      round,
+      asOfRound,
+      computedAt: new Date().toISOString(),
+      outlook,
+    };
+    await this.matchOutlookRepository.saveMatchOutlookAggregate(aggregate);
   }
 }

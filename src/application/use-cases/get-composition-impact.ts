@@ -1,10 +1,18 @@
 /**
- * GetCompositionImpactUseCase — retrieves team composition impact analysis with caching.
+ * GetCompositionImpactUseCase — fetches team-composition-impact analysis.
+ *
+ * Spec 037 split: findPrecomputed + computeLive. No parameter-based bypass —
+ * this endpoint has no windowSize parameter, so the handler always tries
+ * findPrecomputed first and falls through to computeLive only for the
+ * precompute job (not on the request path).
  */
 
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
-import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
+import type {
+  CompositionImpactAggregate,
+  CompositionImpactRepository,
+} from '../../domain/repositories/composition-impact-repository.js';
 import type { CompositionImpact } from '../../analytics/types.js';
 import { computeCompositionImpact } from '../../analytics/composition-service.js';
 import { resolveTeam } from '../../domain/team-identity.js';
@@ -13,34 +21,38 @@ export class GetCompositionImpactUseCase {
   constructor(
     private readonly matchRepository: MatchRepository,
     private readonly createPlayerRepository: (db: D1Database) => PlayerRepository,
-    private readonly cache: AnalyticsCache
+    private readonly compositionImpactRepository: CompositionImpactRepository,
   ) {}
 
-  async execute(db: D1Database, teamCode: string, year: number): Promise<CompositionImpact> {
-    const cacheKey = `composition-${teamCode}-${year}`;
-    const version = String(await this.matchRepository.getMatchCount());
+  async findPrecomputed(
+    teamCode: string,
+    year: number,
+  ): Promise<CompositionImpactAggregate | null> {
+    return this.compositionImpactRepository.findCompositionImpactAggregate(
+      year,
+      teamCode,
+    );
+  }
 
-    const cached = this.cache.get<CompositionImpact>(cacheKey, version);
-    if (cached) return cached;
-
+  async computeLive(
+    db: D1Database,
+    teamCode: string,
+    year: number,
+  ): Promise<CompositionImpact> {
     const repo = this.createPlayerRepository(db);
     const matches = await this.matchRepository.findByTeam(teamCode, year);
     const players = await repo.findByTeam(teamCode, year);
-
-    // Load full performances for each player
     const playersWithPerfs = await Promise.all(
-      players.map(async player => {
+      players.map(async (player) => {
         const performances = await repo.findMatchPerformances(player.id, year);
         return { ...player, performances };
-      })
+      }),
     );
-
-    const { playerImpacts, totalMatches, sampleSizeWarning } = computeCompositionImpact(
-      matches, playersWithPerfs, teamCode, year
-    );
+    const { playerImpacts, totalMatches, sampleSizeWarning } =
+      computeCompositionImpact(matches, playersWithPerfs, teamCode, year);
 
     const team = resolveTeam(teamCode);
-    const result: CompositionImpact = {
+    return {
       teamCode,
       teamName: team?.name ?? teamCode,
       year,
@@ -48,8 +60,5 @@ export class GetCompositionImpactUseCase {
       sampleSizeWarning,
       playerImpacts,
     };
-
-    this.cache.set(cacheKey, result, version);
-    return result;
   }
 }

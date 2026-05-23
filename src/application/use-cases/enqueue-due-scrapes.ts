@@ -23,6 +23,10 @@ import type { ProjectionRepository } from '../../domain/repositories/projection-
 import type { PlayerMovementsRepository } from '../../domain/repositories/player-movements-repository.js';
 import type { GameStrengthRepository } from '../../domain/repositories/game-strength-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
+import type { TeamFormRepository } from '../../domain/repositories/team-form-repository.js';
+import type { MatchOutlookRepository } from '../../domain/repositories/match-outlook-repository.js';
+import type { PlayerTrendsRepository } from '../../domain/repositories/player-trends-repository.js';
+import type { CompositionImpactRepository } from '../../domain/repositories/composition-impact-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
 import type { SupplementaryStatsSource } from '../../domain/ports/supplementary-stats-source.js';
@@ -69,6 +73,12 @@ export interface EnqueueDueScrapesDeps {
    *  the gap-set between rounds with complete team lists and rounds with a
    *  movements artifact already written. */
   playerMovementsRepository: PlayerMovementsRepository;
+  /** Spec 037: the four AnalyticsCache-replacing precomputed-artifact stores.
+   *  Each is consulted by its own gap-set sweep against the current watermark. */
+  teamFormRepository: TeamFormRepository;
+  matchOutlookRepository: MatchOutlookRepository;
+  playerTrendsRepository: PlayerTrendsRepository;
+  compositionImpactRepository: CompositionImpactRepository;
 }
 
 export interface EnqueueDueScrapesInput {
@@ -353,6 +363,73 @@ export class EnqueueDueScrapesUseCase {
           });
           logger.info('precompute.status.advanced', { year: currentYear, asOfRound: watermark });
         }
+      }
+    }
+
+    // --------------------------------------------------------------------
+    // 11. Spec 037 — Four AnalyticsCache-replacing artifacts. Per-tick
+    //     gap-set fan-out scoped to the current year only. Each artifact
+    //     family does one kv.list (metadata-only) to read coverage, then
+    //     publishes one leaf job per identity whose stored asOfRound is
+    //     below the current watermark.
+    //
+    //     Scoping rule (spec FR-009): current year only. Past-year identities
+    //     are not refreshed; if their artifacts are missing the read path
+    //     emits `{ available: false }` and an on-demand backfill is out of
+    //     scope for this feature.
+    // --------------------------------------------------------------------
+    if (watermark > 0) {
+      const yearMatches = await this.deps.matchRepository.findByYear(currentYear);
+      const teamCodes = new Set<string>();
+      const rounds = new Set<number>();
+      for (const m of yearMatches) {
+        if (m.homeTeamCode) teamCodes.add(m.homeTeamCode);
+        if (m.awayTeamCode) teamCodes.add(m.awayTeamCode);
+        if (m.round <= watermark) rounds.add(m.round);
+      }
+
+      // 11a. team-form — one leaf per (year, teamCode)
+      const teamFormCoverage = await this.deps.teamFormRepository.listTeamFormAsOfRounds(currentYear);
+      for (const teamCode of teamCodes) {
+        const coveredAt = teamFormCoverage.get(teamCode) ?? -1;
+        if (coveredAt >= watermark) continue;
+        await tryPublish(
+          { type: 'precompute-team-form', version: 1, year: currentYear, asOfRound: watermark, teamCode },
+          () => Promise.resolve(true),
+        );
+      }
+
+      // 11b. match-outlook — one leaf per (year, round) where round ≤ watermark
+      const matchOutlookCoverage = await this.deps.matchOutlookRepository.listMatchOutlookAsOfRounds(currentYear);
+      for (const round of rounds) {
+        const coveredAt = matchOutlookCoverage.get(round) ?? -1;
+        if (coveredAt >= watermark) continue;
+        await tryPublish(
+          { type: 'precompute-match-outlook', version: 1, year: currentYear, asOfRound: watermark, round },
+          () => Promise.resolve(true),
+        );
+      }
+
+      // 11c. player-trends — one leaf per (year, teamCode)
+      const playerTrendsCoverage = await this.deps.playerTrendsRepository.listPlayerTrendsAsOfRounds(currentYear);
+      for (const teamCode of teamCodes) {
+        const coveredAt = playerTrendsCoverage.get(teamCode) ?? -1;
+        if (coveredAt >= watermark) continue;
+        await tryPublish(
+          { type: 'precompute-player-trends', version: 1, year: currentYear, asOfRound: watermark, teamCode },
+          () => Promise.resolve(true),
+        );
+      }
+
+      // 11d. composition-impact — one leaf per (year, teamCode)
+      const compositionImpactCoverage = await this.deps.compositionImpactRepository.listCompositionImpactAsOfRounds(currentYear);
+      for (const teamCode of teamCodes) {
+        const coveredAt = compositionImpactCoverage.get(teamCode) ?? -1;
+        if (coveredAt >= watermark) continue;
+        await tryPublish(
+          { type: 'precompute-composition-impact', version: 1, year: currentYear, asOfRound: watermark, teamCode },
+          () => Promise.resolve(true),
+        );
       }
     }
 

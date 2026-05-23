@@ -81,7 +81,7 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 - **Computation trigger**: After every team-list scrape (`POST /api/team-list`) and in the scheduled cron handler, `ComputePlayerMovementsUseCase.execute(year, round)` is called. The use case computes results only when all playing teams for the round have submitted their lists — the expected team set is derived from match fixture data (`matchRepo.findByYearAndRound`), not a hardcoded constant
 - **Cold-start behaviour**: On a fresh isolate start, the cache is empty. The `GET /api/player-movements` handler returns `{ pending: true }` until the next computation completes (triggered by the next team-list scrape or cron cycle — at most ~1 hour delay)
 - **Round 1 edge case**: When `round === 1`, the use case stores a result with `noPreviousRound: true` and all movement arrays empty, since there is no prior round to compare against
-- **Relationship to other caches**: Follows the same in-memory singleton pattern as `AnalyticsCache` and `ResultCacheStore`, but has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised
+- **Relationship to other caches**: Follows the same in-memory singleton pattern as `ResultCacheStore`, but has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised. (`AnalyticsCache` was removed by spec 037 — see "Analytics Precomputed Artifacts" below.)
 
 ## Scheduled Tasks
 
@@ -253,3 +253,71 @@ No use case, handler, domain type, or production test should require changes.
 
 - Single weekly precompute: ~569 writes (one per active player + 17 teams × 4 modes + 1 status). Comfortably inside the 1,000 writes/day free-tier ceiling, with ~431 writes of headroom.
 - Overlap risk: a concurrent precompute against the same watermark would consume another ~569 writes — exceeding the daily cap. Tolerated because (a) overlap is rare in practice (queue redelivery or sub-precompute-duration discovery cadence are both unusual), and (b) the second run's first write raises `ProjectionStoreQuotaExhaustedError` and routes to DLQ — operationally visible.
+
+## Analytics Precomputed Artifacts (spec 037)
+
+Spec 037 replaced the per-isolate `AnalyticsCache` (a `Map<string, CacheEntry<unknown>>` with version-hash + 10-minute TTL invalidation) with four typed precomputed-artifact repositories, mirroring the spec-034/035/036 pattern.
+
+### Affected endpoints
+
+- `GET /api/analytics/form/:year/:teamCode` — backed by `TeamFormRepository`
+- `GET /api/analytics/outlook/:year/:round` — backed by `MatchOutlookRepository`
+- `GET /api/analytics/trends/:year/:teamCode` — backed by `PlayerTrendsRepository`
+- `GET /api/analytics/composition/:year/:teamCode` — backed by `CompositionImpactRepository`
+
+All four endpoints now return an **AvailabilityEnvelope** (HTTP 200 in both branches):
+
+```json
+// hit
+{ "available": true, "asOfRound": 8, "data": { ...existing payload... } }
+// miss
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+### Identities and key prefixes
+
+- Identity: `(teamCode, year)` for team-form / player-trends / composition-impact; `(year, round)` for match-outlook.
+- `windowSize` and `significantOnly` are NOT part of the identity. Requests with non-default values bypass the artifact store and run live compute on the request thread.
+- KV prefixes (non-colliding with spec-034/035/036):
+  - `team-form:v1:{year}:{teamCode}`
+  - `match-outlook:v1:{year}:{round}`
+  - `player-trends:v1:{year}:{teamCode}`
+  - `composition-impact:v1:{year}:{teamCode}`
+
+### Envelope shape
+
+`{ schemaVersion: 1, asOfRound, computedAt, payload: <identity + body> }`. KV `metadata` carries `{ asOfRound }` so cron-discovery can probe coverage via `kv.list` without value reads.
+
+### New `ScrapeJob` variants
+
+Added to the discriminated union in `src/application/ports/job-queue.ts`:
+
+- `precompute-team-form { year, asOfRound, teamCode }`
+- `precompute-match-outlook { year, asOfRound, round }`
+- `precompute-player-trends { year, asOfRound, teamCode }`
+- `precompute-composition-impact { year, asOfRound, teamCode }`
+
+Each leaf job runs the existing analytics service for its identity and writes one envelope to the relevant repository.
+
+### Watermark
+
+All four artifacts use the same watermark predicate as spec-034 projections — `currentWatermark(year)` in `src/application/services/current-watermark.ts`. Round R is "complete" iff every fixture has a match result, player stats for both teams, and supplementary stats for the round.
+
+### Discovery
+
+`EnqueueDueScrapesUseCase` adds a new section (11) after the existing projection-precompute section. For each of the four artifact families it lists stored asOfRounds via metadata-only `kv.list`, diffs against the expected identity set for the current year, and publishes one leaf job per gap. Cost: 4 `kv.list` calls per tick (current-year-only fan-out per spec 037 FR-009).
+
+### Contextual-profile / projection cleanup
+
+The two contextual use cases (`get-contextual-profile`, `get-contextual-projection`) no longer reference `AnalyticsCache`. Their primary memoisations and the secondary `OpponentDefensiveProfile` sub-caches were removed. The `SPEC-034-READTHROUGH` blocks remain — projection-store durability replaces the deleted RAM layer.
+
+### Quota
+
+All four repositories raise typed `*StoreQuotaExhaustedError` (e.g. `TeamFormStoreQuotaExhaustedError`) which `HandleScrapeJobUseCase.classifyError` routes to terminal (DLQ). Pattern verbatim from spec 034.
+
+### Removed
+
+- `src/analytics/analytics-cache.ts` (class)
+- `tests/unit/analytics-cache.test.ts`
+- The `const analyticsCache = new AnalyticsCache()` singleton in `src/worker.ts`
+- The 10-minute TTL safety net (replaced by watermark-driven invalidation)

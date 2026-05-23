@@ -11,7 +11,6 @@ import type { PlayerRepository } from '../../src/domain/repositories/player-repo
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
 import type { GetSupercoachScoresUseCase } from '../../src/application/use-cases/get-supercoach-scores.js';
 import type { GetPlayerProjectionUseCase } from '../../src/application/use-cases/get-player-projection.js';
-import { AnalyticsCache } from '../../src/analytics/analytics-cache.js';
 import type { OpponentAdjustment, VenueAdjustment, WeatherAdjustment } from '../../src/analytics/contextual-projection-types.js';
 
 function makeRepo() {
@@ -86,7 +85,6 @@ describe('GetContextualProjectionUseCase — repo-first slicing (US3)', () => {
       makeScUseCase(),
       liveSpy,
       makeMatchRepo(),
-      new AnalyticsCache(),
       repo,
       async () => 12,
     );
@@ -112,7 +110,7 @@ describe('GetContextualProjectionUseCase — repo-first slicing (US3)', () => {
 
     const uc = new GetContextualProjectionUseCase(
       makePlayerRepo(), makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     const result = await uc.execute(2026, 'p:test:1');
@@ -130,7 +128,7 @@ describe('GetContextualProjectionUseCase — repo-first slicing (US3)', () => {
 
     const uc = new GetContextualProjectionUseCase(
       playerRepoSpy, makeScUseCase(), liveSpy,
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     const result = await uc.execute(2026, 'p:test:1', 'CBR');
@@ -150,7 +148,7 @@ describe('GetContextualProjectionUseCase — repo-first slicing (US3)', () => {
 
     const uc = new GetContextualProjectionUseCase(
       playerRepoSpy, makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
 
     await uc.execute(2026, 'p:test:1', 'CBR');
@@ -164,7 +162,7 @@ describe('GetContextualProjectionUseCase — repo-first slicing (US3)', () => {
 
     const uc = new GetContextualProjectionUseCase(
       makePlayerRepo(), makeScUseCase(), makeLiveProjectionUseCase(),
-      makeMatchRepo(), new AnalyticsCache(), repo, async () => 12,
+      makeMatchRepo(), repo, async () => 12,
     );
     await uc.execute(2026, 'p:test:1');
 

@@ -19,7 +19,6 @@ import { ScrapeSupplementaryStatsUseCase } from './application/use-cases/scrape-
 import { GetSupercoachScoresUseCase } from './application/use-cases/get-supercoach-scores.js';
 import { D1PlayerNameLinkRepository } from './infrastructure/persistence/d1-player-name-link-repo.js';
 import { loadScoringConfig } from './config/supercoach-scoring-config.js';
-import { AnalyticsCache } from './analytics/analytics-cache.js';
 import { NrlComTeamListAdapter } from './infrastructure/adapters/nrl-com-team-list-adapter.js';
 import { D1TeamListRepository } from './infrastructure/persistence/d1-team-list-repository.js';
 import { ScrapeTeamListsUseCase } from './application/use-cases/scrape-team-lists.js';
@@ -60,6 +59,23 @@ import { InMemoryProjectionRepository } from './infrastructure/cache/in-memory-p
 import { currentWatermark } from './application/services/current-watermark.js';
 import { PrecomputePlayerProjectionUseCase } from './application/use-cases/precompute-player-projection.js';
 import { PrecomputeTeamRankingsUseCase } from './application/use-cases/precompute-team-rankings.js';
+// Spec 037 — four precomputed-artifact repositories for the analytics endpoints
+import type { TeamFormRepository } from './domain/repositories/team-form-repository.js';
+import { KvTeamFormRepository } from './infrastructure/persistence/kv-team-form-repository.js';
+import { InMemoryTeamFormRepository } from './infrastructure/persistence/in-memory-team-form-repository.js';
+import type { MatchOutlookRepository } from './domain/repositories/match-outlook-repository.js';
+import { KvMatchOutlookRepository } from './infrastructure/persistence/kv-match-outlook-repository.js';
+import { InMemoryMatchOutlookRepository } from './infrastructure/persistence/in-memory-match-outlook-repository.js';
+import type { PlayerTrendsRepository } from './domain/repositories/player-trends-repository.js';
+import { KvPlayerTrendsRepository } from './infrastructure/persistence/kv-player-trends-repository.js';
+import { InMemoryPlayerTrendsRepository } from './infrastructure/persistence/in-memory-player-trends-repository.js';
+import type { CompositionImpactRepository } from './domain/repositories/composition-impact-repository.js';
+import { KvCompositionImpactRepository } from './infrastructure/persistence/kv-composition-impact-repository.js';
+import { InMemoryCompositionImpactRepository } from './infrastructure/persistence/in-memory-composition-impact-repository.js';
+import { PrecomputeTeamFormUseCase } from './application/use-cases/precompute-team-form.js';
+import { PrecomputeMatchOutlookUseCase } from './application/use-cases/precompute-match-outlook.js';
+import { PrecomputePlayerTrendsUseCase } from './application/use-cases/precompute-player-trends.js';
+import { PrecomputeCompositionImpactUseCase } from './application/use-cases/precompute-composition-impact.js';
 
 // Environment bindings type
 export interface Env {
@@ -79,7 +95,6 @@ const playerStatsSource = new NrlComPlayerStatsAdapter();
 const supplementaryStatsSource = new NrlSupercoachStatsAdapter();
 const teamListSource = new NrlComTeamListAdapter();
 const casualtyWardSource = new NrlComCasualtyWardAdapter();
-const analyticsCache = new AnalyticsCache();
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
 
 // D1-dependent deps — lazily initialized on first request when env.DB is available
@@ -116,6 +131,21 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
     ? new KvProvisionalGameStrengthRepository(cache)
     : new InMemoryProvisionalGameStrengthRepository();
 
+  // Spec 037 — composition roots for the four analytics precomputed-artifact
+  // repositories. Same KV/in-memory selection rule as above.
+  const teamFormRepository: TeamFormRepository = cache
+    ? new KvTeamFormRepository(cache)
+    : new InMemoryTeamFormRepository();
+  const matchOutlookRepository: MatchOutlookRepository = cache
+    ? new KvMatchOutlookRepository(cache)
+    : new InMemoryMatchOutlookRepository();
+  const playerTrendsRepository: PlayerTrendsRepository = cache
+    ? new KvPlayerTrendsRepository(cache)
+    : new InMemoryPlayerTrendsRepository();
+  const compositionImpactRepository: CompositionImpactRepository = cache
+    ? new KvCompositionImpactRepository(cache)
+    : new InMemoryCompositionImpactRepository();
+
   // Per-request D1 binding constructions still happen in the factories
   // below; the composite is built per-request inside those factories so
   // each request gets a D1 sub-adapter scoped to its own binding (the
@@ -135,10 +165,19 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
     createPlayerRepository: createPlayerRepo,
     createScrapePlayerStatsUseCase: (reqDb: D1Database) =>
       new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb), new D1SupplementaryStatsRepository(reqDb)),
-    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
-    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
-    getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache),
-    getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache),
+    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, teamFormRepository),
+    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, matchOutlookRepository),
+    getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, playerTrendsRepository),
+    getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, compositionImpactRepository),
+    teamFormRepository,
+    matchOutlookRepository,
+    playerTrendsRepository,
+    compositionImpactRepository,
+    watermarkFn: (reqDb: D1Database, year: number) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
+      return currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+    },
     createScrapeSupplementaryStatsUseCase: (reqDb: D1Database) =>
       new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, new D1SupplementaryStatsRepository(reqDb)),
     createGetSupercoachScoresUseCase: (reqDb: D1Database) =>
@@ -175,7 +214,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
       // for the route handler.
       const innerPlayerProj = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
       const contextualProfileForReadThrough = new GetContextualProfileUseCase(
-        playerRepo, scUseCase, innerPlayerProj, matchRepository, analyticsCache, projectionRepository, watermarkFn,
+        playerRepo, scUseCase, innerPlayerProj, matchRepository, projectionRepository, watermarkFn,
       );
       return new GetPlayerProjectionUseCase(
         playerRepo, scUseCase, projectionRepository, watermarkFn,
@@ -210,7 +249,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
       const watermarkFn = (year: number) =>
         currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
       const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
-      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache, projectionRepository, watermarkFn);
+      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, projectionRepository, watermarkFn);
     },
     createGetContextualProfileUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
@@ -225,7 +264,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
       const watermarkFn = (year: number) =>
         currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
       const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
-      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache, projectionRepository, watermarkFn);
+      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, projectionRepository, watermarkFn);
     },
     playerMovementsRepository,
     createComputePlayerMovementsUseCase: (reqDb: D1Database) =>
@@ -412,6 +451,10 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       projectionRepository: deps.projectionRepository,
       watermarkFn,
       playerMovementsRepository: deps.playerMovementsRepository,
+      teamFormRepository: deps.teamFormRepository,
+      matchOutlookRepository: deps.matchOutlookRepository,
+      playerTrendsRepository: deps.playerTrendsRepository,
+      compositionImpactRepository: deps.compositionImpactRepository,
     });
     await enqueueUseCase.execute({
       scheduledTime: new Date(event.scheduledTime),
@@ -473,6 +516,23 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     teamRankingsLive: teamRankingsUC,
   });
 
+  // Spec 037: per-(year,identity) precompute leaf jobs for the four
+  // AnalyticsCache-replacing repositories. Each is independent of US-2's
+  // projection precompute pipeline; they read from the same match/player
+  // D1 bindings but write to their own KV / in-memory backed repositories.
+  const precomputeTeamFormUC = new PrecomputeTeamFormUseCase(
+    deps.matchRepository, fixtureRepositoryAdapter, deps.teamFormRepository,
+  );
+  const precomputeMatchOutlookUC = new PrecomputeMatchOutlookUseCase(
+    deps.matchRepository, fixtureRepositoryAdapter, deps.matchOutlookRepository,
+  );
+  const precomputePlayerTrendsUC = new PrecomputePlayerTrendsUseCase(
+    playerRepo, deps.playerTrendsRepository,
+  );
+  const precomputeCompositionImpactUC = new PrecomputeCompositionImpactUseCase(
+    deps.matchRepository, playerRepo, deps.compositionImpactRepository,
+  );
+
   const dispatcher = new HandleScrapeJobUseCase({
     scrapeMatchResults: deps.scrapeMatchResultsUseCase,
     scrapePlayerStats: scrapePlayerStatsUC,
@@ -483,6 +543,10 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     lockGameStrength: lockGsrUC,
     precomputePlayerProjection: precomputePlayerProjectionUC,
     precomputeTeamRankings: precomputeTeamRankingsUC,
+    precomputeTeamForm: precomputeTeamFormUC,
+    precomputeMatchOutlook: precomputeMatchOutlookUC,
+    precomputePlayerTrends: precomputePlayerTrendsUC,
+    precomputeCompositionImpact: precomputeCompositionImpactUC,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

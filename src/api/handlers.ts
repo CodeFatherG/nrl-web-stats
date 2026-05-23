@@ -38,9 +38,20 @@ import type { TeamListRepository } from '../domain/repositories/team-list-reposi
 import type { ScrapeCasualtyWardUseCase } from '../application/use-cases/scrape-casualty-ward.js';
 import type { CasualtyWardRepository } from '../domain/repositories/casualty-ward-repository.js';
 import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
+import { DEFAULT_TEAM_FORM_WINDOW_SIZE } from '../application/use-cases/get-team-form.js';
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
+import { DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
+import {
+  DEFAULT_PLAYER_TRENDS_WINDOW_SIZE,
+  DEFAULT_PLAYER_TRENDS_SIGNIFICANT_ONLY,
+} from '../application/use-cases/get-player-trends.js';
 import type { GetCompositionImpactUseCase } from '../application/use-cases/get-composition-impact.js';
+import type { TeamFormRepository } from '../domain/repositories/team-form-repository.js';
+import type { MatchOutlookRepository } from '../domain/repositories/match-outlook-repository.js';
+import type { PlayerTrendsRepository } from '../domain/repositories/player-trends-repository.js';
+import type { CompositionImpactRepository } from '../domain/repositories/composition-impact-repository.js';
+import { available, precomputePending } from './availability-envelope.js';
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
@@ -131,6 +142,18 @@ export interface HandlerDeps {
    *  (locked artifacts in D1 + provisional artifacts in KV, behind one port).
    *  Per-request because the D1 sub-adapter is request-scoped. */
   gameStrengthRepository: (db: D1Database) => GameStrengthRepository;
+  /** Spec 037: watermark function used by the four analytics handlers when
+   *  they fall through to live-compute (non-default windowSize / significantOnly).
+   *  Returns the highest round R such that match-performances are complete for
+   *  every team's match in (year, R). Reuses application/services/current-watermark. */
+  watermarkFn: (db: D1Database, year: number) => Promise<number>;
+  /** Spec 037: the four precomputed-artifact repositories. Exposed on deps so
+   *  the queue handler (which builds its own precompute use cases) and the
+   *  cron-discovery sweep can reach them without going through the use cases. */
+  teamFormRepository: TeamFormRepository;
+  matchOutlookRepository: MatchOutlookRepository;
+  playerTrendsRepository: PlayerTrendsRepository;
+  compositionImpactRepository: CompositionImpactRepository;
 }
 
 // Environment bindings type
@@ -859,8 +882,18 @@ export function getTeamForm(deps: HandlerDeps) {
     const { year, teamCode } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const trajectory = await deps.getTeamFormUseCase.execute(teamCode, year, windowSize);
-    return c.json(trajectory);
+    if (windowSize === DEFAULT_TEAM_FORM_WINDOW_SIZE) {
+      const aggregate = await deps.getTeamFormUseCase.findPrecomputed(teamCode, year);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.trajectory));
+    }
+
+    // Non-default windowSize: live-compute and stamp current watermark.
+    const trajectory = await deps.getTeamFormUseCase.computeLive(teamCode, year, windowSize);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, trajectory));
   };
 }
 
@@ -888,8 +921,17 @@ export function getMatchOutlook(deps: HandlerDeps) {
     const { year, round } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const result = await deps.getMatchOutlookUseCase.execute(year, round, windowSize);
-    return c.json(result);
+    if (windowSize === DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE) {
+      const aggregate = await deps.getMatchOutlookUseCase.findPrecomputed(year, round);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.outlook));
+    }
+
+    const outlook = await deps.getMatchOutlookUseCase.computeLive(year, round, windowSize);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, outlook));
   };
 }
 
@@ -918,10 +960,22 @@ export function getPlayerTrends(deps: HandlerDeps) {
     const { year, teamCode } = paramsResult.data;
     const { window: windowSize, significantOnly } = queryResult.data;
 
-    const result = await deps.getPlayerTrendsUseCase.execute(
+    if (
+      windowSize === DEFAULT_PLAYER_TRENDS_WINDOW_SIZE &&
+      significantOnly === DEFAULT_PLAYER_TRENDS_SIGNIFICANT_ONLY
+    ) {
+      const aggregate = await deps.getPlayerTrendsUseCase.findPrecomputed(teamCode, year);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.trends));
+    }
+
+    const trends = await deps.getPlayerTrendsUseCase.computeLive(
       c.env.DB, teamCode, year, windowSize, significantOnly
     );
-    return c.json(result);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, trends));
   };
 }
 
@@ -941,8 +995,12 @@ export function getCompositionImpact(deps: HandlerDeps) {
 
     const { year, teamCode } = paramsResult.data;
 
-    const result = await deps.getCompositionImpactUseCase.execute(c.env.DB, teamCode, year);
-    return c.json(result);
+    // Composition-impact has no parameter-based bypass — always consult repo first.
+    const aggregate = await deps.getCompositionImpactUseCase.findPrecomputed(teamCode, year);
+    if (aggregate === null) {
+      return c.json(precomputePending());
+    }
+    return c.json(available(aggregate.asOfRound, aggregate.impact));
   };
 }
 

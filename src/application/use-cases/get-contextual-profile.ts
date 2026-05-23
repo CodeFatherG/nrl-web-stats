@@ -12,7 +12,6 @@ import type { MatchRepository } from '../../domain/repositories/match-repository
 import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
 import type { GetPlayerProjectionUseCase, WatermarkFn } from './get-player-projection.js';
-import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
 import type {
   ContextualEligibleGame,
   ContextualProfileResult,
@@ -48,7 +47,6 @@ export class GetContextualProfileUseCase {
     private readonly supercoachUseCase: GetSupercoachScoresUseCase,
     private readonly projectionUseCase: GetPlayerProjectionUseCase,
     private readonly matchRepository: MatchRepository,
-    private readonly analyticsCache: AnalyticsCache,
     private readonly projectionRepository: ProjectionRepository,
     private readonly watermarkFn: WatermarkFn,
   ) {}
@@ -97,9 +95,9 @@ export class GetContextualProfileUseCase {
   ): Promise<void> {
     try {
       // baseProfile is needed to assemble the full aggregate. projectionUseCase
-      // is repo-first, so this is one in-memory cache hit if the AnalyticsCache
-      // already coalesced the computation, otherwise a live recompute. In the
-      // typical miss path the AnalyticsCache has it.
+      // is repo-first; on miss it will live-compute (and write-through to the
+      // projection store via its own read-through block). Spec 037 removes the
+      // intermediate AnalyticsCache layer that used to coalesce these calls.
       const baseProfile = await this.projectionUseCase.execute(year, playerId);
       if (!baseProfile) return;
       const asOfRound = await this.watermarkFn(year);
@@ -141,10 +139,9 @@ export class GetContextualProfileUseCase {
       .map(m => m.round);
     const latestCompleteRound = completedRounds.length > 0 ? Math.max(...completedRounds) : 0;
 
-    const cacheVersion = `${year}:${latestCompleteRound}`;
-    const cacheKey = `contextual-profile:${playerId}:${year}`;
-    const cached = this.analyticsCache.get<ContextualProfileResult>(cacheKey, cacheVersion);
-    if (cached) return { kind: 'ok', result: cached };
+    // Spec 037 — RAM memoization (AnalyticsCache) removed. Live compute every
+    // time we reach this path; the projection store's read-through block
+    // provides cross-isolate durable caching for the assembled aggregate.
 
     const loadedYears = await this.matchRepository.getLoadedYears();
 
@@ -166,7 +163,7 @@ export class GetContextualProfileUseCase {
       ceiling: baseProfile.projectedCeiling,
     };
 
-    const defenseProfile = await this.getOrBuildDefenseProfile(year, latestCompleteRound, cacheVersion, loadedYears);
+    const defenseProfile = await this.buildDefenseProfile(year, latestCompleteRound, loadedYears);
 
     const opponents: ContextualProfileResult['opponents'] = {};
     for (const teamCode of VALID_TEAM_CODES) {
@@ -196,21 +193,15 @@ export class GetContextualProfileUseCase {
       weather,
     };
 
-    this.analyticsCache.set(cacheKey, result, cacheVersion);
     logger.info('Computed contextual profile', { playerId, year });
     return { kind: 'ok', result };
   }
 
-  private async getOrBuildDefenseProfile(
+  private async buildDefenseProfile(
     year: number,
     latestCompleteRound: number,
-    cacheVersion: string,
     loadedYears: number[],
   ): Promise<OpponentDefensiveProfile> {
-    const defenseKey = `opponent-defense-profile:${year}`;
-    const cached = this.analyticsCache.get<OpponentDefensiveProfile>(defenseKey, cacheVersion);
-    if (cached) return cached;
-
     const minSeason = loadedYears.length > 0 ? Math.min(...loadedYears) : year;
     const maxSeason = loadedYears.length > 0 ? Math.max(...loadedYears) : year;
 
@@ -246,7 +237,6 @@ export class GetContextualProfileUseCase {
     }
 
     const profile = buildOpponentDefenseProfile(allGames, positions, year, latestCompleteRound);
-    this.analyticsCache.set(defenseKey, profile, cacheVersion);
     return profile;
   }
 

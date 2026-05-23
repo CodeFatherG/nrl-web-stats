@@ -145,14 +145,14 @@ export function TeamView() {
         ))}
       </Box>
 
-      {/* Form sparkline */}
-      {formQuery.data && formQuery.data.snapshots.length > 0 && (
+      {/* Form sparkline — spec 037: AvailabilityEnvelope */}
+      {formQuery.data?.available && formQuery.data.data.snapshots.length > 0 && (
         <SectionCard title="Form" sx={{ mb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <FormSparkline snapshots={formQuery.data.snapshots} width={200} height={40} />
-            {formQuery.data.classification && (
+            <FormSparkline snapshots={formQuery.data.data.snapshots} width={200} height={40} />
+            {formQuery.data.data.classification && (
               <Typography variant="caption" color="text.secondary">
-                {formQuery.data.classification}
+                {formQuery.data.data.classification}
               </Typography>
             )}
           </Box>

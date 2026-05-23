@@ -1,6 +1,17 @@
 # Analytics
 
-Eight analytics capabilities are available, all computed on-demand from existing fixture, match, and player data. No persistent analytics storage — results are cached in-memory with version-based invalidation.
+Eight analytics capabilities are available.
+
+**Spec 037 — precomputed-artifact storage**: `team-form`, `match-outlook`,
+`player-trends`, and `composition-impact` are populated by a precompute
+pipeline (cron + scrape-driven job-queue fan-out) into KV-backed repositories.
+Read requests are served from the artifact stores; misses return
+`{ available: false, reason: 'precompute-pending' }` until the next
+precompute tick. Non-default `windowSize` / `significantOnly` query
+parameters bypass the artifact stores and run live compute on the request
+thread. The other endpoints (`contextual-profile`, `contextual-projection`,
+plus the projection / rankings / GSR endpoints from specs 034 and 036)
+continue to use their respective repositories or live-compute paths.
 
 ## Team Form Analysis
 
@@ -397,12 +408,13 @@ adjustedProjection = { total: base.total * combined, floor: base.floor * combine
 
 Only opponent and venue multipliers are included in the `multipliers[]` array. Weather is excluded.
 
-### Cache Key Strategy
+### Caching Strategy (spec 037)
 
-- Defensive profile: `opponent-defense-profile:${year}` with version `${year}:${latestCompleteRound}`
-- Per-player result: `contextual-projection:${playerId}:${opponent??'none'}:${venue??'none'}:${weather??'none'}:${year}` with same version
-- Cache invalidates naturally when `latestCompleteRound` increases (a new round completes)
-- 10-minute TTL safety net via `AnalyticsCache`
+The intermediate `AnalyticsCache` RAM layer was removed by spec 037. Contextual
+profile / projection results are not memoised between requests — each
+projection-store miss falls all the way through to live compute and writes
+the result through to the spec-034 projection store. Cross-isolate durability
+comes from the projection store, not from any per-isolate cache.
 
 ### Extensibility
 

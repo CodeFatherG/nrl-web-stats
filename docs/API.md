@@ -935,6 +935,18 @@ Trigger casualty ward scrape from nrl.com. Uses change detection to insert new e
 
 ## Analytics
 
+> **Spec 037 wire-format**: The four endpoints below — `/api/analytics/form`,
+> `/outlook`, `/trends`, `/composition` — return an **AvailabilityEnvelope**:
+> hit returns `{ available: true, asOfRound: <number>, data: { ...payload } }`,
+> miss returns `{ available: false, asOfRound: null, reason: 'precompute-pending' }`.
+> Both responses use HTTP 200. Clients MUST branch on `available` before
+> reading `data`. Artifacts are populated by the precompute pipeline triggered
+> by cron / scrape signals; the "miss" state is transient (typically minutes
+> after deploy or KV-wipe). Non-default `window` / `significantOnly` query
+> values bypass the precomputed-artifact store and run live compute on the
+> request thread — the response shape is identical but `data` is freshly
+> computed.
+
 ### GET /api/analytics/form/:year/:teamCode
 
 Get team form trajectory showing performance trend over recent rounds.
@@ -944,23 +956,32 @@ Get team form trajectory showing performance trend over recent rounds.
 - `teamCode` (string, required): Team code
 
 **Query Parameters**:
-- `window` (number, optional): Rolling window size (1–27). Default: 5
+- `window` (number, optional): Rolling window size (1–27). Default: 5. Non-default values bypass the artifact store and live-compute.
 
-**Response** (200):
+**Response — hit** (200):
 ```json
 {
-  "teamCode": "MEL", "teamName": "Melbourne Storm",
-  "year": 2026, "windowSize": 5,
-  "snapshots": [
-    {
-      "round": 3, "result": "win", "margin": 12,
-      "opponentCode": "BRO", "opponentStrengthRating": 0.65, "formScore": 0.85
-    }
-  ],
-  "rollingFormRating": 0.72,
-  "classification": "outperforming",
-  "sampleSizeWarning": false
+  "available": true,
+  "asOfRound": 8,
+  "data": {
+    "teamCode": "MEL", "teamName": "Melbourne Storm",
+    "year": 2026, "windowSize": 5,
+    "snapshots": [
+      {
+        "round": 3, "result": "win", "margin": 12,
+        "opponentCode": "BRO", "opponentStrengthRating": 0.65, "formScore": 0.85
+      }
+    ],
+    "rollingFormRating": 0.72,
+    "classification": "outperforming",
+    "sampleSizeWarning": false
+  }
 }
+```
+
+**Response — miss** (200):
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
 ```
 
 `classification` values: `"outperforming"` (>0.65), `"meeting"` (0.35–0.65), `"underperforming"` (<0.35)

@@ -17,6 +17,10 @@ import { ProjectionStoreQuotaExhaustedError } from '../../domain/repositories/pr
 import { PlayerMovementsStoreQuotaExhaustedError } from '../../domain/repositories/player-movements-repository.js';
 import { ProvisionalGameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/provisional-game-strength-repository.js';
 import { GameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/game-strength-repository.js';
+import { TeamFormStoreQuotaExhaustedError } from '../../domain/repositories/team-form-repository.js';
+import { MatchOutlookStoreQuotaExhaustedError } from '../../domain/repositories/match-outlook-repository.js';
+import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/player-trends-repository.js';
+import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -26,6 +30,10 @@ import type { ComputePlayerMovementsUseCase } from './compute-player-movements.j
 import type { LockGameStrengthRatingsUseCase } from './lock-game-strength-ratings.js';
 import type { PrecomputePlayerProjectionUseCase } from './precompute-player-projection.js';
 import type { PrecomputeTeamRankingsUseCase } from './precompute-team-rankings.js';
+import type { PrecomputeTeamFormUseCase } from './precompute-team-form.js';
+import type { PrecomputeMatchOutlookUseCase } from './precompute-match-outlook.js';
+import type { PrecomputePlayerTrendsUseCase } from './precompute-player-trends.js';
+import type { PrecomputeCompositionImpactUseCase } from './precompute-composition-impact.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -48,6 +56,12 @@ export interface HandleScrapeJobDeps {
   precomputePlayerProjection?: PrecomputePlayerProjectionUseCase;
   /** Spec 034: per (team, mode) leaf job. */
   precomputeTeamRankings?: PrecomputeTeamRankingsUseCase;
+  /** Spec 037: four new precomputed-artifact leaf jobs. Optional to keep test
+   *  wiring without precompute scaffolding cheap. */
+  precomputeTeamForm?: PrecomputeTeamFormUseCase;
+  precomputeMatchOutlook?: PrecomputeMatchOutlookUseCase;
+  precomputePlayerTrends?: PrecomputePlayerTrendsUseCase;
+  precomputeCompositionImpact?: PrecomputeCompositionImpactUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
@@ -68,6 +82,19 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   // error directly without going through the composite's re-wrap.
   if (err instanceof ProvisionalGameStrengthStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'provisional-game-strength-store-quota-exhausted' };
+  }
+  // Spec 037 — terminal quota errors for the four new precomputed-artifact families.
+  if (err instanceof TeamFormStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'team-form-store-quota-exhausted' };
+  }
+  if (err instanceof MatchOutlookStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'match-outlook-store-quota-exhausted' };
+  }
+  if (err instanceof PlayerTrendsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'player-trends-store-quota-exhausted' };
+  }
+  if (err instanceof CompositionImpactStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'composition-impact-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -192,6 +219,46 @@ export class HandleScrapeJobUseCase {
           asOfRound: job.asOfRound,
           teamCode: job.teamCode,
           mode: job.mode,
+        });
+        return;
+      case 'precompute-team-form':
+        if (!this.deps.precomputeTeamForm) {
+          throw new Error('precompute-team-form dispatched but no PrecomputeTeamFormUseCase wired');
+        }
+        await this.deps.precomputeTeamForm.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+        });
+        return;
+      case 'precompute-match-outlook':
+        if (!this.deps.precomputeMatchOutlook) {
+          throw new Error('precompute-match-outlook dispatched but no PrecomputeMatchOutlookUseCase wired');
+        }
+        await this.deps.precomputeMatchOutlook.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          round: job.round,
+        });
+        return;
+      case 'precompute-player-trends':
+        if (!this.deps.precomputePlayerTrends) {
+          throw new Error('precompute-player-trends dispatched but no PrecomputePlayerTrendsUseCase wired');
+        }
+        await this.deps.precomputePlayerTrends.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+        });
+        return;
+      case 'precompute-composition-impact':
+        if (!this.deps.precomputeCompositionImpact) {
+          throw new Error('precompute-composition-impact dispatched but no PrecomputeCompositionImpactUseCase wired');
+        }
+        await this.deps.precomputeCompositionImpact.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
         });
         return;
       default: {
