@@ -1,13 +1,9 @@
 /**
- * Cache module exports
+ * Cache module exports.
+ *
+ * `CacheStore` and `getNextMondayExpiry` were removed by spec 038 — fixture
+ * persistence now goes through `FixtureRepository`. Only the result-cache
+ * (per-isolate match-result coalescing) remains.
  */
 
-export { cacheStore, CacheStore, getNextMondayExpiry } from './store.js';
-export type {
-  CachedSeasonData,
-  CacheEntry,
-  CacheStatus,
-  CacheEntryStatus,
-  CacheOptions,
-  CacheFetchResult,
-} from './types.js';
+export { ResultCacheStore, resultCacheStore } from './result-cache.js';

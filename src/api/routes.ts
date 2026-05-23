@@ -53,8 +53,9 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   // Season Summary (use injected deps for metadata)
   api.get('/season/:year/summary', handlers.getSeasonSummary(deps));
 
-  // Scrape trigger (use injected use case)
+  // Scrape trigger — both routes enqueue a scrape-draw job (spec 038).
   api.post('/scrape', handlers.triggerScrape(deps));
+  api.post('/scrape/draw', handlers.triggerScrape(deps));
 
   // Match Detail
   api.get('/matches/:matchId', handlers.getMatchDetail(deps));

@@ -5,7 +5,7 @@
  */
 
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
-import type { FixtureRepository } from '../ports/fixture-repository.js';
+import type { FixtureRepository } from '../../domain/repositories/fixture-repository.js';
 import type {
   MatchOutlookAggregate,
   MatchOutlookPayload,
@@ -44,12 +44,13 @@ export class GetMatchOutlookUseCase {
       const yearMatches = await this.matchRepository.findByYear(y);
       allMatchesAllYears.push(...yearMatches);
     }
-    const fixtures = this.fixtureRepository.findByYear(year);
+    const yearArtifact = await this.fixtureRepository.findByYear(year);
+    const fixtures = yearArtifact ? [...yearArtifact.payload] : [];
 
     const formCache = new Map<string, number | null>();
     const getFormRating = (teamCode: string): number | null => {
       if (formCache.has(teamCode)) return formCache.get(teamCode)!;
-      const teamFixtures = this.fixtureRepository.findByYearAndTeam(year, teamCode);
+      const teamFixtures = fixtures.filter(f => f.teamCode === teamCode);
       const trajectory = computeFormTrajectory(
         allMatches,
         teamFixtures,

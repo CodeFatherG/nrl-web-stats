@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import type { HandlerDeps } from '../../src/api/handlers.js';
 import * as handlers from '../../src/api/handlers.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
-import type { FixtureRepository } from '../../src/application/ports/fixture-repository.js';
+import type { FixtureArtifact, FixtureRepository } from '../../src/domain/repositories/fixture-repository.js';
 import { GetTeamFormUseCase } from '../../src/application/use-cases/get-team-form.js';
 import { PrecomputeTeamFormUseCase } from '../../src/application/use-cases/precompute-team-form.js';
 import { InMemoryTeamFormRepository } from '../../src/infrastructure/persistence/in-memory-team-form-repository.js';
@@ -37,19 +37,32 @@ function createMockMatchRepository(matches: Match[]): MatchRepository {
   };
 }
 
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
+  return {
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures.filter(f => f.year === year),
+  };
+}
+
 function createMockFixtureRepository(fixtures: Fixture[]): FixtureRepository {
   return {
-    findByYear: (year) => fixtures.filter(f => f.year === year),
-    findByTeam: (code) => fixtures.filter(f => f.teamCode === code),
-    findByRound: (year, round) => fixtures.filter(f => f.year === year && f.round === round),
-    findByYearAndTeam: (year, code) => fixtures.filter(f => f.year === year && f.teamCode === code),
-    isYearLoaded: () => true,
-    getLoadedYears: () => [2026],
-    getAllTeams: () => [],
-    getTeamByCode: () => undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => fixtures.length,
-    loadFixtures: () => {},
+    findByYear: async (year) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return makeArtifact(year, yearFixtures);
+    },
+    findByYearAndTeam: async (year, code) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return {
+        ...makeArtifact(year, yearFixtures),
+        payload: yearFixtures.filter(f => f.teamCode === code),
+      };
+    },
+    listScrapedYears: async () => new Map([[2026, '2026-05-20T00:00:00.000Z']]),
+    save: async () => {},
   };
 }
 

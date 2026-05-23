@@ -1,30 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ScrapeDrawUseCase } from '../../../src/application/use-cases/scrape-draw.js';
-import type { CacheService } from '../../../src/application/ports/cache-service.js';
+import type { FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
 import type { DrawDataSource } from '../../../src/domain/ports/draw-data-source.js';
 import type { MatchRepository } from '../../../src/domain/repositories/match-repository.js';
 import { createMatchFromSchedule } from '../../../src/domain/match.js';
 import { success, failure } from '../../../src/domain/result.js';
 
-function createMockCacheService(response: { data: any; fromCache: boolean; isStale: boolean; error?: Error | null }): CacheService {
+function createMockFixtureRepository(): FixtureRepository & { save: ReturnType<typeof vi.fn> } {
   return {
-    fetchWithCoalescing: async (_year, fetcher, _options) => {
-      if (!response.fromCache && response.data !== null && !response.error) {
-        // Actually call the fetcher to exercise the data source + repository
-        try {
-          await fetcher();
-        } catch {
-          // Fetcher errors are handled by the cache
-        }
-      }
-      return {
-        data: response.data,
-        fromCache: response.fromCache,
-        isStale: response.isStale,
-        error: response.error ?? null,
-      };
-    },
-    getStatus: () => ({ entries: 0, totalSize: 0 }),
+    findByYear: vi.fn().mockResolvedValue(null),
+    findByYearAndTeam: vi.fn().mockResolvedValue(null),
+    listScrapedYears: vi.fn().mockResolvedValue(new Map()),
+    save: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -55,110 +42,44 @@ const testMatches = [
 describe('ScrapeDrawUseCase', () => {
   it('returns scrape result on success', async () => {
     const dataSource = createMockDataSource(success(testMatches));
-    const repo = createMockMatchRepository();
-    const cache = createMockCacheService({
-      data: { year: 2025, fixtureCount: 1 },
-      fromCache: false,
-      isStale: false,
-    });
+    const matchRepo = createMockMatchRepository();
+    const fixtureRepo = createMockFixtureRepository();
 
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
+    const useCase = new ScrapeDrawUseCase(fixtureRepo, dataSource, matchRepo);
     const result = await useCase.execute(2025);
 
     expect(result.success).toBe(true);
     expect(result.year).toBe(2025);
-    expect(result.fixturesLoaded).toBe(1);
+    expect(result.fixturesLoaded).toBeGreaterThan(0);
     expect(result.fromCache).toBe(false);
     expect(result.isStale).toBe(false);
   });
 
-  it('calls fetchDraw and loadForYear on fresh fetch', async () => {
+  it('persists matches via matchRepository and fixtures via fixtureRepository', async () => {
     const dataSource = createMockDataSource(success(testMatches));
-    const repo = createMockMatchRepository();
-    const cache = createMockCacheService({
-      data: { year: 2025, fixtureCount: 1 },
-      fromCache: false,
-      isStale: false,
-    });
+    const matchRepo = createMockMatchRepository();
+    const fixtureRepo = createMockFixtureRepository();
 
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
+    const useCase = new ScrapeDrawUseCase(fixtureRepo, dataSource, matchRepo);
     await useCase.execute(2025);
 
     expect(dataSource.fetchDraw).toHaveBeenCalledWith(2025);
-    expect(repo.saveAll).toHaveBeenCalledWith(testMatches);
+    expect(matchRepo.saveAll).toHaveBeenCalledWith(testMatches);
+    expect(fixtureRepo.save).toHaveBeenCalledTimes(1);
+    const [year, fixtures] = fixtureRepo.save.mock.calls[0];
+    expect(year).toBe(2025);
+    expect(Array.isArray(fixtures)).toBe(true);
+    expect((fixtures as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it('returns cached result when available', async () => {
-    const dataSource = createMockDataSource(success(testMatches));
-    const repo = createMockMatchRepository();
-    const cache = createMockCacheService({
-      data: { year: 2025, fixtureCount: 459 },
-      fromCache: true,
-      isStale: false,
-    });
-
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
-    const result = await useCase.execute(2025);
-
-    expect(result.fromCache).toBe(true);
-    // Data source should not be called for cached results
-    expect(dataSource.fetchDraw).not.toHaveBeenCalled();
-  });
-
-  it('throws when cache returns error with no data', async () => {
+  it('throws when the data source fails', async () => {
     const dataSource = createMockDataSource(failure('Scrape failed'));
-    const repo = createMockMatchRepository();
-    const cache = createMockCacheService({
-      data: null,
-      fromCache: false,
-      isStale: false,
-      error: new Error('Scrape failed'),
-    });
+    const matchRepo = createMockMatchRepository();
+    const fixtureRepo = createMockFixtureRepository();
 
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
+    const useCase = new ScrapeDrawUseCase(fixtureRepo, dataSource, matchRepo);
     await expect(useCase.execute(2025)).rejects.toThrow('Scrape failed');
-  });
-
-  it('returns stale data with warning on error', async () => {
-    const dataSource = createMockDataSource(failure('Network error'));
-    const repo = createMockMatchRepository();
-    const cache = createMockCacheService({
-      data: { year: 2025, fixtureCount: 400 },
-      fromCache: true,
-      isStale: true,
-      error: new Error('Network error'),
-    });
-
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
-    const result = await useCase.execute(2025);
-
-    expect(result.success).toBe(true);
-    expect(result.isStale).toBe(true);
-    expect(result.warning).toBe('Using stale data due to fetch error');
-  });
-
-  it('does not call loadForYear when data source fails', async () => {
-    const dataSource = createMockDataSource(failure('Parse error'));
-    const repo = createMockMatchRepository();
-    const cache: CacheService = {
-      fetchWithCoalescing: async (_year, fetcher) => {
-        try {
-          await fetcher();
-        } catch {
-          // expected
-        }
-        return { data: null, fromCache: false, isStale: false, error: new Error('Parse error') };
-      },
-      getStatus: () => ({ entries: 0, totalSize: 0 }),
-    };
-
-    const useCase = new ScrapeDrawUseCase(cache, dataSource, repo);
-    try {
-      await useCase.execute(2025);
-    } catch {
-      // expected
-    }
-
-    expect(repo.saveAll).not.toHaveBeenCalled();
+    expect(matchRepo.saveAll).not.toHaveBeenCalled();
+    expect(fixtureRepo.save).not.toHaveBeenCalled();
   });
 });

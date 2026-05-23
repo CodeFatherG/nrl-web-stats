@@ -21,6 +21,7 @@ import { TeamFormStoreQuotaExhaustedError } from '../../domain/repositories/team
 import { MatchOutlookStoreQuotaExhaustedError } from '../../domain/repositories/match-outlook-repository.js';
 import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/player-trends-repository.js';
 import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
+import { FixtureStoreQuotaExhaustedError } from '../../domain/repositories/fixture-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -34,6 +35,7 @@ import type { PrecomputeTeamFormUseCase } from './precompute-team-form.js';
 import type { PrecomputeMatchOutlookUseCase } from './precompute-match-outlook.js';
 import type { PrecomputePlayerTrendsUseCase } from './precompute-player-trends.js';
 import type { PrecomputeCompositionImpactUseCase } from './precompute-composition-impact.js';
+import type { ScrapeDrawUseCase } from './scrape-draw.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -62,6 +64,8 @@ export interface HandleScrapeJobDeps {
   precomputeMatchOutlook?: PrecomputeMatchOutlookUseCase;
   precomputePlayerTrends?: PrecomputePlayerTrendsUseCase;
   precomputeCompositionImpact?: PrecomputeCompositionImpactUseCase;
+  /** Spec 038: draw-scrape use case (writes through FixtureRepository). */
+  scrapeDraw?: ScrapeDrawUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
@@ -95,6 +99,9 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   }
   if (err instanceof CompositionImpactStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'composition-impact-store-quota-exhausted' };
+  }
+  if (err instanceof FixtureStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'fixture-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -260,6 +267,12 @@ export class HandleScrapeJobUseCase {
           asOfRound: job.asOfRound,
           teamCode: job.teamCode,
         });
+        return;
+      case 'scrape-draw':
+        if (!this.deps.scrapeDraw) {
+          throw new Error('scrape-draw dispatched but no ScrapeDrawUseCase wired');
+        }
+        await this.deps.scrapeDraw.execute(job.year);
         return;
       default: {
         // Exhaustiveness check — the discriminated union should make this unreachable.

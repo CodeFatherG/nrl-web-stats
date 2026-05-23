@@ -1,14 +1,12 @@
 import { Hono } from 'hono';
 import { createApiRoutes } from './api/routes.js';
 import { setDebugMode, logger } from './utils/logger.js';
-import { cacheStore, getNextMondayExpiry } from './cache/store.js';
 import { SuperCoachStatsAdapter } from './infrastructure/adapters/supercoach-stats-adapter.js';
 import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-match-result-adapter.js';
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
 import { ScrapeMatchResultsUseCase } from './application/use-cases/scrape-match-results.js';
-import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
 import { resultCacheStore } from './cache/result-cache.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
 import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
@@ -45,11 +43,15 @@ import { InMemoryProvisionalGameStrengthRepository } from './infrastructure/pers
 import { CompositeGameStrengthRepository } from './infrastructure/persistence/composite-game-strength-repository.js';
 import { GetGameStrengthUseCase } from './application/use-cases/get-game-strength.js';
 import { LockGameStrengthRatingsUseCase } from './application/use-cases/lock-game-strength-ratings.js';
-import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
+import type { FixtureRepository } from './domain/repositories/fixture-repository.js';
+import { KvFixtureRepository } from './infrastructure/persistence/kv-fixture-repository.js';
+import { InMemoryFixtureRepository } from './infrastructure/persistence/in-memory-fixture-repository.js';
+import { setFixtureRepository } from './database/store.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
 import type { ScrapeJob } from './application/ports/job-queue.js';
 import { CloudflareQueueProducer } from './infrastructure/queue/cloudflare-queue-producer.js';
+import { InMemoryJobQueue } from './infrastructure/queue/in-memory-job-queue.js';
 import { fromCfMessageBatch, type CfMessageBatchLike } from './infrastructure/queue/cloudflare-job-batch.js';
 import { EnqueueDueScrapesUseCase } from './application/use-cases/enqueue-due-scrapes.js';
 import { HandleScrapeJobUseCase } from './application/use-cases/handle-scrape-job.js';
@@ -102,11 +104,18 @@ let depsInitialized = false;
 let legacyStoreHydrated = false;
 const deps = {} as HandlerDeps;
 
-function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
+function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queue<ScrapeJob>): void {
   if (depsInitialized) return;
 
   // Use D1 when available, fall back to in-memory for environments without D1 (e.g. tests)
   const matchRepository = db ? new D1MatchRepository(db) : new InMemoryMatchRepository();
+
+  // Composition root for the durable fixture artifact (spec 038). One
+  // artifact per year, addressed via FixtureRepository.
+  const fixtureRepository: FixtureRepository = cache
+    ? new KvFixtureRepository(cache)
+    : new InMemoryFixtureRepository();
+  setFixtureRepository(fixtureRepository);
 
   // Composition root for the projection store. Swapping this single line to
   // a different concrete adapter (e.g. UpstashProjectionRepository) is the
@@ -159,14 +168,18 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
   Object.assign(deps, {
     projectionRepository,
     gameStrengthRepository: buildGameStrengthRepository,
-    scrapeDrawUseCase: new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository),
+    scrapeDrawUseCase: new ScrapeDrawUseCase(fixtureRepository, dataSource, matchRepository),
+    fixtureRepository,
+    jobProducer: scrapeQueue
+      ? new CloudflareQueueProducer(scrapeQueue)
+      : new InMemoryJobQueue(),
     scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
     matchRepository,
     createPlayerRepository: createPlayerRepo,
     createScrapePlayerStatsUseCase: (reqDb: D1Database) =>
       new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb), new D1SupplementaryStatsRepository(reqDb)),
-    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, teamFormRepository),
-    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, matchOutlookRepository),
+    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepository, teamFormRepository),
+    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepository, matchOutlookRepository),
     getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, playerTrendsRepository),
     getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, compositionImpactRepository),
     teamFormRepository,
@@ -282,7 +295,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetGameStrengthUseCase(scUseCase, fixtureRepositoryAdapter, buildGameStrengthRepository(reqDb));
+      return new GetGameStrengthUseCase(scUseCase, fixtureRepository, buildGameStrengthRepository(reqDb));
     },
     createLockGameStrengthUseCase: (reqDb: D1Database) => {
       const scUseCase = new GetSupercoachScoresUseCase(
@@ -292,64 +305,35 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepositoryAdapter, buildGameStrengthRepository(reqDb));
+      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepository, buildGameStrengthRepository(reqDb));
     },
   } satisfies HandlerDeps);
 
   depsInitialized = true;
 }
 
-/** Hydrate the legacy in-memory fixture store from D1 on cold start.
- *  Strength ratings are persisted in D1 so no external fetch is needed. */
+/** Hydrate the durable fixture artifact from D1 on cold start when the
+ *  repository has no artifact for a year that D1 already knows about.
+ *  Production runs against KV where the artifact persists, so this only
+ *  fires on a fresh KV namespace or local in-memory fallback. */
 async function hydrateLegacyStore(): Promise<void> {
   if (legacyStoreHydrated) return;
   legacyStoreHydrated = true;
 
   try {
     const years = await deps.matchRepository.getLoadedYears();
+    const scrapedYears = await deps.fixtureRepository.listScrapedYears();
     for (const year of years) {
+      if (scrapedYears.has(year)) continue;
       const matches = await deps.matchRepository.findByYear(year);
-      buildLegacyFixtureBridge(year, matches);
+      await buildLegacyFixtureBridge(deps.fixtureRepository, year, matches);
     }
     if (years.length > 0) {
-      logger.info('Legacy fixture store hydrated from D1', { years });
+      logger.info('Fixture artifact hydrated from D1', { years });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Failed to hydrate legacy fixture store', { error: message });
-  }
-}
-
-/** Check if strength ratings are stale (past Monday 4pm AEST) and refresh from SuperCoach.
- *  Only updates non-completed matches; completed match ratings are frozen in D1. */
-let ratingsLastRefreshed: Date | null = null;
-
-async function refreshRatingsIfStale(): Promise<void> {
-  const now = new Date();
-
-  // On first request, use D1 data as-is (already hydrated). Track "now" as baseline.
-  if (ratingsLastRefreshed === null) {
-    ratingsLastRefreshed = now;
-    return;
-  }
-
-  // Check if a Monday 4pm AEST boundary has passed since last refresh
-  const nextExpiry = getNextMondayExpiry(ratingsLastRefreshed);
-  if (now < nextExpiry) return;
-
-  ratingsLastRefreshed = now;
-
-  try {
-    const years = await deps.matchRepository.getLoadedYears();
-    for (const year of years) {
-      await deps.scrapeDrawUseCase.execute(year, true);
-    }
-    if (years.length > 0) {
-      logger.info('Strength ratings refreshed from SuperCoach', { years });
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Failed to refresh strength ratings', { error: message });
+    logger.error('Failed to hydrate fixture artifact', { error: message });
   }
 }
 
@@ -358,9 +342,8 @@ const app = new Hono<{ Bindings: Env }>();
 // Initialize logger and D1-dependent deps on first request
 app.use('*', async (c, next) => {
   setDebugMode(c.env?.ENVIRONMENT !== 'production');
-  initializeDeps(c.env?.DB, c.env?.CACHE);
+  initializeDeps(c.env?.DB, c.env?.CACHE, c.env?.SCRAPE_QUEUE);
   await hydrateLegacyStore();
-  await refreshRatingsIfStale();
   await next();
 });
 
@@ -412,16 +395,9 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     hasDB: !!env.DB,
   });
 
-  // Monday cache invalidation (existing behavior)
-  if (event.cron === '0 6 * * MON') {
-    cacheStore.invalidateAll();
-    logger.info('[CRON] Cache invalidated by Monday scheduled trigger');
-    return;
-  }
-
   // Ensure deps are initialized for scheduled handler
   logger.info('[CRON] Initializing deps', { depsAlreadyInitialized: depsInitialized });
-  initializeDeps(env.DB, env.CACHE);
+  initializeDeps(env.DB, env.CACHE, env.SCRAPE_QUEUE);
   const matchRepository = deps.matchRepository;
 
   // Log loaded years to verify D1 connectivity
@@ -473,7 +449,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
 
 const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) => {
   setDebugMode(env.ENVIRONMENT !== 'production');
-  initializeDeps(env.DB, env.CACHE);
+  initializeDeps(env.DB, env.CACHE, env.SCRAPE_QUEUE);
 
   // Per-request scrape use cases — each holds a D1 binding so they're built
   // here rather than at module load time.
@@ -521,10 +497,10 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
   // projection precompute pipeline; they read from the same match/player
   // D1 bindings but write to their own KV / in-memory backed repositories.
   const precomputeTeamFormUC = new PrecomputeTeamFormUseCase(
-    deps.matchRepository, fixtureRepositoryAdapter, deps.teamFormRepository,
+    deps.matchRepository, deps.fixtureRepository, deps.teamFormRepository,
   );
   const precomputeMatchOutlookUC = new PrecomputeMatchOutlookUseCase(
-    deps.matchRepository, fixtureRepositoryAdapter, deps.matchOutlookRepository,
+    deps.matchRepository, deps.fixtureRepository, deps.matchOutlookRepository,
   );
   const precomputePlayerTrendsUC = new PrecomputePlayerTrendsUseCase(
     playerRepo, deps.playerTrendsRepository,
@@ -547,6 +523,7 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     precomputeMatchOutlook: precomputeMatchOutlookUC,
     precomputePlayerTrends: precomputePlayerTrendsUC,
     precomputeCompositionImpact: precomputeCompositionImpactUC,
+    scrapeDraw: deps.scrapeDrawUseCase,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

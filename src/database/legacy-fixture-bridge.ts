@@ -1,43 +1,47 @@
 /**
- * Legacy fixture bridge — converts Match[] to Fixture[] and loads them
- * into the legacy in-memory fixture store used by fixture, ranking, and
- * streak endpoints.
+ * Legacy fixture bridge — converts Match[] (from D1) to Fixture[] (the shape
+ * stored in the FixtureRepository artifact and consumed by the fixture,
+ * ranking, and streak endpoints).
  *
- * This bridge is called after schedule scraping to keep the legacy store
- * in sync while the codebase migrates to D1-backed persistence.
+ * Pure conversion only. Writes are the caller's responsibility — typically
+ * `ScrapeDrawUseCase` (which calls `repository.save`) or the worker's
+ * cold-start hydration path.
  */
 
 import type { Match } from '../domain/match.js';
+import type { Fixture } from '../models/fixture.js';
+import type { FixtureRepository } from '../domain/repositories/fixture-repository.js';
 import { createFixture } from '../models/fixture.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
-import { loadFixtures } from './store.js';
 
-export function buildLegacyFixtureBridge(year: number, matches: Match[]): void {
-  const fixtures = [];
-  // Track which teams play in each round to infer byes
+/** Pure: convert a year's `Match[]` into `Fixture[]`, including inferred byes. */
+export function buildFixturesFromMatches(year: number, matches: Match[]): Fixture[] {
+  const fixtures: Fixture[] = [];
   const teamsPlayingByRound = new Map<number, Set<string>>();
 
   for (const match of matches) {
     if (match.homeTeamCode !== null && match.awayTeamCode !== null) {
-      const homeFixture = createFixture(
-        match.year,
-        match.round,
-        match.homeTeamCode,
-        match.awayTeamCode,
-        true,
-        match.homeStrengthRating ?? 0
+      fixtures.push(
+        createFixture(
+          match.year,
+          match.round,
+          match.homeTeamCode,
+          match.awayTeamCode,
+          true,
+          match.homeStrengthRating ?? 0,
+        ),
       );
-      const awayFixture = createFixture(
-        match.year,
-        match.round,
-        match.awayTeamCode,
-        match.homeTeamCode,
-        false,
-        match.awayStrengthRating ?? 0
+      fixtures.push(
+        createFixture(
+          match.year,
+          match.round,
+          match.awayTeamCode,
+          match.homeTeamCode,
+          false,
+          match.awayStrengthRating ?? 0,
+        ),
       );
-      fixtures.push(homeFixture, awayFixture);
 
-      // Track teams playing this round
       if (!teamsPlayingByRound.has(match.round)) {
         teamsPlayingByRound.set(match.round, new Set());
       }
@@ -47,7 +51,6 @@ export function buildLegacyFixtureBridge(year: number, matches: Match[]): void {
     }
   }
 
-  // Infer bye fixtures: teams not playing in a round have a bye
   for (const [round, playingTeams] of teamsPlayingByRound) {
     for (const teamCode of VALID_TEAM_CODES) {
       if (!playingTeams.has(teamCode)) {
@@ -56,5 +59,16 @@ export function buildLegacyFixtureBridge(year: number, matches: Match[]): void {
     }
   }
 
-  loadFixtures(year, fixtures);
+  return fixtures;
+}
+
+/** Persist a year's fixtures via the FixtureRepository. Used by hydration
+ *  paths that walk D1 matches on cold start. */
+export async function buildLegacyFixtureBridge(
+  repository: FixtureRepository,
+  year: number,
+  matches: Match[],
+): Promise<void> {
+  const fixtures = buildFixturesFromMatches(year, matches);
+  await repository.save(year, fixtures);
 }

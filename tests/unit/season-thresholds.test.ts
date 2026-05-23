@@ -8,15 +8,15 @@ import {
   getCategoryFromThresholds,
   clearRankingsCache,
 } from '../../src/database/rankings.js';
-import { loadFixtures } from '../../src/database/store.js';
+import { setFixtureRepository, resetDatabase } from '../../src/database/store.js';
+import { InMemoryFixtureRepository } from '../../src/infrastructure/persistence/in-memory-fixture-repository.js';
 import type { Fixture } from '../../src/models/fixture.js';
 
-/** Helper to create a fixture with a given strength rating */
 function makeFixture(
   teamCode: string,
   round: number,
   strengthRating: number,
-  isBye = false
+  isBye = false,
 ): Fixture {
   return {
     id: `2026-${round}-${teamCode}`,
@@ -30,88 +30,84 @@ function makeFixture(
   };
 }
 
+async function seedYear(fixtures: Fixture[]): Promise<void> {
+  const repo = new InMemoryFixtureRepository();
+  await repo.save(2026, fixtures);
+  setFixtureRepository(repo);
+}
+
 describe('calculateSeasonThresholds', () => {
   beforeEach(() => {
+    resetDatabase();
     clearRankingsCache();
   });
 
-  it('computes thresholds from a normal distribution of ratings', () => {
-    // Create fixtures with a spread of ratings (no outliers)
+  it('computes thresholds from a normal distribution of ratings', async () => {
     const fixtures: Fixture[] = [];
     const ratings = [200, 250, 280, 300, 320, 340, 360, 380, 400, 420, 450, 500];
     ratings.forEach((rating, i) => {
       fixtures.push(makeFixture(`T${String(i).padStart(2, '0')}`, 1, rating));
     });
 
-    loadFixtures(2026, fixtures);
-    const thresholds = calculateSeasonThresholds(2026);
+    await seedYear(fixtures);
+    const thresholds = await calculateSeasonThresholds(2026);
 
-    // p33 and p67 should be within the range of ratings
     expect(thresholds.p33).toBeGreaterThanOrEqual(200);
     expect(thresholds.p33).toBeLessThan(thresholds.p67);
     expect(thresholds.p67).toBeLessThanOrEqual(500);
-    // Fences should encompass the data
     expect(thresholds.lowerFence).toBeLessThanOrEqual(200);
     expect(thresholds.upperFence).toBeGreaterThanOrEqual(500);
   });
 
-  it('removes outliers using IQR method', () => {
-    // Most ratings clustered around 300-400, with extreme outliers
+  it('removes outliers using IQR method', async () => {
     const fixtures: Fixture[] = [];
     const ratings = [50, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 900];
     ratings.forEach((rating, i) => {
       fixtures.push(makeFixture(`T${String(i).padStart(2, '0')}`, 1, rating));
     });
 
-    loadFixtures(2026, fixtures);
-    const thresholds = calculateSeasonThresholds(2026);
+    await seedYear(fixtures);
+    const thresholds = await calculateSeasonThresholds(2026);
 
-    // 50 should be below lowerFence (outlier → hard)
     expect(50).toBeLessThan(thresholds.lowerFence);
-    // 900 should be above upperFence (outlier → easy)
     expect(900).toBeGreaterThan(thresholds.upperFence);
-
-    // p33/p67 should be computed from the non-outlier data (300-400 range)
     expect(thresholds.p33).toBeGreaterThanOrEqual(300);
     expect(thresholds.p67).toBeLessThanOrEqual(400);
   });
 
-  it('skips bye fixtures when computing thresholds', () => {
+  it('skips bye fixtures when computing thresholds', async () => {
     const fixtures: Fixture[] = [
       makeFixture('T01', 1, 300),
       makeFixture('T02', 1, 400),
       makeFixture('T03', 1, 500),
       makeFixture('T04', 1, 350),
-      makeFixture('BYE', 2, 0, true), // bye — should be excluded
+      makeFixture('BYE', 2, 0, true),
     ];
 
-    loadFixtures(2026, fixtures);
-    const thresholds = calculateSeasonThresholds(2026);
+    await seedYear(fixtures);
+    const thresholds = await calculateSeasonThresholds(2026);
 
-    // The bye's 0 rating should not affect thresholds
     expect(thresholds.lowerFence).toBeGreaterThanOrEqual(0);
     expect(thresholds.p33).toBeGreaterThanOrEqual(300);
   });
 
-  it('handles fewer than 4 data points gracefully', () => {
+  it('handles fewer than 4 data points gracefully', async () => {
     const fixtures: Fixture[] = [
       makeFixture('T01', 1, 200),
       makeFixture('T02', 1, 400),
       makeFixture('T03', 1, 600),
     ];
 
-    loadFixtures(2026, fixtures);
-    const thresholds = calculateSeasonThresholds(2026);
+    await seedYear(fixtures);
+    const thresholds = await calculateSeasonThresholds(2026);
 
-    // Should not crash, and should produce reasonable thresholds
     expect(thresholds.p33).toBeGreaterThanOrEqual(200);
     expect(thresholds.p67).toBeLessThanOrEqual(600);
-    // Fences should span the entire range (no outlier removal)
     expect(thresholds.lowerFence).toBeLessThanOrEqual(200);
     expect(thresholds.upperFence).toBeGreaterThanOrEqual(600);
   });
 
-  it('caches results for the same year', () => {
+  it('caches results for the same year', async () => {
     const fixtures: Fixture[] = [
       makeFixture('T01', 1, 300),
       makeFixture('T02', 1, 400),
@@ -119,11 +115,10 @@ describe('calculateSeasonThresholds', () => {
       makeFixture('T04', 1, 450),
     ];
 
-    loadFixtures(2026, fixtures);
-    const first = calculateSeasonThresholds(2026);
-    const second = calculateSeasonThresholds(2026);
+    await seedYear(fixtures);
+    const first = await calculateSeasonThresholds(2026);
+    const second = await calculateSeasonThresholds(2026);
 
-    // Should return the exact same object (cached)
     expect(first).toBe(second);
   });
 });
@@ -165,8 +160,6 @@ describe('getCategoryFromThresholds', () => {
   });
 
   it('ensures a higher rating is never categorised harder than a lower one', () => {
-    // Monotonicity: for any two ratings r1 < r2,
-    // category(r1) should be <= category(r2) in ordering hard < medium < easy
     const order = { hard: 0, medium: 1, easy: 2 };
     const testRatings = [50, 100, 149, 150, 200, 300, 301, 350, 400, 401, 500, 550, 551, 900];
 

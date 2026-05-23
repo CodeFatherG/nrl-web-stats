@@ -82,7 +82,7 @@ import { VALID_TEAM_CODES } from '../models/team.js';
 import { VALID_VENUE_IDS, VENUE_NORMALISATION } from '../config/venue-normalisation.js';
 import { VALID_WEATHER_CATEGORIES } from '../config/weather-normalisation.js';
 import type { WeatherCategory } from '../config/weather-normalisation.js';
-import { cacheStore } from '../cache/store.js';
+import type { FixtureRepository } from '../domain/repositories/fixture-repository.js';
 import { createGetTeamScheduleUseCase } from '../application/use-cases/get-team-schedule.js';
 import { createGetSeasonSummaryUseCase } from '../application/use-cases/get-season-summary.js';
 import { createGetRoundDetailsUseCase } from '../application/use-cases/get-round-details.js';
@@ -154,6 +154,11 @@ export interface HandlerDeps {
   matchOutlookRepository: MatchOutlookRepository;
   playerTrendsRepository: PlayerTrendsRepository;
   compositionImpactRepository: CompositionImpactRepository;
+  /** Spec 038: durable per-year fixture artifact repository. */
+  fixtureRepository: FixtureRepository;
+  /** Spec 038: queue producer used by the manual scrape-draw endpoint to
+   *  publish a `scrape-draw` job instead of running inline. */
+  jobProducer: import('../application/ports/job-queue.js').JobProducer;
 }
 
 // Environment bindings type
@@ -183,12 +188,15 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
  */
 export function getHealth(deps: HandlerDeps) {
   return async (c: ApiContext) => {
-    const cacheStatus = cacheStore.getStatus();
-    const response: HealthResponse & { cache: typeof cacheStatus } = {
+    const scrapedYearsMap = await deps.fixtureRepository.listScrapedYears();
+    const scrapedYears = Array.from(scrapedYearsMap.entries())
+      .sort(([a], [b]) => b - a)
+      .map(([year, lastScrapedAt]) => ({ year, lastScrapedAt }));
+    const response: HealthResponse & { fixtures: { scrapedYears: typeof scrapedYears } } = {
       status: 'ok',
       loadedYears: await deps.matchRepository.getLoadedYears(),
       totalFixtures: await deps.matchRepository.getMatchCount(),
-      cache: cacheStatus,
+      fixtures: { scrapedYears },
     };
     return c.json(response);
   };
@@ -201,7 +209,7 @@ export function getYears(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const response: YearsResponse = {
       years: await deps.matchRepository.getLoadedYears(),
-      lastUpdated: getLastScrapeTimes(),
+      lastUpdated: await getLastScrapeTimes(),
     };
     return c.json(response);
   };
@@ -233,7 +241,7 @@ export function getTeamSchedule(deps: HandlerDeps) {
     }
     const yearParam = c.req.query('year');
     const year = yearParam ? YearSchema.safeParse(yearParam).data : undefined;
-    const result = await createGetTeamScheduleUseCase(deps.matchRepository).execute(code, year);
+    const result = await createGetTeamScheduleUseCase(deps.fixtureRepository, deps.matchRepository).execute(code, year);
     return c.json({
       team,
       schedule: result.schedule,
@@ -271,6 +279,12 @@ export async function getFixtures(c: ApiContext) {
   }
 
   const params = parseResult.data;
+
+  // Year is required after the spec-038 repository migration (cross-year
+  // fixture queries are no longer supported).
+  if (params.year === undefined) {
+    return errorResponse(c, 'INVALID_PARAMETER', 'Query parameter `year` is required', 400);
+  }
 
   // Validate team code if provided
   if (params.team && !VALID_TEAM_CODES.includes(params.team)) {
@@ -314,7 +328,7 @@ export async function getFixtures(c: ApiContext) {
     query = query.opponent(params.opponent);
   }
 
-  const fixtureList = query.execute();
+  const fixtureList = await query.execute();
 
   return c.json(fixtureList);
 }
@@ -337,7 +351,7 @@ export function getRoundDetails(deps: HandlerDeps) {
       return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
     }
     const teamListRepo = deps.createTeamListRepository(c.env.DB);
-    const result = await createGetRoundDetailsUseCase(deps.matchRepository, teamListRepo).execute(yearResult.data, roundResult.data);
+    const result = await createGetRoundDetailsUseCase(deps.fixtureRepository, deps.matchRepository, teamListRepo).execute(yearResult.data, roundResult.data);
     return c.json(result);
   };
 }
@@ -357,7 +371,7 @@ export async function getAllTeamsRanking(c: ApiContext) {
   }
 
   const year = yearResult.data;
-  const rankedTeams = getAllTeamSeasonRankings(year);
+  const rankedTeams = await getAllTeamSeasonRankings(year);
 
   if (rankedTeams.length === 0) {
     return errorResponse(c, 'NOT_FOUND', `No data found for ${year}`, 404);
@@ -365,7 +379,7 @@ export async function getAllTeamsRanking(c: ApiContext) {
 
   const response: AllTeamsRankingResponse = {
     year,
-    thresholds: calculateSeasonThresholds(year),
+    thresholds: await calculateSeasonThresholds(year),
     rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
       const team = getTeamByCode(teamCode);
       return {
@@ -403,7 +417,7 @@ export async function getTeamRanking(c: ApiContext) {
     return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
   }
 
-  const ranking = getTeamSeasonRanking(year, code);
+  const ranking = await getTeamSeasonRanking(year, code);
   if (!ranking) {
     return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
   }
@@ -442,7 +456,7 @@ export async function getTeamRoundRankingHandler(c: ApiContext) {
     return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
   }
 
-  const ranking = getTeamRoundRanking(year, code, round);
+  const ranking = await getTeamRoundRanking(year, code, round);
   if (!ranking) {
     return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in round ${round} of ${year}`, 404);
   }
@@ -476,7 +490,7 @@ export async function getTeamStreaks(c: ApiContext) {
   if (!team) {
     return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
   }
-  const result = createAnalyseStreaksUseCase().execute(year, code);
+  const result = await createAnalyseStreaksUseCase().execute(year, code);
   if (!result) {
     return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
   }
@@ -504,7 +518,7 @@ export function getSeasonSummary(deps: HandlerDeps) {
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
     const teamListRepo = deps.createTeamListRepository(c.env.DB);
-    const result = await createGetSeasonSummaryUseCase(deps.matchRepository, teamListRepo).execute(year);
+    const result = await createGetSeasonSummaryUseCase(deps.fixtureRepository, deps.matchRepository, teamListRepo).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }
@@ -514,8 +528,12 @@ export function getSeasonSummary(deps: HandlerDeps) {
 // ============================================
 
 /**
- * POST /api/scrape - Trigger scrape operation
- * Uses cache with request coalescing to prevent duplicate concurrent scrapes
+ * POST /api/scrape/draw - Enqueue a draw-scrape job.
+ *
+ * Spec 038: instead of running an inline scrape, publish a `scrape-draw`
+ * job onto the queue. The queue consumer drains within ~60 seconds and
+ * writes the artifact via `FixtureRepository.save`. Response is 202
+ * Accepted with a job acknowledgement envelope.
  */
 export function triggerScrape(deps: HandlerDeps) {
   return async (c: ApiContext) => {
@@ -525,17 +543,17 @@ export function triggerScrape(deps: HandlerDeps) {
       if (!parseResult.success) {
         return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
       }
-      const { year, force } = parseResult.data;
-      const result = await deps.scrapeDrawUseCase.execute(year, force);
-
-      // After draw loads, also scrape match results so analytics have data
-      try {
-        await deps.scrapeMatchResultsUseCase.execute(year);
-      } catch {
-        // Match results are optional — don't fail the draw scrape
-      }
-
-      return c.json(result);
+      const { year } = parseResult.data;
+      await deps.jobProducer.publish({ type: 'scrape-draw', version: 1, year });
+      return c.json(
+        {
+          success: true,
+          enqueued: true,
+          job: { type: 'scrape-draw', year },
+          message: 'Scrape job enqueued; durable artifact will update within ~60 seconds.',
+        },
+        202,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'SCRAPE_FAILED', message, 500);

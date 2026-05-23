@@ -33,11 +33,12 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 
 ## Caching Strategy
 
-**Season/Fixture Cache** (in-memory):
-- **Keys**: Year (integer)
-- **Expiry**: Next Monday at 4pm AEST (6am UTC). Recalculated on each cache set.
-- **Request Coalescing**: Multiple concurrent requests for the same year share a single upstream fetch. In-flight requests tracked in a `Map<number, Promise>`.
-- **Stale-While-Revalidate**: Expired cache entries are kept and returned while background refresh occurs. If refresh fails, stale data is served with an `isStale: true` flag.
+**Fixture Artifact Store** (Cloudflare KV, spec 038):
+- Replaces the per-isolate `CacheStore` (deleted alongside `CacheService` port/adapter).
+- **Backend**: `KvFixtureRepository` against the `CACHE` binding under prefix `fixtures:v1:` (in-memory fallback when no binding is bound).
+- **Identity**: one artifact per year; key `fixtures:v1:{year}`; metadata `{ lastScrapedAt }`.
+- **Reads**: every isolate reads the same artifact (cross-isolate consistent). The `database/store.ts` accessor emits a `warn` log when `lastScrapedAt` is older than 8 days.
+- **Refresh**: the Monday 6am UTC cron publishes one `scrape-draw` job per active year onto the queue; the queue consumer runs `ScrapeDrawUseCase` which writes through `FixtureRepository.save`. The manual `POST /api/scrape/draw` endpoint returns 202 with a job ack (it does not scrape inline). Quota-exhausted writes throw `FixtureStoreQuotaExhaustedError` and are classified terminal by `HandleScrapeJobUseCase`.
 
 **Match Result Cache** (in-memory):
 - **Keys**: `results-{year}-{round}` (string)
@@ -52,11 +53,8 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 ## Data Storage
 
 **In-Memory Store** (`src/database/store.ts`):
-- Singleton `DatabaseState` with indexed Maps for fast lookups
-- Indexes: `byYear`, `byTeam`, `byRound`, `byYearTeam`
-- 17 NRL teams initialized from constants
-- Rebuilt on fixture load via `rebuildIndexes()`
-- Used for fixture queries, rankings, and strength calculations
+- Owns the static teams registry (17 NRL teams initialised from constants).
+- Fixture accessors (`getFixturesByYear`, `getFixturesByYearTeam`) delegate to the injected `FixtureRepository` (KV-backed in production). After spec 038 there is no per-isolate fixture index here — every read goes through the durable artifact.
 
 **Cloudflare D1** (SQLite-based persistent storage):
 

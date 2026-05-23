@@ -154,9 +154,9 @@ describe('EnqueueDueScrapesUseCase — precompute fan-out predicate', () => {
     expect(producer.published.filter(j => j.type.startsWith('precompute-'))).toHaveLength(0);
   });
 
-  it('publishes nothing when watermark is 0', async () => {
+  it('publishes nothing for the precompute fan-out when watermark is 0', async () => {
     await runWith({ watermark: 0, expectedPlayerIds: ['p:1'] });
-    expect(producer.published).toHaveLength(0);
+    expect(producer.published.filter(j => j.type.startsWith('precompute-'))).toHaveLength(0);
   });
 
   it('treats stale aggregates (asOfRound < watermark) as missing', async () => {
@@ -170,8 +170,9 @@ describe('EnqueueDueScrapesUseCase — precompute fan-out predicate', () => {
 
   it('respects shadowMode (no jobs published, status untouched)', async () => {
     await runWith({ watermark: 12, expectedPlayerIds: ['p:1'], status: 5, shadowMode: true });
+    // shadowMode: tryPublish never invokes producer.publish — even the new
+    // scrape-draw fan-out at the top of execute() must not leak through.
     expect(producer.published).toHaveLength(0);
-    // status untouched
     expect(await repo.findPrecomputeStatus(2026)).toEqual({ year: 2026, asOfRound: 5 });
   });
 });

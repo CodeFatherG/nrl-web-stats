@@ -126,6 +126,14 @@ export interface PrecomputeCompositionImpactJob extends BaseJob {
   readonly teamCode: string;
 }
 
+/** Spec 038 — scrape the NRL draw for one year and persist it via
+ *  FixtureRepository. Replaces inline scrape from the manual scrape endpoint
+ *  and from the Monday cron's inline refresh loop. */
+export interface ScrapeDrawJob extends BaseJob {
+  readonly type: 'scrape-draw';
+  readonly year: number;
+}
+
 export type ScrapeJob =
   | ScrapeMatchResultsJob
   | ScrapePlayerStatsJob
@@ -139,7 +147,8 @@ export type ScrapeJob =
   | PrecomputeTeamFormJob
   | PrecomputeMatchOutlookJob
   | PrecomputePlayerTrendsJob
-  | PrecomputeCompositionImpactJob;
+  | PrecomputeCompositionImpactJob
+  | ScrapeDrawJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -250,6 +259,12 @@ const PrecomputeCompositionImpactJobSchema = z.object({
   teamCode: z.string().min(1),
 });
 
+const ScrapeDrawJobSchema = z.object({
+  type: z.literal('scrape-draw'),
+  version: z.literal(1),
+  year: YearSchema,
+});
+
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeMatchResultsJobSchema,
   ScrapePlayerStatsJobSchema,
@@ -264,6 +279,7 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   PrecomputeMatchOutlookJobSchema,
   PrecomputePlayerTrendsJobSchema,
   PrecomputeCompositionImpactJobSchema,
+  ScrapeDrawJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

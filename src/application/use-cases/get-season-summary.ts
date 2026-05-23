@@ -1,10 +1,9 @@
-import type { FixtureRepository } from '../ports/fixture-repository.js';
+import type { FixtureRepository } from '../../domain/repositories/fixture-repository.js';
 import type { RankingService } from '../ports/ranking-service.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { SeasonSummaryResult, MatchPairing, RoundSummary } from '../results/season-summary-result.js';
 import { createMatchId, MatchStatus } from '../../domain/match.js';
-import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter.js';
 import { rankingServiceAdapter } from '../adapters/ranking-service-adapter.js';
 
 export class GetSeasonSummaryUseCase {
@@ -12,15 +11,13 @@ export class GetSeasonSummaryUseCase {
     private readonly fixtures: FixtureRepository,
     private readonly rankings: RankingService,
     private readonly matchRepository?: MatchRepository,
-    private readonly teamListRepository?: TeamListRepository
+    private readonly teamListRepository?: TeamListRepository,
   ) {}
 
   async execute(year: number): Promise<SeasonSummaryResult | null> {
-    if (!this.fixtures.isYearLoaded(year)) {
-      return null;
-    }
-
-    const yearFixtures = this.fixtures.findByYear(year);
+    const artifact = await this.fixtures.findByYear(year);
+    if (!artifact) return null;
+    const yearFixtures = artifact.payload;
 
     const roundsMap = new Map<number, { matches: MatchPairing[]; byeTeams: string[] }>();
     for (let round = 1; round <= 27; round++) {
@@ -35,10 +32,9 @@ export class GetSeasonSummaryUseCase {
         roundData.byeTeams.push(fixture.teamCode);
       } else if (fixture.isHome && fixture.opponentCode) {
         const awayFixture = yearFixtures.find(
-          f => f.round === fixture.round && f.teamCode === fixture.opponentCode && !f.isHome
+          f => f.round === fixture.round && f.teamCode === fixture.opponentCode && !f.isHome,
         );
 
-        // Look up enriched match data (scores, status, scheduledTime) if available
         let homeScore: number | null = null;
         let awayScore: number | null = null;
         let scheduledTime: string | null = null;
@@ -83,12 +79,16 @@ export class GetSeasonSummaryUseCase {
 
     return {
       year,
-      thresholds: this.rankings.calculateSeasonThresholds(year),
+      thresholds: await this.rankings.calculateSeasonThresholds(year),
       rounds,
     };
   }
 }
 
-export function createGetSeasonSummaryUseCase(matchRepository?: MatchRepository, teamListRepository?: TeamListRepository): GetSeasonSummaryUseCase {
-  return new GetSeasonSummaryUseCase(fixtureRepositoryAdapter, rankingServiceAdapter, matchRepository, teamListRepository);
+export function createGetSeasonSummaryUseCase(
+  fixtureRepository: FixtureRepository,
+  matchRepository?: MatchRepository,
+  teamListRepository?: TeamListRepository,
+): GetSeasonSummaryUseCase {
+  return new GetSeasonSummaryUseCase(fixtureRepository, rankingServiceAdapter, matchRepository, teamListRepository);
 }

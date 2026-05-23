@@ -35,9 +35,18 @@ Health check endpoint.
   "status": "ok",
   "loadedYears": [2024, 2025, 2026],
   "totalFixtures": 1234,
-  "cache": { "hits": 0, "misses": 0, "pendingRequests": {} }
+  "fixtures": {
+    "scrapedYears": [
+      { "year": 2026, "lastScrapedAt": "2026-05-23T20:00:00.000Z" },
+      { "year": 2025, "lastScrapedAt": "2026-05-23T20:00:00.000Z" }
+    ]
+  }
 }
 ```
+
+The `fixtures.scrapedYears` array (one entry per year in the KV-backed
+`FixtureRepository`) replaces the previous `cache` field. Spec 038 — see
+`docs/ARCHITECTURE.md`.
 
 ### GET /api/years
 
@@ -307,33 +316,35 @@ Compact season overview with all rounds, matches, and bye teams.
 
 ## Scrape Triggers
 
-### POST /api/scrape
+### POST /api/scrape/draw (alias: POST /api/scrape)
 
-Trigger a fixture/strength rating scrape for a season.
+Enqueue a draw-scrape job. Returns immediately; the scrape runs
+asynchronously via the queue consumer and writes the year's fixture
+artifact to the KV-backed `FixtureRepository`. Spec 038.
 
 **Request Body**:
 ```json
-{ "year": 2026, "force": false }
+{ "year": 2026 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `year` | number | Yes | Season year (min 1998) |
-| `force` | boolean | No | Force re-scrape even if cached. Default: false |
 
-**Response** (200):
+**Response** (202 Accepted):
 ```json
 {
-  "success": true, "year": 2026,
-  "teamsLoaded": 16, "fixturesLoaded": 234,
-  "warnings": [
-    { "type": "MALFORMED_CELL", "message": "Could not parse cell", "context": { "round": 1 } }
-  ],
-  "timestamp": "2026-03-15T10:30:00Z"
+  "success": true,
+  "enqueued": true,
+  "job": { "type": "scrape-draw", "year": 2026 },
+  "message": "Scrape job enqueued; durable artifact will update within ~60 seconds."
 }
 ```
 
-**Errors**: 400 (invalid year), 500 (scrape failed)
+Poll `GET /api/health` and look for the year in `fixtures.scrapedYears`
+to confirm the artifact landed.
+
+**Errors**: 400 (invalid year), 500 (publish failed)
 
 ### POST /api/scrape/players
 

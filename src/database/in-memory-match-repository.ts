@@ -1,6 +1,5 @@
 import type { Match } from '../domain/match.js';
 import type { MatchRepository } from '../domain/repositories/match-repository.js';
-import { buildLegacyFixtureBridge } from './legacy-fixture-bridge.js';
 
 export class InMemoryMatchRepository implements MatchRepository {
   private readonly matches: Map<string, Match> = new Map();
@@ -53,11 +52,10 @@ export class InMemoryMatchRepository implements MatchRepository {
       await this.save(match);
     }
 
-    // Determine year from matches for loaded tracking and legacy bridge
+    // Track loaded years for cross-cutting queries.
     if (matches.length > 0) {
       const year = matches[0].year;
       this.loadedYears.add(year);
-      this.buildLegacyFixtureBridgeFromMatches(year, matches);
     }
   }
 
@@ -123,10 +121,6 @@ export class InMemoryMatchRepository implements MatchRepository {
 
   async getMatchCount(): Promise<number> {
     return this.matches.size;
-  }
-
-  private buildLegacyFixtureBridgeFromMatches(year: number, matches: Match[]): void {
-    buildLegacyFixtureBridge(year, matches);
   }
 
   private removeMatchFromIndexes(match: Match): void {

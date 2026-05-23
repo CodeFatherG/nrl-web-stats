@@ -9,7 +9,7 @@
  */
 
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
-import type { FixtureRepository } from '../ports/fixture-repository.js';
+import type { FixtureRepository } from '../../domain/repositories/fixture-repository.js';
 import type {
   TeamFormAggregate,
   TeamFormRepository,
@@ -35,7 +35,8 @@ export class PrecomputeTeamFormUseCase {
   async execute(input: PrecomputeTeamFormInput): Promise<void> {
     const { year, asOfRound, teamCode } = input;
     const matches = await this.matchRepository.findByYear(year);
-    const fixtures = this.fixtureRepository.findByYearAndTeam(year, teamCode);
+    const artifact = await this.fixtureRepository.findByYearAndTeam(year, teamCode);
+    const fixtures = artifact ? [...artifact.payload] : [];
     const team = resolveTeam(teamCode);
     const result = computeFormTrajectory(
       matches,

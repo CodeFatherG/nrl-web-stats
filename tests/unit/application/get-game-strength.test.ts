@@ -13,7 +13,7 @@ import { GetGameStrengthUseCase } from '../../../src/application/use-cases/get-g
 import { DEFAULT_HALF_LIFE } from '../../../src/analytics/game-strength-service.js';
 import type { RoundGSR } from '../../../src/domain/game-strength.js';
 import type { GameStrengthArtifact, GameStrengthRepository } from '../../../src/domain/repositories/game-strength-repository.js';
-import type { FixtureRepository } from '../../../src/application/ports/fixture-repository.js';
+import type { FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
 import type { GetSupercoachScoresUseCase } from '../../../src/application/use-cases/get-supercoach-scores.js';
 
 function makeGSR(year = 2026, round = 5, label = 'default'): RoundGSR {
@@ -45,8 +45,10 @@ function makeFakeRepo(readImpl: (y: number, r: number) => Promise<GameStrengthAr
 }
 
 const noopFixtures = {
-  findByRound: () => [],
-  findByYear: () => [],
+  findByYear: async () => null,
+  findByYearAndTeam: async () => null,
+  listScrapedYears: async () => new Map(),
+  save: async () => {},
 } as unknown as FixtureRepository;
 
 const noopScScores = {} as GetSupercoachScoresUseCase;
@@ -77,18 +79,19 @@ describe('GetGameStrengthUseCase — default half-life read path', () => {
 
   it('does not invoke the on-demand compute path when default half-life misses', async () => {
     const repo = makeFakeRepo(async () => null);
-    const findByRoundSpy = vi.fn().mockReturnValue([]);
-    const findByYearSpy = vi.fn().mockReturnValue([]);
+    const findByYearSpy = vi.fn().mockResolvedValue(null);
     const fixtures: FixtureRepository = {
-      findByRound: findByRoundSpy,
       findByYear: findByYearSpy,
+      findByYearAndTeam: async () => null,
+      listScrapedYears: async () => new Map(),
+      save: async () => {},
     } as unknown as FixtureRepository;
     const useCase = new GetGameStrengthUseCase(noopScScores, fixtures, repo);
     const result = await useCase.execute(2026, 27);
     expect(result).toBeNull();
     // If the read path correctly short-circuits to null on miss, we never
     // reach the compute path for default half-life.
-    expect(findByRoundSpy).not.toHaveBeenCalled();
+    expect(findByYearSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LockGameStrengthRatingsUseCase } from '../../../src/application/use-cases/lock-game-strength-ratings.js';
-import type { FixtureRepository } from '../../../src/application/ports/fixture-repository.js';
+import type { FixtureRepository, FixtureArtifact } from '../../../src/domain/repositories/fixture-repository.js';
 import type { Fixture } from '../../../src/models/fixture.js';
 import type { RoundGSR } from '../../../src/domain/game-strength.js';
 import type { GameStrengthRepository, GameStrengthArtifact } from '../../../src/domain/repositories/game-strength-repository.js';
@@ -57,19 +57,32 @@ function makeGSR(year: number, round: number): RoundGSR {
   };
 }
 
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
+  return {
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures.filter(f => f.year === year),
+  };
+}
+
 function makeFixtureRepo(fixtures: Fixture[]): FixtureRepository {
   return {
-    findByYear: (year) => fixtures.filter(f => f.year === year),
-    findByTeam: (code) => fixtures.filter(f => f.teamCode === code),
-    findByRound: (year, round) => fixtures.filter(f => f.year === year && f.round === round),
-    findByYearAndTeam: (year, code) => fixtures.filter(f => f.year === year && f.teamCode === code),
-    isYearLoaded: () => true,
-    getLoadedYears: () => [2026],
-    getAllTeams: () => [],
-    getTeamByCode: () => undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => fixtures.length,
-    loadFixtures: () => {},
+    findByYear: async (year) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return makeArtifact(year, yearFixtures);
+    },
+    findByYearAndTeam: async (year, code) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return {
+        ...makeArtifact(year, yearFixtures),
+        payload: yearFixtures.filter(f => f.teamCode === code),
+      };
+    },
+    listScrapedYears: async () => new Map([[2026, '2026-05-20T00:00:00.000Z']]),
+    save: async () => {},
   };
 }
 

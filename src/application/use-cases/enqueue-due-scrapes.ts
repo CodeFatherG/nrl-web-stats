@@ -141,6 +141,24 @@ export class EnqueueDueScrapesUseCase {
     };
 
     // --------------------------------------------------------------------
+    // 0. Draw scrape — fan out one `scrape-draw` job per active year so the
+    //    Monday 6am UTC cron refreshes the durable fixture artifact via the
+    //    queue rather than scraping inline. Active years = currentYear plus
+    //    the prior year when scheduledTime precedes 1 April (preseason
+    //    window where the previous season's data is still relevant).
+    // --------------------------------------------------------------------
+    const activeYears = new Set<number>([currentYear]);
+    if (scheduledTime.getUTCMonth() < 3) {
+      activeYears.add(currentYear - 1);
+    }
+    for (const drawYear of activeYears) {
+      await tryPublish(
+        { type: 'scrape-draw', version: 1, year: drawYear },
+        () => Promise.resolve(true),
+      );
+    }
+
+    // --------------------------------------------------------------------
     // 1. Match results — rounds with completed matches lacking persisted results
     // --------------------------------------------------------------------
     const roundsToScrape = await findRoundsNeedingScrape(this.deps.matchRepository, scheduledTime);

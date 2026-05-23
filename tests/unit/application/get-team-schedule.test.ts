@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GetTeamScheduleUseCase } from '../../../src/application/use-cases/get-team-schedule.js';
-import type { FixtureRepository } from '../../../src/application/ports/fixture-repository.js';
+import type { FixtureArtifact, FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
 import type { RankingService } from '../../../src/application/ports/ranking-service.js';
 import type { Fixture } from '../../../src/models/fixture.js';
 import type { TeamRoundRanking, SeasonThresholds } from '../../../src/models/types.js';
@@ -36,28 +36,42 @@ function makeRoundRanking(overrides: Partial<TeamRoundRanking> = {}): TeamRoundR
 
 const defaultThresholds: SeasonThresholds = { p33: 100, p67: 150, lowerFence: 50, upperFence: 200 };
 
-function createMockFixtureRepo(fixtures: Fixture[] = []): FixtureRepository {
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
   return {
-    findByYear: (year) => fixtures.filter(f => f.year === year),
-    findByTeam: (code) => fixtures.filter(f => f.teamCode === code),
-    findByRound: (year, round) => fixtures.filter(f => f.year === year && f.round === round),
-    findByYearAndTeam: (year, code) => fixtures.filter(f => f.year === year && f.teamCode === code),
-    isYearLoaded: () => true,
-    getLoadedYears: () => [2025],
-    getAllTeams: () => [{ code: 'MNL', name: 'Manly Sea Eagles' }],
-    getTeamByCode: (code) => code === 'MNL' ? { code: 'MNL', name: 'Manly Sea Eagles' } : undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => fixtures.length,
-    loadFixtures: () => {},
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures,
+  };
+}
+
+function createMockFixtureRepo(fixtures: Fixture[] = []): FixtureRepository {
+  const years = [...new Set(fixtures.map(f => f.year))];
+  return {
+    findByYear: async (year) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0 && !years.includes(year)) return null;
+      return makeArtifact(year, yearFixtures);
+    },
+    findByYearAndTeam: async (year, code) => {
+      if (!years.includes(year)) return null;
+      return makeArtifact(year, fixtures.filter(f => f.year === year && f.teamCode === code));
+    },
+    listScrapedYears: async () => {
+      const map = new Map<number, string>();
+      for (const y of years) map.set(y, '2026-05-20T00:00:00.000Z');
+      return map;
+    },
+    save: async () => {},
   };
 }
 
 function createMockRankingService(rankings: Map<string, TeamRoundRanking> = new Map()): RankingService {
   return {
-    getTeamRoundRanking: (year, code, round) => rankings.get(`${year}-${code}-${round}`) ?? null,
-    getTeamSeasonRanking: () => null,
-    getAllTeamSeasonRankings: () => [],
-    calculateSeasonThresholds: () => defaultThresholds,
+    getTeamRoundRanking: async (year, code, round) => rankings.get(`${year}-${code}-${round}`) ?? null,
+    getTeamSeasonRanking: async () => null,
+    getAllTeamSeasonRankings: async () => [],
+    calculateSeasonThresholds: async () => defaultThresholds,
   };
 }
 
@@ -75,7 +89,7 @@ describe('GetTeamScheduleUseCase', () => {
 
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService(rankings)
+      createMockRankingService(rankings),
     );
 
     const result = await useCase.execute('MNL', 2025);
@@ -86,7 +100,7 @@ describe('GetTeamScheduleUseCase', () => {
     expect(result.schedule[0].category).toBe('hard');
     expect(result.schedule[1].category).toBe('easy');
     expect(result.schedule[2].category).toBe('medium'); // bye defaults to medium
-    expect(result.totalStrength).toBe(200); // 120 + 80
+    expect(result.totalStrength).toBe(200);
     expect(result.byeRounds).toEqual([3]);
     expect(result.thresholds).toEqual(defaultThresholds);
   });
@@ -99,7 +113,7 @@ describe('GetTeamScheduleUseCase', () => {
 
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService()
+      createMockRankingService(),
     );
 
     const result = await useCase.execute('MNL');
@@ -111,7 +125,7 @@ describe('GetTeamScheduleUseCase', () => {
   it('returns empty schedule with zero totalStrength when no fixtures exist', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
-      createMockRankingService()
+      createMockRankingService(),
     );
 
     const result = await useCase.execute('MNL', 2025);
@@ -119,13 +133,13 @@ describe('GetTeamScheduleUseCase', () => {
     expect(result.schedule).toHaveLength(0);
     expect(result.totalStrength).toBe(0);
     expect(result.byeRounds).toEqual([]);
-    expect(result.thresholds).toEqual(defaultThresholds); // thresholds still returned when year is given
+    expect(result.thresholds).toEqual(defaultThresholds);
   });
 
   it('returns teamCode as teamName when team not found in repository', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
-      createMockRankingService()
+      createMockRankingService(),
     );
 
     const result = await useCase.execute('XYZ', 2025);
