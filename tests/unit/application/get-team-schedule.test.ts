@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GetTeamScheduleUseCase } from '../../../src/application/use-cases/get-team-schedule.js';
 import type { FixtureArtifact, FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
-import type { RankingService } from '../../../src/application/ports/ranking-service.js';
+import type { GetTeamStrengthRankingsUseCase } from '../../../src/application/use-cases/get-team-strength-rankings.js';
 import type { Fixture } from '../../../src/models/fixture.js';
 import type { TeamRoundRanking, SeasonThresholds } from '../../../src/models/types.js';
 
@@ -66,13 +66,17 @@ function createMockFixtureRepo(fixtures: Fixture[] = []): FixtureRepository {
   };
 }
 
-function createMockRankingService(rankings: Map<string, TeamRoundRanking> = new Map()): RankingService {
+function createMockRankings(
+  rankings: Map<string, TeamRoundRanking> = new Map(),
+  thresholds: SeasonThresholds | null = defaultThresholds,
+): GetTeamStrengthRankingsUseCase {
   return {
-    getTeamRoundRanking: async (year, code, round) => rankings.get(`${year}-${code}-${round}`) ?? null,
-    getTeamSeasonRanking: async () => null,
-    getAllTeamSeasonRankings: async () => [],
-    calculateSeasonThresholds: async () => defaultThresholds,
-  };
+    getSeasonThresholds: async () => thresholds,
+    getRoundRanking: async (year: number, round: number, code: string) =>
+      rankings.get(`${year}-${code}-${round}`) ?? null,
+    getSeasonRanking: async () => null,
+    getAllSeasonRankings: async () => null,
+  } as unknown as GetTeamStrengthRankingsUseCase;
 }
 
 describe('GetTeamScheduleUseCase', () => {
@@ -89,7 +93,7 @@ describe('GetTeamScheduleUseCase', () => {
 
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService(rankings),
+      createMockRankings(rankings),
     );
 
     const result = await useCase.execute('MNL', 2025);
@@ -113,7 +117,7 @@ describe('GetTeamScheduleUseCase', () => {
 
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService(),
+      createMockRankings(),
     );
 
     const result = await useCase.execute('MNL');
@@ -125,7 +129,7 @@ describe('GetTeamScheduleUseCase', () => {
   it('returns empty schedule with zero totalStrength when no fixtures exist', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
-      createMockRankingService(),
+      createMockRankings(),
     );
 
     const result = await useCase.execute('MNL', 2025);
@@ -139,7 +143,7 @@ describe('GetTeamScheduleUseCase', () => {
   it('returns teamCode as teamName when team not found in repository', async () => {
     const useCase = new GetTeamScheduleUseCase(
       createMockFixtureRepo([]),
-      createMockRankingService(),
+      createMockRankings(),
     );
 
     const result = await useCase.execute('XYZ', 2025);

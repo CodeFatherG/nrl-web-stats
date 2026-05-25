@@ -101,6 +101,26 @@ export class ScrapeSupplementaryStatsUseCase {
           error: publishErr instanceof Error ? publishErr.message : 'unknown',
         });
       }
+
+      // Spec 039: publish a precompute-team-strength-rankings job so the
+      // ranking artifact is refreshed against the new watermark without
+      // waiting for the cron-discovery tick. We use `round` as the proxy
+      // for `asOfRound`; if the watermark hasn't actually advanced (e.g.
+      // because player stats are still missing), the consumer is idempotent
+      // and a discovery pass will re-enqueue at the true watermark later.
+      try {
+        await this.producer.publish({
+          type: 'precompute-team-strength-rankings',
+          version: 1,
+          year,
+          asOfRound: round,
+        });
+      } catch (publishErr) {
+        logger.error('Failed to publish precompute-team-strength-rankings job after scrape', {
+          year, round,
+          error: publishErr instanceof Error ? publishErr.message : 'unknown',
+        });
+      }
     }
 
     return {

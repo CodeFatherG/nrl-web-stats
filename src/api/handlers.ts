@@ -51,6 +51,7 @@ import type { TeamFormRepository } from '../domain/repositories/team-form-reposi
 import type { MatchOutlookRepository } from '../domain/repositories/match-outlook-repository.js';
 import type { PlayerTrendsRepository } from '../domain/repositories/player-trends-repository.js';
 import type { CompositionImpactRepository } from '../domain/repositories/composition-impact-repository.js';
+import type { TeamStrengthRankingsRepository } from '../domain/repositories/team-strength-rankings-repository.js';
 import { available, precomputePending } from './availability-envelope.js';
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
@@ -72,12 +73,7 @@ import { normalizeName, matchPlayerName } from '../config/player-name-matcher.js
 import type { MatchingContext } from '../config/player-name-matcher.js';
 import type { SupplementaryPlayerStats } from '../domain/ports/supplementary-stats-source.js';
 import { fixtures } from '../database/query.js';
-import {
-  getTeamRoundRanking,
-  getTeamSeasonRanking,
-  getAllTeamSeasonRankings,
-  calculateSeasonThresholds,
-} from '../database/rankings.js';
+import type { GetTeamStrengthRankingsUseCase } from '../application/use-cases/get-team-strength-rankings.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
 import { VALID_VENUE_IDS, VENUE_NORMALISATION } from '../config/venue-normalisation.js';
 import { VALID_WEATHER_CATEGORIES } from '../config/weather-normalisation.js';
@@ -159,6 +155,13 @@ export interface HandlerDeps {
   /** Spec 038: queue producer used by the manual scrape-draw endpoint to
    *  publish a `scrape-draw` job instead of running inline. */
   jobProducer: import('../application/ports/job-queue.js').JobProducer;
+  /** Spec 039: factory for the team-strength-rankings read-path use case.
+   *  Per-request because the watermark function depends on the D1 binding. */
+  createGetTeamStrengthRankingsUseCase: (db: D1Database) => GetTeamStrengthRankingsUseCase;
+  /** Spec 039: durable team-strength-rankings store. Exposed on deps so the
+   *  cron-discovery sweep and queue consumer can reach it without going
+   *  through the read-path use case. */
+  teamStrengthRankingsRepository: TeamStrengthRankingsRepository;
 }
 
 // Environment bindings type
@@ -241,7 +244,12 @@ export function getTeamSchedule(deps: HandlerDeps) {
     }
     const yearParam = c.req.query('year');
     const year = yearParam ? YearSchema.safeParse(yearParam).data : undefined;
-    const result = await createGetTeamScheduleUseCase(deps.fixtureRepository, deps.matchRepository).execute(code, year);
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createGetTeamScheduleUseCase(
+      deps.fixtureRepository,
+      rankingsUseCase,
+      deps.matchRepository,
+    ).execute(code, year);
     return c.json({
       team,
       schedule: result.schedule,
@@ -361,112 +369,121 @@ export function getRoundDetails(deps: HandlerDeps) {
 // ============================================
 
 /**
- * GET /api/rankings/:year - Get all teams ranking for year
+ * GET /api/rankings/:year - Get all teams ranking for year.
+ *
+ * Returns the standard availability envelope: when the precompute artifact
+ * for the year is missing or stale (cold-start / pre-watermark-advance),
+ * responds with `{ available: false, asOfRound: null, reason: ... }`.
  */
-export async function getAllTeamsRanking(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
+export function getAllTeamsRanking(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
+    const year = yearResult.data;
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const rankedTeams = await useCase.getAllSeasonRankings(year);
+    const thresholds = await useCase.getSeasonThresholds(year);
 
-  const year = yearResult.data;
-  const rankedTeams = await getAllTeamSeasonRankings(year);
+    if (rankedTeams === null || thresholds === null) {
+      return c.json(precomputePending());
+    }
 
-  if (rankedTeams.length === 0) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${year}`, 404);
-  }
+    const response: AllTeamsRankingResponse = {
+      year,
+      thresholds,
+      rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
+        const team = getTeamByCode(teamCode);
+        return {
+          team: team || { code: teamCode, name: teamCode },
+          totalStrength: ranking.totalStrength,
+          averageStrength: ranking.averageStrength,
+          percentile: ranking.percentile,
+          category: ranking.category,
+          rank,
+        };
+      }),
+    };
 
-  const response: AllTeamsRankingResponse = {
-    year,
-    thresholds: await calculateSeasonThresholds(year),
-    rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
-      const team = getTeamByCode(teamCode);
-      return {
-        team: team || { code: teamCode, name: teamCode },
-        totalStrength: ranking.totalStrength,
-        averageStrength: ranking.averageStrength,
-        percentile: ranking.percentile,
-        category: ranking.category,
-        rank,
-      };
-    }),
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 /**
- * GET /api/rankings/:year/:code - Get team season ranking
+ * GET /api/rankings/:year/:code - Get team season ranking.
+ *
+ * Returns the availability envelope when the artifact is missing or stale.
  */
-export async function getTeamRanking(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const code = c.req.param('code')?.toUpperCase();
+export function getTeamRanking(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const code = c.req.param('code')?.toUpperCase();
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
 
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
 
-  const year = yearResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
+    const year = yearResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
 
-  const ranking = await getTeamSeasonRanking(year, code);
-  if (!ranking) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
-  }
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const ranking = await useCase.getSeasonRanking(year, code);
+    if (!ranking) {
+      return c.json(precomputePending());
+    }
 
-  const response: TeamSeasonRankingResponse = {
-    team,
-    ranking,
+    const response: TeamSeasonRankingResponse = { team, ranking };
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 /**
- * GET /api/rankings/:year/:code/:round - Get team round ranking
+ * GET /api/rankings/:year/:code/:round - Get team round ranking.
+ *
+ * Returns the availability envelope when the artifact is missing or stale.
  */
-export async function getTeamRoundRankingHandler(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const roundResult = RoundSchema.safeParse(c.req.param('round'));
-  const code = c.req.param('code')?.toUpperCase();
+export function getTeamRoundRankingHandler(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+    const code = c.req.param('code')?.toUpperCase();
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
-  if (!roundResult.success) {
-    return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
-  }
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
+    }
 
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
 
-  const year = yearResult.data;
-  const round = roundResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
+    const year = yearResult.data;
+    const round = roundResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
 
-  const ranking = await getTeamRoundRanking(year, code, round);
-  if (!ranking) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in round ${round} of ${year}`, 404);
-  }
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const ranking = await useCase.getRoundRanking(year, round, code);
+    if (!ranking) {
+      return c.json(precomputePending());
+    }
 
-  const response: TeamRoundRankingResponse = {
-    team,
-    ranking,
+    const response: TeamRoundRankingResponse = { team, ranking };
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 // ============================================
@@ -476,26 +493,29 @@ export async function getTeamRoundRankingHandler(c: ApiContext) {
 /**
  * GET /api/streaks/:year/:code - Get team streak analysis
  */
-export async function getTeamStreaks(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const code = c.req.param('code')?.toUpperCase();
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
-  const year = yearResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
-  const result = await createAnalyseStreaksUseCase().execute(year, code);
-  if (!result) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
-  }
-  const response: TeamStreaksResponse = { team, year, streaks: result.streaks, summary: result.summary };
-  return c.json(response);
+export function getTeamStreaks(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const code = c.req.param('code')?.toUpperCase();
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
+    const year = yearResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createAnalyseStreaksUseCase(rankingsUseCase).execute(year, code);
+    if (!result) {
+      return c.json(precomputePending());
+    }
+    const response: TeamStreaksResponse = { team, year, streaks: result.streaks, summary: result.summary };
+    return c.json(response);
+  };
 }
 
 // ============================================
@@ -518,7 +538,13 @@ export function getSeasonSummary(deps: HandlerDeps) {
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
     const teamListRepo = deps.createTeamListRepository(c.env.DB);
-    const result = await createGetSeasonSummaryUseCase(deps.fixtureRepository, deps.matchRepository, teamListRepo).execute(year);
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createGetSeasonSummaryUseCase(
+      deps.fixtureRepository,
+      rankingsUseCase,
+      deps.matchRepository,
+      teamListRepo,
+    ).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }

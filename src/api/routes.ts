@@ -43,12 +43,12 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/rounds/:year/:round', handlers.getRoundDetails(deps));
 
   // Rankings
-  api.get('/rankings/:year', handlers.getAllTeamsRanking);
-  api.get('/rankings/:year/:code', handlers.getTeamRanking);
-  api.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler);
+  api.get('/rankings/:year', handlers.getAllTeamsRanking(deps));
+  api.get('/rankings/:year/:code', handlers.getTeamRanking(deps));
+  api.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler(deps));
 
   // Streaks
-  api.get('/streaks/:year/:code', handlers.getTeamStreaks);
+  api.get('/streaks/:year/:code', handlers.getTeamStreaks(deps));
 
   // Season Summary (use injected deps for metadata)
   api.get('/season/:year/summary', handlers.getSeasonSummary(deps));

@@ -319,3 +319,50 @@ All four repositories raise typed `*StoreQuotaExhaustedError` (e.g. `TeamFormSto
 - `tests/unit/analytics-cache.test.ts`
 - The `const analyticsCache = new AnalyticsCache()` singleton in `src/worker.ts`
 - The 10-minute TTL safety net (replaced by watermark-driven invalidation)
+
+## Precomputed Team-Strength Rankings (spec 039)
+
+The team-strength-rankings artifact — the schedule-difficulty classifier
+behind the `/api/rankings/...` endpoints — is now KV-backed under the
+same precomputed-artifact pattern (it is the ninth concrete instance).
+Three sub-artifacts per year are stored under the `team-strength-rankings:v1:`
+KV prefix:
+
+- `team-strength-rankings:v1:{year}:thresholds`
+- `team-strength-rankings:v1:{year}:season`
+- `team-strength-rankings:v1:{year}:round:{round}`
+
+Each sub-artifact carries `{ asOfRound }` KV metadata so the discovery
+predicate can probe coverage via `kv.list` keys-only.
+
+| Component | Location | Notes |
+|---|---|---|
+| Domain port | `src/domain/repositories/team-strength-rankings-repository.ts` | `TeamStrengthRankingsRepository` interface + `TeamStrengthRankingsStoreQuotaExhaustedError` + `RankingsYearPayload`. Batched `saveYear(year, asOfRound, payload)` writes thresholds → season → rounds (ascending). |
+| KV adapter | `src/infrastructure/persistence/kv-team-strength-rankings-repository.ts` | Cloudflare KV implementation. Quota wrapping via the spec-037 regex; partial-write tolerance (failed mid-batch writes leave a "stale" sub-artifact that the discovery predicate detects via `?? -1`). |
+| In-memory adapter | `src/infrastructure/persistence/in-memory-team-strength-rankings-repository.ts` | Unit-test default + local-dev fallback when `env.CACHE` is unset. |
+| Envelope codec | `src/infrastructure/persistence/team-strength-rankings-envelope.ts` | Zod-validated `schemaVersion: 1` envelopes per sub-artifact subtype; Map↔tuple-array serialisation for season + round payloads. |
+| Pure-fn module | `src/domain/team-strength-rankings.ts` | `getCategoryFromThresholds`, `getCategoryFromPercentile` — moved here from the deleted `src/database/rankings.ts`. |
+| Compute use case | `src/application/use-cases/compute-team-strength-rankings.ts` | One fixture-scan per year, all three sub-artifacts derived from the same snapshot, then `saveYear` writes them under a single watermark. Cold-start (no fixtures) logs at warn and returns successfully (non-terminal — re-enqueued by the next discovery tick). |
+| Read use case | `src/application/use-cases/get-team-strength-rankings.ts` | Four read methods: `getSeasonThresholds`, `getSeasonRanking`, `getRoundRanking`, `getAllSeasonRankings`. Each consults the repository AND `watermarkFn(year)`; returns `null` on miss or watermark mismatch. NO live-compute fallback. |
+| New queue variant | `src/application/ports/job-queue.ts` | `precompute-team-strength-rankings { year, asOfRound }`. Distinct from the pre-existing `precompute-team-rankings` (player-projection leaf). |
+| Dispatch arm | `src/application/use-cases/handle-scrape-job.ts` | Routes the new job to `ComputeTeamStrengthRankingsUseCase`; `TeamStrengthRankingsStoreQuotaExhaustedError` is classified terminal. |
+| Discovery | `src/application/use-cases/enqueue-due-scrapes.ts` | Per-tick gap-set probe: one batched job per active year whose stored `asOfRound` lags the watermark or whose round-rankings keys are partially missing. |
+| Post-scrape signal | `src/application/use-cases/scrape-supplementary-stats.ts` | On every successful supp-stats scrape, publishes a `precompute-team-strength-rankings` job alongside the existing `recompute-game-strength` signal. |
+
+### API wire format
+
+The three rankings endpoints return the standard availability envelope on
+cold-start or watermark-mismatch (HTTP 200 in both branches):
+
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+### Removed
+
+- `src/database/rankings.ts` (module-level `Map`-based caches + `clearRankingsCache`)
+- `setRankingsCacheClearFn` from `src/database/store.ts` (cross-cutting registration hook — no remaining consumers)
+- `src/application/ports/ranking-service.ts`
+- `src/application/adapters/ranking-service-adapter.ts` (single consumer of the deleted `database/rankings.ts` free functions)
+- `tests/unit/database/rankings-fixture-reads.test.ts` (asserted coalescing of the deleted in-process Map)
+- `tests/unit/season-thresholds.test.ts` (math half migrated into the compute use-case test; pure-utility half lives at `tests/unit/domain/team-strength-rankings.test.ts`)

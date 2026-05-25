@@ -66,17 +66,36 @@ export async function getRound(
   return fetchApi<RoundResponse>(`/rounds/${year}/${round}`);
 }
 
+// Spec 039 — the rankings endpoints now return an availability envelope on
+// cold-start / watermark-mismatch. Existing consumers that read fields via
+// optional chaining (e.g. `data?.thresholds`) continue to work — the union
+// type narrows naturally because the precompute-pending branch has neither
+// `thresholds` nor `rankings`.
+// `thresholds` / `rankings` declared as optional `never` on the pending
+// branch so consumers can keep using optional-chaining (`data?.thresholds`)
+// without a type guard — TS narrows to `undefined` on the pending branch.
+type RankingsPending = {
+  available: false;
+  asOfRound: null;
+  reason: string;
+  thresholds?: never;
+  rankings?: never;
+  ranking?: never;
+};
+
 export async function getTeamSeasonRanking(
   year: number,
   teamCode: string
-): Promise<TeamSeasonRankingResponse> {
-  return fetchApi<TeamSeasonRankingResponse>(`/rankings/${year}/${teamCode}`);
+): Promise<TeamSeasonRankingResponse | RankingsPending> {
+  return fetchApi<TeamSeasonRankingResponse | RankingsPending>(
+    `/rankings/${year}/${teamCode}`,
+  );
 }
 
 export async function getAllTeamsRanking(
   year: number
-): Promise<AllTeamsRankingResponse> {
-  return fetchApi<AllTeamsRankingResponse>(`/rankings/${year}`);
+): Promise<AllTeamsRankingResponse | RankingsPending> {
+  return fetchApi<AllTeamsRankingResponse | RankingsPending>(`/rankings/${year}`);
 }
 
 export async function getSeasonSummary(

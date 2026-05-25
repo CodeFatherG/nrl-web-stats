@@ -20,6 +20,6 @@ export interface RoundSummary {
 
 export interface SeasonSummaryResult {
   year: number;
-  thresholds: SeasonThresholds;
+  thresholds: SeasonThresholds | null;
   rounds: RoundSummary[];
 }

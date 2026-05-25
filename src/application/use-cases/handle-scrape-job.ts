@@ -22,6 +22,7 @@ import { MatchOutlookStoreQuotaExhaustedError } from '../../domain/repositories/
 import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/player-trends-repository.js';
 import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
 import { FixtureStoreQuotaExhaustedError } from '../../domain/repositories/fixture-repository.js';
+import { TeamStrengthRankingsStoreQuotaExhaustedError } from '../../domain/repositories/team-strength-rankings-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -36,6 +37,7 @@ import type { PrecomputeMatchOutlookUseCase } from './precompute-match-outlook.j
 import type { PrecomputePlayerTrendsUseCase } from './precompute-player-trends.js';
 import type { PrecomputeCompositionImpactUseCase } from './precompute-composition-impact.js';
 import type { ScrapeDrawUseCase } from './scrape-draw.js';
+import type { ComputeTeamStrengthRankingsUseCase } from './compute-team-strength-rankings.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -66,6 +68,8 @@ export interface HandleScrapeJobDeps {
   precomputeCompositionImpact?: PrecomputeCompositionImpactUseCase;
   /** Spec 038: draw-scrape use case (writes through FixtureRepository). */
   scrapeDraw?: ScrapeDrawUseCase;
+  /** Spec 039: batched precompute of the team-strength-rankings artifact. */
+  computeTeamStrengthRankings?: ComputeTeamStrengthRankingsUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
@@ -102,6 +106,9 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   }
   if (err instanceof FixtureStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'fixture-store-quota-exhausted' };
+  }
+  if (err instanceof TeamStrengthRankingsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'team-strength-rankings-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -273,6 +280,12 @@ export class HandleScrapeJobUseCase {
           throw new Error('scrape-draw dispatched but no ScrapeDrawUseCase wired');
         }
         await this.deps.scrapeDraw.execute(job.year);
+        return;
+      case 'precompute-team-strength-rankings':
+        if (!this.deps.computeTeamStrengthRankings) {
+          throw new Error('precompute-team-strength-rankings dispatched but no ComputeTeamStrengthRankingsUseCase wired');
+        }
+        await this.deps.computeTeamStrengthRankings.execute(job.year, job.asOfRound);
         return;
       default: {
         // Exhaustiveness check — the discriminated union should make this unreachable.

@@ -174,6 +174,13 @@ Get all matches and bye teams for a specific round.
 
 ## Rankings
 
+All three rankings endpoints below serve a durable precomputed artifact
+(spec 039). On cold-start or when the stored `asOfRound` lags the current
+watermark, they respond `200 OK` with `{ "available": false, "asOfRound":
+null, "reason": "precompute-pending" }`. Clients MUST branch on `available`
+before reading payload fields. A subsequent cron tick or post-scrape signal
+refreshes the artifact within ~60 seconds.
+
 ### GET /api/rankings/:year
 
 Get all teams' season rankings sorted by schedule difficulty.
@@ -181,7 +188,7 @@ Get all teams' season rankings sorted by schedule difficulty.
 **Path Parameters**:
 - `year` (number, required): Season year (min 1998)
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "year": 2026,
@@ -196,7 +203,12 @@ Get all teams' season rankings sorted by schedule difficulty.
 }
 ```
 
-**Errors**: 400 (invalid year), 404 (no data)
+**Response (precompute pending)** (200):
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+**Errors**: 400 (invalid year)
 
 ### GET /api/rankings/:year/:code
 
@@ -206,7 +218,7 @@ Get a single team's season ranking with per-round breakdown.
 - `year` (number, required): Season year
 - `code` (string, required): Team code
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "team": { "code": "MEL", "name": "Melbourne Storm" },
@@ -226,7 +238,9 @@ Get a single team's season ranking with per-round breakdown.
 }
 ```
 
-**Errors**: 400 (invalid year/code), 404 (not found)
+**Response (precompute pending)** (200): see availability envelope above.
+
+**Errors**: 400 (invalid year/code), 404 (unknown team code)
 
 ### GET /api/rankings/:year/:code/:round
 
@@ -237,7 +251,7 @@ Get a team's ranking for a specific round.
 - `code` (string, required): Team code
 - `round` (number, required): Round number (1–27)
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "team": { "code": "MEL", "name": "Melbourne Storm" },
@@ -249,7 +263,9 @@ Get a team's ranking for a specific round.
 }
 ```
 
-**Errors**: 400 (invalid parameters), 404 (not found)
+**Response (precompute pending)** (200): see availability envelope above.
+
+**Errors**: 400 (invalid parameters), 404 (unknown team code)
 
 ## Streaks
 

@@ -1,17 +1,16 @@
 import type { FixtureRepository } from '../../domain/repositories/fixture-repository.js';
-import type { RankingService } from '../ports/ranking-service.js';
+import type { GetTeamStrengthRankingsUseCase } from './get-team-strength-rankings.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { Fixture } from '../../models/fixture.js';
 import type { TeamScheduleResult, ScheduleFixture } from '../results/team-schedule-result.js';
 import type { Match } from '../../domain/match.js';
 import { MatchStatus } from '../../domain/match.js';
-import { rankingServiceAdapter } from '../adapters/ranking-service-adapter.js';
 import { getTeamByCode } from '../../database/store.js';
 
 export class GetTeamScheduleUseCase {
   constructor(
     private readonly fixtures: FixtureRepository,
-    private readonly rankings: RankingService,
+    private readonly rankings: GetTeamStrengthRankingsUseCase,
     private readonly matchRepository?: MatchRepository,
   ) {}
 
@@ -24,7 +23,6 @@ export class GetTeamScheduleUseCase {
       const artifact = await this.fixtures.findByYearAndTeam(year, teamCode);
       teamFixtures = artifact ? [...artifact.payload] : [];
     } else {
-      // Cross-year aggregation: walk every scraped year and concat.
       const years = await this.fixtures.listScrapedYears();
       const acc: Fixture[] = [];
       for (const y of years.keys()) {
@@ -51,7 +49,7 @@ export class GetTeamScheduleUseCase {
 
     const schedule: ScheduleFixture[] = [];
     for (const f of teamFixtures) {
-      const roundRanking = await this.rankings.getTeamRoundRanking(f.year, teamCode, f.round);
+      const roundRanking = await this.rankings.getRoundRanking(f.year, f.round, teamCode);
 
       let scheduledTime: string | null = null;
       let stadium: string | null = null;
@@ -98,7 +96,9 @@ export class GetTeamScheduleUseCase {
     const byeRounds = schedule.filter(f => f.isBye).map(f => f.round);
 
     const scheduleYear = year ?? teamFixtures[0]?.year;
-    const thresholds = scheduleYear ? await this.rankings.calculateSeasonThresholds(scheduleYear) : undefined;
+    const thresholds = scheduleYear
+      ? (await this.rankings.getSeasonThresholds(scheduleYear)) ?? undefined
+      : undefined;
 
     return { teamCode, teamName, schedule, totalStrength, byeRounds, thresholds };
   }
@@ -106,7 +106,8 @@ export class GetTeamScheduleUseCase {
 
 export function createGetTeamScheduleUseCase(
   fixtureRepository: FixtureRepository,
+  rankings: GetTeamStrengthRankingsUseCase,
   matchRepository?: MatchRepository,
 ): GetTeamScheduleUseCase {
-  return new GetTeamScheduleUseCase(fixtureRepository, rankingServiceAdapter, matchRepository);
+  return new GetTeamScheduleUseCase(fixtureRepository, rankings, matchRepository);
 }

@@ -27,6 +27,7 @@ import type { TeamFormRepository } from '../../domain/repositories/team-form-rep
 import type { MatchOutlookRepository } from '../../domain/repositories/match-outlook-repository.js';
 import type { PlayerTrendsRepository } from '../../domain/repositories/player-trends-repository.js';
 import type { CompositionImpactRepository } from '../../domain/repositories/composition-impact-repository.js';
+import type { TeamStrengthRankingsRepository } from '../../domain/repositories/team-strength-rankings-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
 import type { SupplementaryStatsSource } from '../../domain/ports/supplementary-stats-source.js';
@@ -79,6 +80,10 @@ export interface EnqueueDueScrapesDeps {
   matchOutlookRepository: MatchOutlookRepository;
   playerTrendsRepository: PlayerTrendsRepository;
   compositionImpactRepository: CompositionImpactRepository;
+  /** Spec 039: durable team-strength-rankings store. Discovery emits one
+   *  `precompute-team-strength-rankings` job per active year per tick when
+   *  any sub-artifact is missing or its `asOfRound` lags the watermark. */
+  teamStrengthRankingsRepository: TeamStrengthRankingsRepository;
 }
 
 export interface EnqueueDueScrapesInput {
@@ -446,6 +451,54 @@ export class EnqueueDueScrapesUseCase {
         if (coveredAt >= watermark) continue;
         await tryPublish(
           { type: 'precompute-composition-impact', version: 1, year: currentYear, asOfRound: watermark, teamCode },
+          () => Promise.resolve(true),
+        );
+      }
+    }
+
+    // --------------------------------------------------------------------
+    // 12. Spec 039 — team-strength-rankings. One batched job per active
+    //     year per tick when ANY sub-artifact is missing or stale. Gated
+    //     on the per-year watermark being > 0 (pre-season has nothing to
+    //     compute). Active years include `currentYear` plus the prior year
+    //     during the pre-April preseason window (same scoping as the
+    //     draw-scrape pass above so the previous season's artifact does
+    //     not silently rot).
+    // --------------------------------------------------------------------
+    let tsrCoverageYears: Map<number, number> | null = null;
+    for (const year of activeYears) {
+      const yearWatermark = await this.deps.watermarkFn(year);
+      if (yearWatermark <= 0) continue;
+
+      // Lazily fetch the coverage map only on the first year with a positive
+      // watermark — keeps the repo unused (and tolerant of test stubs that
+      // omit it) when nothing in the tick needs a refresh check.
+      if (tsrCoverageYears === null) {
+        tsrCoverageYears = await this.deps.teamStrengthRankingsRepository
+          .listYearsWithThresholds();
+      }
+
+      const seasonAsOfRound = tsrCoverageYears.get(year) ?? -1;
+      let needsRefresh = seasonAsOfRound !== yearWatermark;
+      if (!needsRefresh) {
+        const roundCoverage = await this.deps.teamStrengthRankingsRepository
+          .listCoveredRoundRankings(year);
+        for (let r = 1; r <= yearWatermark; r++) {
+          const coveredAt = roundCoverage.get(r) ?? -1;
+          if (coveredAt !== yearWatermark) {
+            needsRefresh = true;
+            break;
+          }
+        }
+      }
+      if (needsRefresh) {
+        await tryPublish(
+          {
+            type: 'precompute-team-strength-rankings',
+            version: 1,
+            year,
+            asOfRound: yearWatermark,
+          },
           () => Promise.resolve(true),
         );
       }

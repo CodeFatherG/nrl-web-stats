@@ -78,6 +78,12 @@ import { PrecomputeTeamFormUseCase } from './application/use-cases/precompute-te
 import { PrecomputeMatchOutlookUseCase } from './application/use-cases/precompute-match-outlook.js';
 import { PrecomputePlayerTrendsUseCase } from './application/use-cases/precompute-player-trends.js';
 import { PrecomputeCompositionImpactUseCase } from './application/use-cases/precompute-composition-impact.js';
+// Spec 039 — durable team-strength-rankings repository + use cases
+import type { TeamStrengthRankingsRepository } from './domain/repositories/team-strength-rankings-repository.js';
+import { KvTeamStrengthRankingsRepository } from './infrastructure/persistence/kv-team-strength-rankings-repository.js';
+import { InMemoryTeamStrengthRankingsRepository } from './infrastructure/persistence/in-memory-team-strength-rankings-repository.js';
+import { GetTeamStrengthRankingsUseCase } from './application/use-cases/get-team-strength-rankings.js';
+import { ComputeTeamStrengthRankingsUseCase } from './application/use-cases/compute-team-strength-rankings.js';
 
 // Environment bindings type
 export interface Env {
@@ -154,6 +160,12 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
   const compositionImpactRepository: CompositionImpactRepository = cache
     ? new KvCompositionImpactRepository(cache)
     : new InMemoryCompositionImpactRepository();
+
+  // Spec 039 — durable team-strength-rankings repository (ninth precomputed-
+  // artifact store). KV in production, in-memory otherwise.
+  const teamStrengthRankingsRepository: TeamStrengthRankingsRepository = cache
+    ? new KvTeamStrengthRankingsRepository(cache)
+    : new InMemoryTeamStrengthRankingsRepository();
 
   // Per-request D1 binding constructions still happen in the factories
   // below; the composite is built per-request inside those factories so
@@ -307,6 +319,17 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
       );
       return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepository, buildGameStrengthRepository(reqDb));
     },
+    createGetTeamStrengthRankingsUseCase: (reqDb: D1Database) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      return new GetTeamStrengthRankingsUseCase({
+        repository: teamStrengthRankingsRepository,
+        watermarkFn,
+      });
+    },
+    teamStrengthRankingsRepository,
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -431,6 +454,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       matchOutlookRepository: deps.matchOutlookRepository,
       playerTrendsRepository: deps.playerTrendsRepository,
       compositionImpactRepository: deps.compositionImpactRepository,
+      teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
     });
     await enqueueUseCase.execute({
       scheduledTime: new Date(event.scheduledTime),
@@ -509,6 +533,13 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     deps.matchRepository, playerRepo, deps.compositionImpactRepository,
   );
 
+  // Spec 039 — batched team-strength-rankings precompute. Reuses the
+  // process-level repository (KV in prod, in-memory in tests).
+  const computeTeamStrengthRankingsUC = new ComputeTeamStrengthRankingsUseCase({
+    fixtureRepository: deps.fixtureRepository,
+    teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
+  });
+
   const dispatcher = new HandleScrapeJobUseCase({
     scrapeMatchResults: deps.scrapeMatchResultsUseCase,
     scrapePlayerStats: scrapePlayerStatsUC,
@@ -524,6 +555,7 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     precomputePlayerTrends: precomputePlayerTrendsUC,
     precomputeCompositionImpact: precomputeCompositionImpactUC,
     scrapeDraw: deps.scrapeDrawUseCase,
+    computeTeamStrengthRankings: computeTeamStrengthRankingsUC,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

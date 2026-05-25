@@ -37,14 +37,6 @@ function requireRepository(): FixtureRepository {
   return injectedRepository;
 }
 
-/** Retained as a no-op-receiver: rankings still registers its clear function
- *  here for backward compatibility, but writes no longer flow through this
- *  module so the function is never invoked. Removed alongside the rankings
- *  artifact migration that follows this spec. */
-export function setRankingsCacheClearFn(_fn: (year?: number) => void): void {
-  // intentionally a no-op
-}
-
 /** Initialise or get the database (teams registry only). */
 export function getDatabase(): DatabaseState {
   if (!db) {

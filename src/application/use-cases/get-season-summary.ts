@@ -1,15 +1,14 @@
 import type { FixtureRepository } from '../../domain/repositories/fixture-repository.js';
-import type { RankingService } from '../ports/ranking-service.js';
+import type { GetTeamStrengthRankingsUseCase } from './get-team-strength-rankings.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { SeasonSummaryResult, MatchPairing, RoundSummary } from '../results/season-summary-result.js';
 import { createMatchId, MatchStatus } from '../../domain/match.js';
-import { rankingServiceAdapter } from '../adapters/ranking-service-adapter.js';
 
 export class GetSeasonSummaryUseCase {
   constructor(
     private readonly fixtures: FixtureRepository,
-    private readonly rankings: RankingService,
+    private readonly rankings: GetTeamStrengthRankingsUseCase,
     private readonly matchRepository?: MatchRepository,
     private readonly teamListRepository?: TeamListRepository,
   ) {}
@@ -79,7 +78,7 @@ export class GetSeasonSummaryUseCase {
 
     return {
       year,
-      thresholds: await this.rankings.calculateSeasonThresholds(year),
+      thresholds: await this.rankings.getSeasonThresholds(year),
       rounds,
     };
   }
@@ -87,8 +86,9 @@ export class GetSeasonSummaryUseCase {
 
 export function createGetSeasonSummaryUseCase(
   fixtureRepository: FixtureRepository,
+  rankings: GetTeamStrengthRankingsUseCase,
   matchRepository?: MatchRepository,
   teamListRepository?: TeamListRepository,
 ): GetSeasonSummaryUseCase {
-  return new GetSeasonSummaryUseCase(fixtureRepository, rankingServiceAdapter, matchRepository, teamListRepository);
+  return new GetSeasonSummaryUseCase(fixtureRepository, rankings, matchRepository, teamListRepository);
 }

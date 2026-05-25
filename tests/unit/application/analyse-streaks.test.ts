@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AnalyseStreaksUseCase } from '../../../src/application/use-cases/analyse-streaks.js';
-import type { RankingService } from '../../../src/application/ports/ranking-service.js';
+import type { GetTeamStrengthRankingsUseCase } from '../../../src/application/use-cases/get-team-strength-rankings.js';
 import type { StreakService } from '../../../src/application/ports/streak-service.js';
 
 const mockRanking = {
@@ -13,13 +13,13 @@ const mockRanking = {
 const mockStreaks = [{ type: 'soft_draw' as const, startRound: 1, endRound: 3, rounds: 3, averageStrength: 3.0 }];
 const mockSummary = { softDraws: 1, roughPatches: 0, longestSoftDraw: 3, longestRoughPatch: 0 };
 
-function createMockRankingService(hasRanking: boolean): RankingService {
+function createMockRankings(hasRanking: boolean): GetTeamStrengthRankingsUseCase {
   return {
-    getTeamRoundRanking: async () => null,
-    getTeamSeasonRanking: async () => hasRanking ? mockRanking : null,
-    getAllTeamSeasonRankings: async () => [],
-    calculateSeasonThresholds: async () => ({ soft: 3.5, moderate: 5.0, tough: 6.5, count: 0 } as never),
-  };
+    getSeasonThresholds: async () => null,
+    getRoundRanking: async () => null,
+    getSeasonRanking: async () => (hasRanking ? (mockRanking as never) : null),
+    getAllSeasonRankings: async () => null,
+  } as unknown as GetTeamStrengthRankingsUseCase;
 }
 
 function createMockStreakService(): StreakService {
@@ -32,7 +32,7 @@ function createMockStreakService(): StreakService {
 describe('AnalyseStreaksUseCase', () => {
   it('returns streaks and summary for a valid team with ranking', async () => {
     const useCase = new AnalyseStreaksUseCase(
-      createMockRankingService(true),
+      createMockRankings(true),
       createMockStreakService(),
     );
     const result = await useCase.execute(2025, 'MNL');
@@ -46,7 +46,7 @@ describe('AnalyseStreaksUseCase', () => {
 
   it('returns null when team not found', async () => {
     const useCase = new AnalyseStreaksUseCase(
-      createMockRankingService(true),
+      createMockRankings(true),
       createMockStreakService(),
     );
     expect(await useCase.execute(2025, 'XXX')).toBeNull();
@@ -54,7 +54,7 @@ describe('AnalyseStreaksUseCase', () => {
 
   it('returns null when no ranking data exists', async () => {
     const useCase = new AnalyseStreaksUseCase(
-      createMockRankingService(false),
+      createMockRankings(false),
       createMockStreakService(),
     );
     expect(await useCase.execute(2025, 'MNL')).toBeNull();

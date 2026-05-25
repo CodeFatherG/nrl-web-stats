@@ -134,6 +134,18 @@ export interface ScrapeDrawJob extends BaseJob {
   readonly year: number;
 }
 
+/** Spec 039 — batched precompute of the team-strength-rankings artifact for
+ *  one year. One job refreshes all three sub-artifacts (thresholds, season
+ *  rankings, per-round rankings) under a single watermark.
+ *
+ *  NOTE: distinct from the pre-existing `precompute-team-rankings` leaf job
+ *  (player-projection per-team aggregate). See specs/039 research.md Risk 1. */
+export interface PrecomputeTeamStrengthRankingsJob extends BaseJob {
+  readonly type: 'precompute-team-strength-rankings';
+  readonly year: number;
+  readonly asOfRound: number;
+}
+
 export type ScrapeJob =
   | ScrapeMatchResultsJob
   | ScrapePlayerStatsJob
@@ -148,7 +160,8 @@ export type ScrapeJob =
   | PrecomputeMatchOutlookJob
   | PrecomputePlayerTrendsJob
   | PrecomputeCompositionImpactJob
-  | ScrapeDrawJob;
+  | ScrapeDrawJob
+  | PrecomputeTeamStrengthRankingsJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -265,6 +278,13 @@ const ScrapeDrawJobSchema = z.object({
   year: YearSchema,
 });
 
+const PrecomputeTeamStrengthRankingsJobSchema = z.object({
+  type: z.literal('precompute-team-strength-rankings'),
+  version: z.literal(1),
+  year: YearSchema,
+  asOfRound: z.number().int().nonnegative(),
+});
+
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeMatchResultsJobSchema,
   ScrapePlayerStatsJobSchema,
@@ -280,6 +300,7 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   PrecomputePlayerTrendsJobSchema,
   PrecomputeCompositionImpactJobSchema,
   ScrapeDrawJobSchema,
+  PrecomputeTeamStrengthRankingsJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

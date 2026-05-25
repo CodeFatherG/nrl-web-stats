@@ -88,11 +88,36 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 
 **Output**: Array of player impacts with win rates, impact scores, and method used
 
+## Team Strength Rankings (Feature 039)
+
+**Endpoints**: `GET /api/rankings/:year`, `GET /api/rankings/:year/:code`, `GET /api/rankings/:year/:code/:round`
+
+**Inputs**: `FixtureRepository.findByYear(year)` (one read per precompute) + the shared `currentWatermark(year)` watermark.
+
+**Computation** (batched precompute in `ComputeTeamStrengthRankingsUseCase`):
+
+1. **Season thresholds** — strength ratings of non-bye fixtures, IQR-clamped (Q1−1.5·IQR, Q3+1.5·IQR), p33/p67 computed on the non-outlier set.
+2. **Per-round rankings** — for every round R, each team's opponent strength rating, percentile against the season-wide non-bye distribution, and classification (hard / medium / easy) via the season thresholds.
+3. **Per-team season rollup** — average opponent strength across all non-bye matches, percentile vs other teams, classification via `getCategoryFromPercentile`. Includes the chronological per-round breakdown.
+
+**Storage**: Each artifact is persisted via `TeamStrengthRankingsRepository` (KV in production, in-memory otherwise) under the `team-strength-rankings:v1:` key prefix. Three sub-artifact families per year:
+
+- `team-strength-rankings:v1:{year}:thresholds`
+- `team-strength-rankings:v1:{year}:season`
+- `team-strength-rankings:v1:{year}:round:{round}`
+
+**Read path**: `GetTeamStrengthRankingsUseCase` consults the repository AND the current watermark. Misses or watermark-mismatches return `null`; the handler renders these as the standard `{ available: false, asOfRound: null, reason: "precompute-pending" }` envelope. There is no live-compute fallback.
+
+**Refresh triggers**:
+
+- `EnqueueDueScrapesUseCase` — per-tick gap-set probe (any sub-artifact missing or lagging the watermark publishes one `precompute-team-strength-rankings` job per active year).
+- `ScrapeSupplementaryStatsUseCase` — on every successful round scrape, publishes a `precompute-team-strength-rankings` job with `asOfRound = round`. The consumer is idempotent against the same watermark.
+
 ## Streak Analysis
 
 **Endpoint**: `GET /api/streaks/:year/:code`
 
-**Inputs**: Team's fixture schedule with strength categories (hard/medium/easy)
+**Inputs**: Team's season ranking from `GetTeamStrengthRankingsUseCase` (precompute artifact); returns the availability envelope when the ranking artifact is pending.
 
 **Computation** (two-pass detection):
 

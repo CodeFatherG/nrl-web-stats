@@ -54,12 +54,33 @@ describe('ScrapeSupplementaryStatsUseCase — recompute-game-strength publish-on
   it('publishes a recompute-game-strength job on successful scrape', async () => {
     const useCase = new ScrapeSupplementaryStatsUseCase(makeSource(true), makeRepo(false), producer);
     await useCase.execute(2026, 14, false);
-    expect(producer.published).toHaveLength(1);
-    expect(producer.published[0]).toEqual({
+    // Two jobs are published: the spec-036 recompute-game-strength job and
+    // the spec-039 precompute-team-strength-rankings job.
+    expect(producer.published).toHaveLength(2);
+    expect(producer.published).toContainEqual({
       type: 'recompute-game-strength',
       version: 1,
       year: 2026,
       completedRound: 14,
+    });
+    expect(producer.published).toContainEqual({
+      type: 'precompute-team-strength-rankings',
+      version: 1,
+      year: 2026,
+      asOfRound: 14,
+    });
+  });
+
+  it('publishes a precompute-team-strength-rankings job on successful scrape', async () => {
+    const useCase = new ScrapeSupplementaryStatsUseCase(makeSource(true), makeRepo(false), producer);
+    await useCase.execute(2026, 7, false);
+    const tsrJobs = producer.published.filter(j => j.type === 'precompute-team-strength-rankings');
+    expect(tsrJobs).toHaveLength(1);
+    expect(tsrJobs[0]).toEqual({
+      type: 'precompute-team-strength-rankings',
+      version: 1,
+      year: 2026,
+      asOfRound: 7,
     });
   });
 
