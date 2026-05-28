@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { parseEnvelopeJson } from './envelope.js';
 
 export const CURRENT_SCHEMA_VERSION = 1 as const;
 
@@ -40,16 +41,8 @@ export function encodeWatermarkEnvelope(
 }
 
 export function decodeWatermarkEnvelope(raw: string | null): WatermarkState | null {
-  if (raw === null) return null;
-  let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const result = WatermarkEnvelopeSchema.safeParse(json);
-  if (!result.success) return null;
-  return result.data.state;
+  const env = parseEnvelopeJson(raw, WatermarkEnvelopeSchema);
+  return env ? env.state : null;
 }
 
 // ── KV key layout ──────────────────────────────────────────────────────────
