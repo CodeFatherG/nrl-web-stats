@@ -12,6 +12,7 @@
  * the value.
  */
 
+import { z } from 'zod';
 import {
   TeamStrengthRankingsStoreQuotaExhaustedError,
   type RankingsYearPayload,
@@ -19,17 +20,12 @@ import {
 } from '../../domain/repositories/team-strength-rankings-repository.js';
 import type {
   SeasonThresholds,
+  StrengthCategory,
   TeamRoundRanking,
   TeamSeasonRanking,
 } from '../../models/types.js';
-import {
-  decodeRoundEnvelope,
-  decodeSeasonEnvelope,
-  decodeThresholdsEnvelope,
-  encodeRoundEnvelope,
-  encodeSeasonEnvelope,
-  encodeThresholdsEnvelope,
-} from './team-strength-rankings-envelope.js';
+import { parseEnvelopeJson } from './envelope.js';
+import { pagedKvList } from './kv-list.js';
 
 const KEY_PREFIX = 'team-strength-rankings:v1';
 
@@ -57,10 +53,155 @@ interface CoverageMetadata {
   readonly asOfRound: number;
 }
 
+// NOTE (FR-012, follow-up observation logged for spec 041 T055): this regex is
+// strictly narrower than the canonical isQuotaExhaustedError in kv-errors.ts —
+// it only matches messages of the form "KV PUT failed: 429 ... Daily limit
+// exceeded". Adopting the canonical predicate would slightly broaden quota
+// detection (different behaviour), so the per-adapter try/catch and regex are
+// preserved verbatim for byte-identity. Reconciliation is a follow-up, not
+// in-scope for the envelope-extraction refactor.
 function isQuotaExhaustedError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return /KV PUT failed: 429.*Daily limit exceeded/i.test(err.message);
 }
+
+// ── Wire envelopes (shape A2 RW-flat — three subtypes) ──────────────────────
+
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+const StrengthCategoryEnum = z.enum(['hard', 'medium', 'easy']);
+
+const SeasonThresholdsSchema = z.object({
+  p33: z.number(),
+  p67: z.number(),
+  lowerFence: z.number(),
+  upperFence: z.number(),
+});
+
+const TeamRoundRankingSchema = z.object({
+  teamCode: z.string(),
+  year: z.number().int(),
+  round: z.number().int().positive(),
+  strengthRating: z.number(),
+  percentile: z.number(),
+  category: StrengthCategoryEnum,
+  opponentCode: z.string().nullable(),
+  isHome: z.boolean(),
+  isBye: z.boolean(),
+});
+
+const TeamSeasonRankingSchema = z.object({
+  teamCode: z.string(),
+  year: z.number().int(),
+  totalStrength: z.number(),
+  averageStrength: z.number(),
+  matchCount: z.number().int().nonnegative(),
+  byeCount: z.number().int().nonnegative(),
+  percentile: z.number(),
+  category: StrengthCategoryEnum,
+  rounds: z.array(TeamRoundRankingSchema),
+});
+
+const ThresholdsEnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  computedAt: z.string(),
+  asOfRound: z.number().int().nonnegative(),
+  payload: SeasonThresholdsSchema,
+});
+
+const SeasonEnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  computedAt: z.string(),
+  asOfRound: z.number().int().nonnegative(),
+  payload: z.array(z.tuple([z.string(), TeamSeasonRankingSchema])),
+});
+
+const RoundEnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  computedAt: z.string(),
+  asOfRound: z.number().int().nonnegative(),
+  payload: z.array(z.tuple([z.string(), TeamRoundRankingSchema])),
+});
+
+export function encodeThresholdsEnvelope(
+  asOfRound: number,
+  computedAt: string,
+  thresholds: SeasonThresholds,
+): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    computedAt,
+    asOfRound,
+    payload: thresholds,
+  });
+}
+
+function decodeThresholdsEnvelope(raw: string | null): SeasonThresholds | null {
+  const env = parseEnvelopeJson(raw, ThresholdsEnvelopeSchema);
+  return env ? env.payload : null;
+}
+
+export function encodeSeasonEnvelope(
+  asOfRound: number,
+  computedAt: string,
+  season: ReadonlyMap<string, TeamSeasonRanking>,
+): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    computedAt,
+    asOfRound,
+    payload: Array.from(season.entries()),
+  });
+}
+
+function decodeSeasonEnvelope(
+  raw: string | null,
+): ReadonlyMap<string, TeamSeasonRanking> | null {
+  const env = parseEnvelopeJson(raw, SeasonEnvelopeSchema);
+  if (!env) return null;
+  const map = new Map<string, TeamSeasonRanking>();
+  for (const [code, ranking] of env.payload) {
+    map.set(code, {
+      ...ranking,
+      category: ranking.category as StrengthCategory,
+      rounds: ranking.rounds.map(r => ({
+        ...r,
+        category: r.category as StrengthCategory,
+      })),
+    });
+  }
+  return map;
+}
+
+export function encodeRoundEnvelope(
+  asOfRound: number,
+  computedAt: string,
+  rounds: ReadonlyMap<string, TeamRoundRanking>,
+): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    computedAt,
+    asOfRound,
+    payload: Array.from(rounds.entries()),
+  });
+}
+
+function decodeRoundEnvelope(
+  raw: string | null,
+): ReadonlyMap<string, TeamRoundRanking> | null {
+  const env = parseEnvelopeJson(raw, RoundEnvelopeSchema);
+  if (!env) return null;
+  const map = new Map<string, TeamRoundRanking>();
+  for (const [code, ranking] of env.payload) {
+    map.set(code, {
+      ...ranking,
+      category: ranking.category as StrengthCategory,
+    });
+  }
+  return map;
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────────────
 
 export class KvTeamStrengthRankingsRepository
   implements TeamStrengthRankingsRepository {
@@ -88,48 +229,33 @@ export class KvTeamStrengthRankingsRepository
 
   async listCoveredRoundRankings(year: number): Promise<Map<number, number>> {
     const prefix = roundsListPrefix(year);
-    const out = new Map<number, number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<CoverageMetadata>({ prefix, cursor });
-      for (const entry of page.keys) {
-        if (!entry.metadata) continue;
-        const tail = entry.name.slice(prefix.length);
+    const entries = await pagedKvList<CoverageMetadata, [number, number]>({
+      kv: this.kv,
+      prefix,
+      transform: (key, metadata) => {
+        if (!metadata) return null;
+        const tail = key.slice(prefix.length);
         const round = Number.parseInt(tail, 10);
-        if (!Number.isFinite(round)) continue;
-        out.set(round, entry.metadata.asOfRound);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return out;
+        return Number.isFinite(round) ? [round, metadata.asOfRound] : null;
+      },
+    });
+    return new Map(entries);
   }
 
   async listYearsWithThresholds(): Promise<Map<number, number>> {
-    const out = new Map<number, number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<CoverageMetadata>({
-        prefix: `${KEY_PREFIX}:`,
-        cursor,
-      });
-      for (const entry of page.keys) {
-        if (!entry.name.endsWith(':thresholds')) continue;
-        if (!entry.metadata) continue;
-        const yearStr = entry.name.slice(
-          `${KEY_PREFIX}:`.length,
-          entry.name.length - ':thresholds'.length,
-        );
+    const prefix = `${KEY_PREFIX}:`;
+    const entries = await pagedKvList<CoverageMetadata, [number, number]>({
+      kv: this.kv,
+      prefix,
+      transform: (key, metadata) => {
+        if (!key.endsWith(':thresholds')) return null;
+        if (!metadata) return null;
+        const yearStr = key.slice(prefix.length, key.length - ':thresholds'.length);
         const year = Number.parseInt(yearStr, 10);
-        if (!Number.isFinite(year)) continue;
-        out.set(year, entry.metadata.asOfRound);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return out;
+        return Number.isFinite(year) ? [year, metadata.asOfRound] : null;
+      },
+    });
+    return new Map(entries);
   }
 
   async saveYear(
