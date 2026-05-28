@@ -24,6 +24,7 @@ export interface SupplementaryPlayerStats {
   readonly price: number | null;   // Price — player Supercoach price in whole dollars
   readonly breakEven: number | null; // BE — score needed to maintain current price
   readonly teamCode: string | null; // Team — 3-letter team code from supplementary source
+  readonly scPosition: string | null; // Posn — Supercoach lineup position(s); dual joined by comma (e.g. "HFB,CTW"). Comma rather than slash because "5/8" is a valid single value.
 }
 
 /** Port for fetching supplementary player statistics */

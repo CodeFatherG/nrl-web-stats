@@ -730,6 +730,10 @@ export function getPlayer(deps: HandlerDeps) {
     const performanceSeasons = new Set(player.performances.map(p => p.year));
     const seasonsToQuery = seasonFilter ? [seasonFilter] : [...performanceSeasons];
 
+    // Track the most-recent (year, round) sc_position seen across all seasons
+    // so the response carries a top-level scPosition for chip display.
+    let latestScPosition: { year: number; round: number; value: string } | null = null;
+
     // Build opponent lookup from match_performances table
     // For each match_id, find the other team_code that participated
     const opponentMap = new Map<string, string>();
@@ -792,7 +796,16 @@ export function getPlayer(deps: HandlerDeps) {
           const identityMatch = matchPlayerName(playerId, firstName, lastName, player.teamCode, supplementaryNames, ctx);
           if (identityMatch) {
             const matched = roundSupp.find(s => s.playerName === identityMatch.supplementaryName);
-            if (matched) suppByRound.set(round, matched);
+            if (matched) {
+              suppByRound.set(round, matched);
+              if (matched.scPosition && (
+                latestScPosition === null ||
+                year > latestScPosition.year ||
+                (year === latestScPosition.year && round > latestScPosition.round)
+              )) {
+                latestScPosition = { year, round, value: matched.scPosition };
+              }
+            }
 
             // Auto-persist new link on first discovery
             if (!linkPersisted && identityMatch.confidence !== 'linked') {
@@ -831,6 +844,7 @@ export function getPlayer(deps: HandlerDeps) {
               heldUpInGoal: supp?.heldUpInGoal ?? null,
               price: supp?.price ?? null,
               breakEven: supp?.breakEven ?? null,
+              scPosition: supp?.scPosition ?? null,
             };
           }),
         };
@@ -841,6 +855,7 @@ export function getPlayer(deps: HandlerDeps) {
       id: player.id,
       name: player.name,
       position: player.position,
+      scPosition: latestScPosition?.value ?? null,
       teamCode: player.teamCode,
       seasons,
     });

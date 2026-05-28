@@ -19,6 +19,7 @@ import type { SupplementaryStatsSource, SupplementaryPlayerStats } from '../../d
 import type { Result } from '../../domain/result.js';
 import { success, failure } from '../../domain/result.js';
 import { logger } from '../../utils/logger.js';
+import { parseSupercoachPosition, formatSupercoachPositions } from '../../domain/supercoach-positions.js';
 
 // ---------------------------------------------------------------------------
 // Zod validation schemas for jqGrid response
@@ -43,6 +44,12 @@ const JqGridRowSchema = z.object({
   HG: z.string().optional().default('0'),
   Price: z.string().optional().default(''),
   BE: z.string().optional().default(''),
+  // Supercoach position(s). The endpoint exposes Posn1 (primary, e.g. "HFB") and
+  // Posn2 (secondary; empty string for single-position players, e.g. "FRF" for a
+  // dual 2RF/FRF player). The display-only `Posn` field has a trailing space and
+  // is not used for parsing.
+  Posn1: z.string().optional().default(''),
+  Posn2: z.string().optional().default(''),
 }).passthrough();
 
 const JqGridResponseSchema = z.object({
@@ -201,7 +208,18 @@ export class NrlSupercoachStatsAdapter implements SupplementaryStatsSource {
       price: this.toNullableInt(row.Price),
       breakEven: this.toNullableInt(row.BE),
       teamCode: row.Team || null,
+      scPosition: this.parsePosn(row.Posn1, row.Posn2),
     };
+  }
+
+  /** Combine the Posn1 + Posn2 cells into the canonical comma-joined storage form, or null if both empty/unknown. */
+  private parsePosn(posn1: string, posn2: string): string | null {
+    const tokens: string[] = [];
+    if (posn1.trim()) tokens.push(posn1.trim());
+    if (posn2.trim()) tokens.push(posn2.trim());
+    if (tokens.length === 0) return null;
+    const validated = parseSupercoachPosition(tokens.join(','));
+    return validated.length === 0 ? null : formatSupercoachPositions(validated);
   }
 
   private delay(ms: number): Promise<void> {

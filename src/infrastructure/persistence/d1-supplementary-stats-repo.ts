@@ -23,8 +23,8 @@ export class D1SupplementaryStatsRepository {
               effective_offloads, ineffective_offloads,
               runs_over_8m, runs_under_8m,
               try_saves, kick_regather_break, held_up_in_goal,
-              price, break_even, team_code
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              price, break_even, team_code, sc_position
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(player_name, season, round) DO UPDATE SET
               last_touch = excluded.last_touch,
               missed_goals = excluded.missed_goals,
@@ -38,7 +38,8 @@ export class D1SupplementaryStatsRepository {
               held_up_in_goal = excluded.held_up_in_goal,
               price = excluded.price,
               break_even = excluded.break_even,
-              team_code = excluded.team_code`
+              team_code = excluded.team_code,
+              sc_position = excluded.sc_position`
           )
           .bind(
             stat.playerName,
@@ -56,7 +57,8 @@ export class D1SupplementaryStatsRepository {
             stat.heldUpInGoal,
             stat.price,
             stat.breakEven,
-            stat.teamCode
+            stat.teamCode,
+            stat.scPosition
           )
       );
     }
@@ -72,7 +74,7 @@ export class D1SupplementaryStatsRepository {
           effective_offloads, ineffective_offloads,
           runs_over_8m, runs_under_8m,
           try_saves, kick_regather_break, held_up_in_goal,
-          price, break_even, team_code
+          price, break_even, team_code, sc_position
         FROM supplementary_stats
         WHERE season = ? AND round = ?
         ORDER BY player_name`
@@ -95,6 +97,7 @@ export class D1SupplementaryStatsRepository {
         price: number | null;
         break_even: number | null;
         team_code: string | null;
+        sc_position: string | null;
       }>();
 
     return (result.results ?? []).map(row => ({
@@ -114,6 +117,7 @@ export class D1SupplementaryStatsRepository {
       price: row.price ?? null,
       breakEven: row.break_even ?? null,
       teamCode: row.team_code ?? null,
+      scPosition: row.sc_position ?? null,
     }));
   }
 

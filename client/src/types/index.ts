@@ -456,6 +456,7 @@ export interface PlayerSeasonSummary {
   playerName: string;
   teamCode: string;
   position: string;
+  scPosition: string | null;
   gamesPlayed: number;
   totalTries: number;
   totalRunMetres: number;
@@ -550,6 +551,7 @@ export interface PlayerPerformanceDetail {
   heldUpInGoal: number | null;
   price: number | null;
   breakEven: number | null;
+  scPosition: string | null;
 }
 
 /** Season detail within the player detail response */
@@ -650,6 +652,8 @@ export interface PlayerDetailResponse {
   id: string;
   name: string;
   position: string;
+  /** Supercoach position(s); dual joined by comma (e.g. "HFB,CTW"). null when no SC data scraped yet. */
+  scPosition: string | null;
   teamCode: string;
   seasons: Record<string, PlayerSeasonDetail>;
 }

@@ -31,7 +31,7 @@ const COLUMNS = [
     getValue: (p: PlayerSeasonSummary) => p.teamCode,
     renderCell: (p: PlayerSeasonSummary) => <Typography variant="caption">{p.teamCode}</Typography> },
   { key: 'position', label: 'Pos', align: 'center' as const, hideOnMobile: true,
-    renderCell: (p: PlayerSeasonSummary) => <Typography variant="caption">{p.position}</Typography> },
+    renderCell: (p: PlayerSeasonSummary) => <Typography variant="caption">{p.scPosition ?? p.position}</Typography> },
   { key: 'averageFantasyPoints', label: 'SC Avg', align: 'right' as const, sortable: true,
     getValue: (p: PlayerSeasonSummary) => p.averageFantasyPoints ?? 0,
     renderCell: (p: PlayerSeasonSummary) => (
@@ -74,19 +74,18 @@ export function PlayersView() {
     return set;
   }, [casualtyQuery.data]);
 
-  const positions = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of playersQuery.data?.players ?? []) {
-      if (p.position) set.add(p.position);
-    }
-    return Array.from(set).sort();
-  }, [playersQuery.data]);
+  // Curated SC position order — stable dropdown that doesn't depend on which players have loaded yet.
+  const positions = useMemo(() => ['FLB', 'FRF', '2RF', 'HOK', 'HFB', '5/8', 'CTW'] as const, []);
 
   const filtered = useMemo(() => {
     return (playersQuery.data?.players ?? []).filter(p => {
       if (searchText && !p.playerName.toLowerCase().includes(searchText.toLowerCase())) return false;
       if (selectedTeam && p.teamCode !== selectedTeam) return false;
-      if (selectedPosition && p.position !== selectedPosition) return false;
+      if (selectedPosition) {
+        // Split on comma, NOT slash — `5/8` is a single valid SC position.
+        const tokens = p.scPosition?.split(',').map(t => t.trim()) ?? [];
+        if (!tokens.includes(selectedPosition)) return false;
+      }
       return true;
     });
   }, [playersQuery.data, searchText, selectedTeam, selectedPosition]);

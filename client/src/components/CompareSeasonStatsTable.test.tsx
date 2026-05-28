@@ -70,6 +70,7 @@ function makePlayer(id: string, statsOverride: Partial<SeasonStatsSnapshot> = {}
     playerName: `Player ${id}`,
     teamCode: 'BRO',
     position: 'prop',
+    scPosition: null,
     seasonStats: { ...BASE_STATS, ...statsOverride },
     scRounds: [],
     sc: null,
