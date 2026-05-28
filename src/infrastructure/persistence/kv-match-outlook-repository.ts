@@ -5,15 +5,15 @@
  * Feature: 037-analytics-cache-replacement (T011).
  */
 
+import { z } from 'zod';
 import {
   MatchOutlookStoreQuotaExhaustedError,
   type MatchOutlookAggregate,
   type MatchOutlookRepository,
 } from '../../domain/repositories/match-outlook-repository.js';
-import {
-  decodeMatchOutlookAggregate,
-  encodeMatchOutlookAggregate,
-} from './match-outlook-envelope.js';
+import { parseEnvelopeJson } from './envelope.js';
+import { wrapKvErrors } from './kv-errors.js';
+import { pagedKvList } from './kv-list.js';
 
 const KEY_PREFIX = 'match-outlook:v1';
 
@@ -36,12 +36,51 @@ interface CoverageMetadata {
   readonly asOfRound: number;
 }
 
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
+// ── Wire envelope (shape A2 RW-flat) ─────────────────────────────────────────
+
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+const EnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  asOfRound: z.number().int().nonnegative(),
+  computedAt: z.string(),
+  payload: z.object({
+    year: z.number().int(),
+    round: z.number().int(),
+    outlook: z.unknown(),
+  }),
+});
+
+export function encodeMatchOutlookAggregate(
+  agg: MatchOutlookAggregate,
+): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    asOfRound: agg.asOfRound,
+    computedAt: agg.computedAt,
+    payload: {
+      year: agg.year,
+      round: agg.round,
+      outlook: agg.outlook,
+    },
+  });
 }
+
+function decodeMatchOutlookAggregate(
+  raw: string | null,
+): MatchOutlookAggregate | null {
+  const env = parseEnvelopeJson(raw, EnvelopeSchema);
+  if (!env) return null;
+  return {
+    year: env.payload.year,
+    round: env.payload.round,
+    asOfRound: env.asOfRound,
+    computedAt: env.computedAt,
+    outlook: env.payload.outlook as MatchOutlookAggregate['outlook'],
+  };
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────────────
 
 export class KvMatchOutlookRepository implements MatchOutlookRepository {
   constructor(private readonly kv: KVNamespace) {}
@@ -56,39 +95,32 @@ export class KvMatchOutlookRepository implements MatchOutlookRepository {
 
   async listMatchOutlookAsOfRounds(year: number): Promise<Map<number, number>> {
     const prefix = yearPrefix(year);
-    const out = new Map<number, number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<CoverageMetadata>({ prefix, cursor });
-      for (const entry of page.keys) {
-        if (!entry.metadata) continue;
-        const round = parseRoundFromKey(entry.name, prefix);
-        if (round === null) continue;
-        out.set(round, entry.metadata.asOfRound);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return out;
+    const entries = await pagedKvList<CoverageMetadata, [number, number]>({
+      kv: this.kv,
+      prefix,
+      transform: (key, metadata) => {
+        if (!metadata) return null;
+        const round = parseRoundFromKey(key, prefix);
+        return round === null ? null : [round, metadata.asOfRound];
+      },
+    });
+    return new Map(entries);
   }
 
   async saveMatchOutlookAggregate(
     aggregate: MatchOutlookAggregate,
   ): Promise<void> {
     const key = aggregateKey(aggregate.year, aggregate.round);
-    try {
-      await this.kv.put(key, encodeMatchOutlookAggregate(aggregate), {
-        metadata: { asOfRound: aggregate.asOfRound } satisfies CoverageMetadata,
-      });
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new MatchOutlookStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () =>
+        this.kv.put(key, encodeMatchOutlookAggregate(aggregate), {
+          metadata: { asOfRound: aggregate.asOfRound } satisfies CoverageMetadata,
+        }),
+      wrapQuotaAs: cause =>
+        new MatchOutlookStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 }
