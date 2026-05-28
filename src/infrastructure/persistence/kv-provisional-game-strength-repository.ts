@@ -10,13 +10,16 @@
  * Feature: 036-game-strength-artifact (T007).
  */
 
+import { z } from 'zod';
 import type { RoundGSR } from '../../domain/game-strength.js';
 import {
   ProvisionalGameStrengthStoreQuotaExhaustedError,
   type ProvisionalGameStrengthRepository,
 } from '../../domain/repositories/provisional-game-strength-repository.js';
-import { decode, encode } from './provisional-game-strength-envelope.js';
 import { logger } from '../../utils/logger.js';
+import { parseEnvelopeJson } from './envelope.js';
+import { wrapKvErrors } from './kv-errors.js';
+import { pagedKvList } from './kv-list.js';
 
 // ── Key derivation (internal — no caller should depend on these strings) ─────
 
@@ -37,13 +40,42 @@ function parseRoundFromKey(key: string, prefix: string): number | null {
   return Number.isInteger(n) ? n : null;
 }
 
-// ── Quota-exhausted detection (regex copied verbatim from spec-034/035) ──────
+// ── Wire envelope (shape A1 Immutable) ───────────────────────────────────────
 
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
+/** Current envelope schema version. Bump when the artifact shape evolves
+ *  in a backwards-incompatible way; older artifacts will read as misses,
+ *  and the next recompute will overwrite them. */
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+const EnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  computedAt: z.string(),
+  // payload is shallow-validated — RoundGSR is produced by our own trusted
+  // code; we don't deep-validate every field, just confirm it's a typed
+  // object with the identity components present.
+  payload: z.object({
+    year: z.number().int(),
+    round: z.number().int(),
+    leagueAvgTeamScore: z.number(),
+    matches: z.array(z.unknown()),
+    methodology: z.object({}).passthrough(),
+  }).passthrough(),
+});
+
+export function encode(gsr: RoundGSR): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    computedAt: new Date().toISOString(),
+    payload: gsr,
+  });
+}
+
+export function decode(raw: string | null): RoundGSR | null {
+  const env = parseEnvelopeJson(raw, EnvelopeSchema);
+  if (!env) return null;
+  // Trust the writer to have produced a well-typed RoundGSR; the envelope
+  // shape check above caught any structural drift.
+  return env.payload as unknown as RoundGSR;
 }
 
 // ── Adapter ──────────────────────────────────────────────────────────────────
@@ -60,41 +92,33 @@ export class KvProvisionalGameStrengthRepository
 
   async listProvisionalRounds(year: number): Promise<ReadonlySet<number>> {
     const prefix = yearPrefix(year);
-    const rounds = new Set<number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list({ prefix, cursor });
-      for (const entry of page.keys) {
-        const round = parseRoundFromKey(entry.name, prefix);
-        if (round !== null) {
-          rounds.add(round);
-        } else {
+    const rounds = await pagedKvList<unknown, number>({
+      kv: this.kv,
+      prefix,
+      transform: key => {
+        const round = parseRoundFromKey(key, prefix);
+        if (round === null) {
           logger.warn('[GSR-provisional] Malformed key suffix in KV listing', {
-            key: entry.name,
+            key,
             prefix,
           });
         }
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return rounds;
+        return round;
+      },
+    });
+    return new Set(rounds);
   }
 
   async save(year: number, round: number, gsr: RoundGSR): Promise<void> {
     const key = artifactKey(year, round);
-    try {
-      await this.kv.put(key, encode(gsr), { metadata: {} });
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new ProvisionalGameStrengthStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () => this.kv.put(key, encode(gsr), { metadata: {} }),
+      wrapQuotaAs: cause =>
+        new ProvisionalGameStrengthStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 
   async deleteByRound(year: number, round: number): Promise<void> {
