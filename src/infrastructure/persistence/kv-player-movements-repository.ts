@@ -20,6 +20,8 @@ import {
   encodeArtifact,
   projectToPublic,
 } from './player-movements-envelope.js';
+import { wrapKvErrors } from './kv-errors.js';
+import { pagedKvList } from './kv-list.js';
 
 // ── Key derivation (internal — no caller should depend on these strings) ─────
 
@@ -38,19 +40,6 @@ function parseRoundFromKey(key: string, prefix: string): number | null {
   if (suffix.length === 0) return null;
   const n = Number(suffix);
   return Number.isInteger(n) ? n : null;
-}
-
-// ── Quota-exhausted detection (regex copied verbatim from spec-034) ──────────
-
-/** Match KV's daily-write-limit-exceeded response. Conservative match on both
- *  signals so a generic 429 from a different cause doesn't get misclassified —
- *  and if we ARE wrong, the dispatcher's worst case is "terminal instead of
- *  retry," which is the safe direction (DLQ rather than burning retry slots). */
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
 }
 
 // ── Adapter ──────────────────────────────────────────────────────────────────
@@ -79,33 +68,23 @@ export class KvPlayerMovementsRepository
 
   async listCoveredRounds(year: number): Promise<ReadonlySet<number>> {
     const prefix = yearPrefix(year);
-    const rounds = new Set<number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list({ prefix, cursor });
-      for (const entry of page.keys) {
-        const round = parseRoundFromKey(entry.name, prefix);
-        if (round !== null) rounds.add(round);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return rounds;
+    const rounds = await pagedKvList<unknown, number>({
+      kv: this.kv,
+      prefix,
+      transform: key => parseRoundFromKey(key, prefix),
+    });
+    return new Set(rounds);
   }
 
   async save(artifact: PlayerMovementsArtifact): Promise<void> {
     const key = artifactKey(artifact.year, artifact.round);
-    try {
-      await this.kv.put(key, encodeArtifact(artifact));
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new PlayerMovementsStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () => this.kv.put(key, encodeArtifact(artifact)),
+      wrapQuotaAs: cause =>
+        new PlayerMovementsStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 }

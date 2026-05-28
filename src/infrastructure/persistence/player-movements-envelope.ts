@@ -17,6 +17,7 @@
 import { z } from 'zod';
 import type { PlayerMovementsArtifact } from '../../domain/repositories/player-movements-repository.js';
 import type { PlayerMovementsResult } from '../../domain/player-movements.js';
+import { parseEnvelopeJson } from './envelope.js';
 
 /** Current envelope schema version. Bump when the artifact shape evolves in
  *  a backwards-incompatible way; older artifacts will read as misses, and the
@@ -84,16 +85,8 @@ export function encodeArtifact(artifact: PlayerMovementsArtifact): string {
 export function decodeArtifact(
   raw: string | null,
 ): PlayerMovementsArtifact | null {
-  if (raw === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const result = EnvelopeSchema.safeParse(parsed);
-  if (!result.success) return null;
-  const env = result.data;
+  const env = parseEnvelopeJson(raw, EnvelopeSchema);
+  if (!env) return null;
   // Re-cast the shallow-validated payload to the typed artifact. Safe because
   // writers always produce the typed shape; readers tolerant of unknown values
   // would already have failed the envelope schema check above.
