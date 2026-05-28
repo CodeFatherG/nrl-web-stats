@@ -5,15 +5,15 @@
  * Feature: 037-analytics-cache-replacement (T013).
  */
 
+import { z } from 'zod';
 import {
   CompositionImpactStoreQuotaExhaustedError,
   type CompositionImpactAggregate,
   type CompositionImpactRepository,
 } from '../../domain/repositories/composition-impact-repository.js';
-import {
-  decodeCompositionImpactAggregate,
-  encodeCompositionImpactAggregate,
-} from './composition-impact-envelope.js';
+import { parseEnvelopeJson } from './envelope.js';
+import { wrapKvErrors } from './kv-errors.js';
+import { pagedKvList } from './kv-list.js';
 
 const KEY_PREFIX = 'composition-impact:v1';
 
@@ -29,12 +29,51 @@ interface CoverageMetadata {
   readonly asOfRound: number;
 }
 
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
+// ── Wire envelope (shape A2 RW-flat) ─────────────────────────────────────────
+
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+const EnvelopeSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  asOfRound: z.number().int().nonnegative(),
+  computedAt: z.string(),
+  payload: z.object({
+    year: z.number().int(),
+    teamCode: z.string(),
+    impact: z.unknown(),
+  }),
+});
+
+export function encodeCompositionImpactAggregate(
+  agg: CompositionImpactAggregate,
+): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    asOfRound: agg.asOfRound,
+    computedAt: agg.computedAt,
+    payload: {
+      year: agg.year,
+      teamCode: agg.teamCode,
+      impact: agg.impact,
+    },
+  });
 }
+
+function decodeCompositionImpactAggregate(
+  raw: string | null,
+): CompositionImpactAggregate | null {
+  const env = parseEnvelopeJson(raw, EnvelopeSchema);
+  if (!env) return null;
+  return {
+    year: env.payload.year,
+    teamCode: env.payload.teamCode,
+    asOfRound: env.asOfRound,
+    computedAt: env.computedAt,
+    impact: env.payload.impact as CompositionImpactAggregate['impact'],
+  };
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────────────
 
 export class KvCompositionImpactRepository
   implements CompositionImpactRepository
@@ -53,39 +92,32 @@ export class KvCompositionImpactRepository
     year: number,
   ): Promise<Map<string, number>> {
     const prefix = yearPrefix(year);
-    const out = new Map<string, number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<CoverageMetadata>({ prefix, cursor });
-      for (const entry of page.keys) {
-        if (!entry.metadata) continue;
-        const ident = entry.name.slice(prefix.length);
-        if (ident.length === 0) continue;
-        out.set(ident, entry.metadata.asOfRound);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return out;
+    const entries = await pagedKvList<CoverageMetadata, [string, number]>({
+      kv: this.kv,
+      prefix,
+      transform: (key, metadata) => {
+        if (!metadata) return null;
+        const ident = key.slice(prefix.length);
+        return ident.length === 0 ? null : [ident, metadata.asOfRound];
+      },
+    });
+    return new Map(entries);
   }
 
   async saveCompositionImpactAggregate(
     aggregate: CompositionImpactAggregate,
   ): Promise<void> {
     const key = aggregateKey(aggregate.year, aggregate.teamCode);
-    try {
-      await this.kv.put(key, encodeCompositionImpactAggregate(aggregate), {
-        metadata: { asOfRound: aggregate.asOfRound } satisfies CoverageMetadata,
-      });
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new CompositionImpactStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () =>
+        this.kv.put(key, encodeCompositionImpactAggregate(aggregate), {
+          metadata: { asOfRound: aggregate.asOfRound } satisfies CoverageMetadata,
+        }),
+      wrapQuotaAs: cause =>
+        new CompositionImpactStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 }
