@@ -18,6 +18,8 @@ import {
   encodeArtifact,
   projectToPublic,
 } from './fixture-envelope.js';
+import { wrapKvErrors } from './kv-errors.js';
+import { pagedKvList } from './kv-list.js';
 
 const KEY_PREFIX = 'fixtures:v1:';
 
@@ -32,14 +34,8 @@ function parseYearFromKey(key: string): number | null {
   return Number.isInteger(n) ? n : null;
 }
 
-/** Match KV's daily-write-limit-exceeded response. Conservative: requires
- *  both a 429 signal and a quota/daily-limit/rate-limit phrase. False
- *  classification only triggers terminal-instead-of-retry (safer direction). */
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
+interface FixtureCoverageMetadata {
+  readonly lastScrapedAt: string;
 }
 
 export class KvFixtureRepository implements FixtureRepository {
@@ -59,41 +55,29 @@ export class KvFixtureRepository implements FixtureRepository {
   }
 
   async listScrapedYears(): Promise<Map<number, string>> {
-    const result = new Map<number, string>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<{ lastScrapedAt: string }>({
-        prefix: KEY_PREFIX,
-        cursor,
-      });
-      for (const entry of page.keys) {
-        const year = parseYearFromKey(entry.name);
-        if (year === null) continue;
-        const metadata = entry.metadata;
-        if (metadata && typeof metadata.lastScrapedAt === 'string') {
-          result.set(year, metadata.lastScrapedAt);
-        }
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return result;
+    const entries = await pagedKvList<FixtureCoverageMetadata, [number, string]>({
+      kv: this.kv,
+      prefix: KEY_PREFIX,
+      transform: (key, metadata) => {
+        const year = parseYearFromKey(key);
+        if (year === null) return null;
+        if (!metadata || typeof metadata.lastScrapedAt !== 'string') return null;
+        return [year, metadata.lastScrapedAt];
+      },
+    });
+    return new Map(entries);
   }
 
   async save(year: number, fixtures: readonly Fixture[]): Promise<void> {
     const key = artifactKey(year);
     const { value, metadata } = encodeArtifact(year, fixtures);
-    try {
-      await this.kv.put(key, value, { metadata });
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new FixtureStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () => this.kv.put(key, value, { metadata }),
+      wrapQuotaAs: cause =>
+        new FixtureStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 }

@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import type { Fixture } from '../../models/fixture.js';
 import type { FixtureArtifact } from '../../domain/repositories/fixture-repository.js';
+import { parseEnvelopeJson } from './envelope.js';
 
 /** Current envelope schema version. Bump on any backwards-incompatible
  *  change to the envelope or payload shape; older artifacts decode as
@@ -60,16 +61,8 @@ export function decodeArtifact(
   year: number,
   raw: string | null,
 ): FixtureArtifact | null {
-  if (raw === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const result = FixtureEnvelopeSchema.safeParse(parsed);
-  if (!result.success) return null;
-  const env = result.data;
+  const env = parseEnvelopeJson(raw, FixtureEnvelopeSchema);
+  if (!env) return null;
   return {
     year,
     computedAt: env.computedAt,
