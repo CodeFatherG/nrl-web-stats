@@ -23,6 +23,7 @@ import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/
 import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
 import { FixtureStoreQuotaExhaustedError } from '../../domain/repositories/fixture-repository.js';
 import { TeamStrengthRankingsStoreQuotaExhaustedError } from '../../domain/repositories/team-strength-rankings-repository.js';
+import { MatchResultsScrapeWatermarkStoreQuotaExhaustedError } from '../../domain/repositories/match-results-scrape-watermark-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
 import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
@@ -109,6 +110,13 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   }
   if (err instanceof TeamStrengthRankingsStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'team-strength-rankings-store-quota-exhausted' };
+  }
+  // Spec 040 — quota-exhausted match-results scrape watermark write. The
+  // match-results D1 state is already durable; only the watermark write
+  // failed. Terminal so the queue doesn't pin the retry; tomorrow's cron
+  // re-scrapes and re-seeds the watermark.
+  if (err instanceof MatchResultsScrapeWatermarkStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'match-results-scrape-watermark-store-quota-exhausted' };
   }
 
   const message = err instanceof Error ? err.message : String(err);

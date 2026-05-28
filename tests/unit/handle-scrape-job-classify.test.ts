@@ -16,6 +16,7 @@ import {
 } from '../../src/application/use-cases/handle-scrape-job.js';
 import type { JobHandle, ScrapeJob } from '../../src/application/ports/job-queue.js';
 import { ProjectionStoreQuotaExhaustedError } from '../../src/domain/repositories/projection-repository.js';
+import { MatchResultsScrapeWatermarkStoreQuotaExhaustedError } from '../../src/domain/repositories/match-results-scrape-watermark-repository.js';
 
 interface RecordedHandle extends JobHandle<ScrapeJob> {
   acks: number;
@@ -82,5 +83,19 @@ describe('HandleScrapeJobUseCase — ProjectionStoreQuotaExhaustedError classifi
 
     await expect(uc.handleOne(handle)).rejects.toBeInstanceOf(ProjectionStoreQuotaExhaustedError);
     expect(handle.retries).toHaveLength(0);
+  });
+});
+
+describe('HandleScrapeJobUseCase — MatchResultsScrapeWatermarkStoreQuotaExhaustedError classification (spec 040)', () => {
+  it('classifies MatchResultsScrapeWatermarkStoreQuotaExhaustedError as terminal (no retry)', async () => {
+    const err = new MatchResultsScrapeWatermarkStoreQuotaExhaustedError(
+      'KV daily write quota exhausted while writing match-results scrape watermark for 2026/5',
+    );
+    const uc = new HandleScrapeJobUseCase(makeThrowingDeps(err));
+    const handle = recordingHandle({ type: 'scrape-match-results', version: 1, year: 2026, round: 5 });
+
+    await expect(uc.handleOne(handle)).rejects.toBeInstanceOf(MatchResultsScrapeWatermarkStoreQuotaExhaustedError);
+    expect(handle.retries).toHaveLength(0);
+    expect(handle.acks).toBe(0);
   });
 });

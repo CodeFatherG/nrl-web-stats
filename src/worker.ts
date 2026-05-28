@@ -7,7 +7,9 @@ import { D1MatchRepository } from './infrastructure/persistence/d1-match-reposit
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
 import { ScrapeMatchResultsUseCase } from './application/use-cases/scrape-match-results.js';
-import { resultCacheStore } from './cache/result-cache.js';
+import type { MatchResultsScrapeWatermarkRepository } from './domain/repositories/match-results-scrape-watermark-repository.js';
+import { KvMatchResultsScrapeWatermarkRepository } from './infrastructure/persistence/kv-match-results-scrape-watermark-repository.js';
+import { InMemoryMatchResultsScrapeWatermarkRepository } from './infrastructure/persistence/in-memory-match-results-scrape-watermark-repository.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
 import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
 import { ScrapePlayerStatsUseCase } from './application/use-cases/scrape-player-stats.js';
@@ -167,6 +169,12 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
     ? new KvTeamStrengthRankingsRepository(cache)
     : new InMemoryTeamStrengthRankingsRepository();
 
+  // Spec 040 — durable cross-isolate watermark for the match-results scrape.
+  // KV in production, in-memory otherwise (local dev / tests).
+  const matchResultsScrapeWatermarkRepository: MatchResultsScrapeWatermarkRepository = cache
+    ? new KvMatchResultsScrapeWatermarkRepository(cache)
+    : new InMemoryMatchResultsScrapeWatermarkRepository();
+
   // Per-request D1 binding constructions still happen in the factories
   // below; the composite is built per-request inside those factories so
   // each request gets a D1 sub-adapter scoped to its own binding (the
@@ -185,7 +193,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
     jobProducer: scrapeQueue
       ? new CloudflareQueueProducer(scrapeQueue)
       : new InMemoryJobQueue(),
-    scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
+    scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, matchResultsScrapeWatermarkRepository),
     matchRepository,
     createPlayerRepository: createPlayerRepo,
     createScrapePlayerStatsUseCase: (reqDb: D1Database) =>

@@ -9,8 +9,15 @@ import type { PlayerRepository } from '../../domain/repositories/player-reposito
 import { enrichWithResult, createMatchFromResult, MatchStatus } from '../../domain/match.js';
 import type { ResultData } from '../../domain/match.js';
 import type { Warning } from '../../models/types.js';
-import type { ResultCacheStore } from '../../cache/result-cache.js';
+import type {
+  MatchResultsScrapeWatermark,
+  MatchResultsScrapeWatermarkRepository,
+} from '../../domain/repositories/match-results-scrape-watermark-repository.js';
 import { logger } from '../../utils/logger.js';
+
+/** In-progress round freshness window (30 minutes). Once `allCompleted=true`,
+ *  the round is terminal and skipped forever (no time bound). */
+const IN_PROGRESS_TTL_MS = 30 * 60 * 1000;
 
 /** Buffer time after kick-off to estimate game completion (2 hours) */
 const COMPLETION_BUFFER_MS = 2 * 60 * 60 * 1000;
@@ -30,8 +37,23 @@ export class ScrapeMatchResultsUseCase {
   constructor(
     private readonly matchResultSource: MatchResultSource,
     private readonly matchRepository: MatchRepository,
-    private readonly resultCache?: ResultCacheStore
+    private readonly watermarkRepository?: MatchResultsScrapeWatermarkRepository
   ) {}
+
+  // Pure predicate over the durable watermark. Returns true iff
+  // ScrapeMatchResultsUseCase should skip the scrape for this round.
+  //   - null watermark           → scrape (first visit)
+  //   - allCompleted = true      → skip forever (terminal)
+  //   - age < IN_PROGRESS_TTL_MS → skip (recent in-progress scrape)
+  //   - age ≥ IN_PROGRESS_TTL_MS → scrape (strict less-than; bias toward fresh)
+  // The spec-033 job queue serialises scrape jobs, which is why no in-process
+  // coalescing primitive is needed here. See spec 040 research.md §1.
+  private shouldSkipScrape(watermark: MatchResultsScrapeWatermark | null): boolean {
+    if (watermark === null) return false;
+    if (watermark.allCompleted) return true;
+    const age = Date.now() - Date.parse(watermark.lastScrapedAt);
+    return age < IN_PROGRESS_TTL_MS;
+  }
 
   async execute(year: number, round?: number): Promise<ScrapeMatchResultsResult> {
     // When no round specified, discover rounds from the repository and scrape each
@@ -82,18 +104,23 @@ export class ScrapeMatchResultsUseCase {
   }
 
   private async executeSingleRound(year: number, round: number): Promise<ScrapeMatchResultsResult> {
-    // Check result cache
-    if (this.resultCache?.isCached(year, round)) {
-      logger.debug('Result cache hit, skipping fetch', { year, round });
-      return {
-        success: true,
-        year,
-        round,
-        enrichedCount: 0,
-        createdCount: 0,
-        skippedCount: 0,
-        warnings: [],
-      };
+    // Consult the durable cross-isolate watermark before issuing an outbound
+    // HTTP fetch. The freshness predicate is local to this use case (the
+    // repository never sees TTL semantics).
+    if (this.watermarkRepository) {
+      const watermark = await this.watermarkRepository.findByRound(year, round);
+      if (this.shouldSkipScrape(watermark)) {
+        logger.debug('Match-results watermark says skip', { year, round, allCompleted: watermark?.allCompleted });
+        return {
+          success: true,
+          year,
+          round,
+          enrichedCount: 0,
+          createdCount: 0,
+          skippedCount: 0,
+          warnings: [],
+        };
+      }
     }
 
     const fetchResult = await this.matchResultSource.fetchResults(year, round);
@@ -145,11 +172,11 @@ export class ScrapeMatchResultsUseCase {
       }
     }
 
-    // Update result cache
-    if (this.resultCache) {
+    // Update the durable watermark. See spec 040 research.md §7.
+    if (this.watermarkRepository) {
       const allCompleted = matchResults.length > 0 &&
         matchResults.every(r => r.status === MatchStatus.Completed);
-      this.resultCache.markScraped(year, round, allCompleted);
+      await this.watermarkRepository.markScraped(year, round, allCompleted);
     }
 
     logger.info('Match results scrape complete', {

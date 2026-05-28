@@ -40,10 +40,13 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 - **Reads**: every isolate reads the same artifact (cross-isolate consistent). The `database/store.ts` accessor emits a `warn` log when `lastScrapedAt` is older than 8 days.
 - **Refresh**: the Monday 6am UTC cron publishes one `scrape-draw` job per active year onto the queue; the queue consumer runs `ScrapeDrawUseCase` which writes through `FixtureRepository.save`. The manual `POST /api/scrape/draw` endpoint returns 202 with a job ack (it does not scrape inline). Quota-exhausted writes throw `FixtureStoreQuotaExhaustedError` and are classified terminal by `HandleScrapeJobUseCase`.
 
-**Match Result Cache** (in-memory):
-- **Keys**: `results-{year}-{round}` (string)
-- **TTL**: 30 minutes for in-progress rounds, 24 hours for completed rounds
-- **Request Coalescing**: Deduplicates concurrent scrape requests for the same round
+**Match-Results Scrape Watermark** (Cloudflare KV, spec 040):
+- **Backend**: `KvMatchResultsScrapeWatermarkRepository` against the `CACHE` binding under prefix `match-results-scrape:v1:` (in-memory fallback when no binding is bound).
+- **Identity**: one watermark per `(year, round)`; key `match-results-scrape:v1:{year}:{round}`; KV metadata `{ lastScrapedAt, allCompleted }` so listings are keys-only.
+- **Envelope**: `{ schemaVersion, computedAt, state: { lastScrapedAt, allCompleted } }`. The state block (not a payload) is mirrored into KV metadata.
+- **Freshness predicate** (lives in `ScrapeMatchResultsUseCase`, not the repository): `watermark === null ⇒ scrape`; `allCompleted === true ⇒ skip forever`; otherwise `age < 30 min ⇒ skip`, `age ≥ 30 min ⇒ scrape` (strict less-than at the boundary).
+- **Write path**: after a successful scrape, the use case calls `markScraped(year, round, derivedAllCompleted)`. Quota-exhausted writes throw `MatchResultsScrapeWatermarkStoreQuotaExhaustedError` and are classified terminal by `HandleScrapeJobUseCase`; the match-results D1 state from that scrape remains correct and the next day's cron re-seeds the watermark.
+- **No in-process coalescing**: the spec-033 job queue serialises scrape jobs, so no `inFlight`-style primitive is needed inside the use case.
 
 **Analytics Cache** (in-memory):
 - **Keys**: `{type}-{teamCode}-{year}` or `{type}-{year}-{round}`
@@ -79,7 +82,7 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 - **Computation trigger**: After every team-list scrape (`POST /api/team-list`) and in the scheduled cron handler, `ComputePlayerMovementsUseCase.execute(year, round)` is called. The use case computes results only when all playing teams for the round have submitted their lists — the expected team set is derived from match fixture data (`matchRepo.findByYearAndRound`), not a hardcoded constant
 - **Cold-start behaviour**: On a fresh isolate start, the cache is empty. The `GET /api/player-movements` handler returns `{ pending: true }` until the next computation completes (triggered by the next team-list scrape or cron cycle — at most ~1 hour delay)
 - **Round 1 edge case**: When `round === 1`, the use case stores a result with `noPreviousRound: true` and all movement arrays empty, since there is no prior round to compare against
-- **Relationship to other caches**: Follows the same in-memory singleton pattern as `ResultCacheStore`, but has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised. (`AnalyticsCache` was removed by spec 037 — see "Analytics Precomputed Artifacts" below.)
+- **Relationship to other caches**: Has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised. (`AnalyticsCache` was removed by spec 037 — see "Analytics Precomputed Artifacts" below.)
 
 ## Scheduled Tasks
 
