@@ -63,6 +63,37 @@ export class GetTeamStrengthRankingsUseCase {
     return rankings.get(teamCode.toUpperCase()) ?? null;
   }
 
+  /** Batched variant of `getRoundRanking` for a single team across an entire
+   *  year. Performs the coverage list + watermark lookup ONCE, then fetches
+   *  every fresh round's payload in parallel. Stale or missing rounds are
+   *  omitted from the result (callers should treat absence the same as a
+   *  `null` return from `getRoundRanking`). */
+  async getRoundRankingsForTeam(
+    year: number,
+    teamCode: string,
+  ): Promise<Map<number, TeamRoundRanking>> {
+    const [coverage, watermark] = await Promise.all([
+      this.deps.repository.listCoveredRoundRankings(year),
+      this.deps.watermarkFn(year),
+    ]);
+    const freshRounds: number[] = [];
+    for (const [round, storedAsOfRound] of coverage) {
+      if (storedAsOfRound === watermark) freshRounds.push(round);
+    }
+    if (freshRounds.length === 0) return new Map();
+
+    const upper = teamCode.toUpperCase();
+    const payloads = await Promise.all(
+      freshRounds.map(round => this.deps.repository.findRoundRankings(year, round)),
+    );
+    const result = new Map<number, TeamRoundRanking>();
+    for (let i = 0; i < freshRounds.length; i += 1) {
+      const ranking = payloads[i]?.get(upper);
+      if (ranking) result.set(freshRounds[i], ranking);
+    }
+    return result;
+  }
+
   /** Returns the season payload sorted descending by `averageStrength` with
    *  positional `rank` derived at read time. `null` on miss or staleness. */
   async getAllSeasonRankings(year: number): Promise<RankedSeasonTeam[] | null> {

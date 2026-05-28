@@ -4,6 +4,7 @@ import type { MatchRepository } from '../../domain/repositories/match-repository
 import type { Fixture } from '../../models/fixture.js';
 import type { TeamScheduleResult, ScheduleFixture } from '../results/team-schedule-result.js';
 import type { Match } from '../../domain/match.js';
+import type { TeamRoundRanking } from '../../models/types.js';
 import { MatchStatus } from '../../domain/match.js';
 import { getTeamByCode } from '../../database/store.js';
 
@@ -19,15 +20,18 @@ export class GetTeamScheduleUseCase {
     const teamName = team?.name ?? teamCode;
 
     let teamFixtures: Fixture[];
+    const yearsToLoad: number[] = [];
     if (year !== undefined) {
       const artifact = await this.fixtures.findByYearAndTeam(year, teamCode);
       teamFixtures = artifact ? [...artifact.payload] : [];
+      yearsToLoad.push(year);
     } else {
       const years = await this.fixtures.listScrapedYears();
       const acc: Fixture[] = [];
       for (const y of years.keys()) {
         const artifact = await this.fixtures.findByYearAndTeam(y, teamCode);
         if (artifact) acc.push(...artifact.payload);
+        yearsToLoad.push(y);
       }
       teamFixtures = acc;
     }
@@ -47,9 +51,19 @@ export class GetTeamScheduleUseCase {
       }
     }
 
+    // Batched: one coverage-list + one watermark lookup per year, instead of
+    // re-doing both inside getRoundRanking for every fixture in the loop.
+    const rankingsByYear = new Map<number, Map<number, TeamRoundRanking>>();
+    await Promise.all(
+      yearsToLoad.map(async (y) => {
+        const map = await this.rankings.getRoundRankingsForTeam(y, teamCode);
+        rankingsByYear.set(y, map);
+      }),
+    );
+
     const schedule: ScheduleFixture[] = [];
     for (const f of teamFixtures) {
-      const roundRanking = await this.rankings.getRoundRanking(f.year, f.round, teamCode);
+      const roundRanking = rankingsByYear.get(f.year)?.get(f.round) ?? null;
 
       let scheduledTime: string | null = null;
       let stadium: string | null = null;

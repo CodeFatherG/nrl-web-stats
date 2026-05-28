@@ -74,6 +74,16 @@ function createMockRankings(
     getSeasonThresholds: async () => thresholds,
     getRoundRanking: async (year: number, round: number, code: string) =>
       rankings.get(`${year}-${code}-${round}`) ?? null,
+    getRoundRankingsForTeam: async (year: number, code: string) => {
+      const out = new Map<number, TeamRoundRanking>();
+      for (const [key, ranking] of rankings) {
+        const [keyYear, keyCode, keyRound] = key.split('-');
+        if (Number(keyYear) === year && keyCode === code) {
+          out.set(Number(keyRound), ranking);
+        }
+      }
+      return out;
+    },
     getSeasonRanking: async () => null,
     getAllSeasonRankings: async () => null,
   } as unknown as GetTeamStrengthRankingsUseCase;
