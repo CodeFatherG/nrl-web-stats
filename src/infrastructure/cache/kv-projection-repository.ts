@@ -9,6 +9,7 @@
  * Feature: 034-precomputed-projections (T010).
  */
 
+import { z } from 'zod';
 import {
   ProjectionStoreQuotaExhaustedError,
   type PlayerProjectionAggregate,
@@ -17,14 +18,9 @@ import {
   type TeamRankingsAggregate,
 } from '../../domain/repositories/projection-repository.js';
 import type { RankingMode } from '../../analytics/player-projection-types.js';
-import {
-  decodePlayerAggregate,
-  decodePrecomputeStatus,
-  decodeTeamRankingsAggregate,
-  encodePlayerAggregate,
-  encodePrecomputeStatus,
-  encodeTeamRankingsAggregate,
-} from './projection-envelope.js';
+import { parseEnvelopeJson } from '../persistence/envelope.js';
+import { wrapKvErrors } from '../persistence/kv-errors.js';
+import { pagedKvList } from '../persistence/kv-list.js';
 
 // ── Key derivation (internal — no caller should depend on these strings) ─────
 
@@ -54,19 +50,124 @@ interface CoverageMetadata {
   readonly asOfRound: number;
 }
 
-// ── Quota-exhausted detection ────────────────────────────────────────────────
+// ── Wire envelopes (shape A2 RW-flat — three subtypes) ──────────────────────
 
-/** Match KV's daily-write-limit-exceeded response. Cloudflare's KV SDK throws
- *  with a message containing "429" and a body referencing the rate-limit /
- *  daily-limit. We match conservatively on both signals so a generic 429 from
- *  a different cause (e.g. burst rate limit) doesn't get misclassified — and
- *  if we ARE wrong, the dispatcher's worst case is "terminal instead of
- *  retry," which is the safe direction (DLQ rather than burning retry slots). */
-function isQuotaExhaustedError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  if (!/429/.test(msg)) return false;
-  return /daily limit|rate limit|quota/i.test(msg);
+/** Current envelope schema version. Bump when aggregate shapes evolve in
+ *  a backwards-incompatible way; older artifacts will read as misses, and the
+ *  next precompute will overwrite them. */
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+const EnvelopeBaseSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  asOfRound: z.number().int().nonnegative(),
+  computedAt: z.string(),
+  // payload is validated by the caller using one of the payload schemas below.
+  payload: z.unknown(),
+});
+
+// We do NOT redeclare the full PlayerProjectionProfile / ContextualProfileResult
+// shapes here — they are already typed in the analytics module. We accept any
+// object at the wire-validation layer; type safety on read is restored via the
+// `as ...` casts after envelope validation succeeds.
+
+const PlayerAggregatePayloadSchema = z.object({
+  playerId: z.string(),
+  year: z.number().int(),
+  baseProfile: z.unknown(),
+  contextualProfile: z.unknown(),
+});
+
+const TeamRankingsPayloadSchema = z.object({
+  year: z.number().int(),
+  teamCode: z.string(),
+  mode: z.enum(['composite', 'captaincy', 'selection', 'trade']),
+  rankings: z.unknown(),
+});
+
+const PrecomputeStatusPayloadSchema = z.object({
+  year: z.number().int(),
+  asOfRound: z.number().int().nonnegative(),
+});
+
+export function encodePlayerAggregate(agg: PlayerProjectionAggregate): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    asOfRound: agg.asOfRound,
+    computedAt: agg.computedAt,
+    payload: {
+      playerId: agg.playerId,
+      year: agg.year,
+      baseProfile: agg.baseProfile,
+      contextualProfile: agg.contextualProfile,
+    },
+  });
+}
+
+export function encodeTeamRankingsAggregate(agg: TeamRankingsAggregate): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    asOfRound: agg.asOfRound,
+    computedAt: agg.computedAt,
+    payload: {
+      year: agg.year,
+      teamCode: agg.teamCode,
+      mode: agg.mode,
+      rankings: agg.rankings,
+    },
+  });
+}
+
+export function encodePrecomputeStatus(status: PrecomputeStatus): string {
+  return JSON.stringify({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    asOfRound: status.asOfRound,
+    computedAt: new Date().toISOString(),
+    payload: {
+      year: status.year,
+      asOfRound: status.asOfRound,
+    },
+  });
+}
+
+function decodePlayerAggregate(raw: string | null): PlayerProjectionAggregate | null {
+  const env = parseEnvelopeJson(raw, EnvelopeBaseSchema);
+  if (!env) return null;
+  const payload = PlayerAggregatePayloadSchema.safeParse(env.payload);
+  if (!payload.success) return null;
+  return {
+    playerId: payload.data.playerId,
+    year: payload.data.year,
+    asOfRound: env.asOfRound,
+    computedAt: env.computedAt,
+    baseProfile: payload.data.baseProfile as PlayerProjectionAggregate['baseProfile'],
+    contextualProfile: payload.data.contextualProfile as PlayerProjectionAggregate['contextualProfile'],
+  };
+}
+
+function decodeTeamRankingsAggregate(raw: string | null): TeamRankingsAggregate | null {
+  const env = parseEnvelopeJson(raw, EnvelopeBaseSchema);
+  if (!env) return null;
+  const payload = TeamRankingsPayloadSchema.safeParse(env.payload);
+  if (!payload.success) return null;
+  return {
+    year: payload.data.year,
+    teamCode: payload.data.teamCode,
+    mode: payload.data.mode,
+    asOfRound: env.asOfRound,
+    computedAt: env.computedAt,
+    rankings: payload.data.rankings as TeamRankingsAggregate['rankings'],
+  };
+}
+
+function decodePrecomputeStatus(raw: string | null): PrecomputeStatus | null {
+  const env = parseEnvelopeJson(raw, EnvelopeBaseSchema);
+  if (!env) return null;
+  const payload = PrecomputeStatusPayloadSchema.safeParse(env.payload);
+  if (!payload.success) return null;
+  return {
+    year: payload.data.year,
+    asOfRound: payload.data.asOfRound,
+  };
 }
 
 // ── Adapter ──────────────────────────────────────────────────────────────────
@@ -133,17 +234,14 @@ export class KvProjectionRepository implements ProjectionRepository {
   // Internal helpers ---------------------------------------------------------
 
   private async put(key: string, value: string, metadata?: CoverageMetadata): Promise<void> {
-    try {
-      await this.kv.put(key, value, metadata ? { metadata } : undefined);
-    } catch (err) {
-      if (isQuotaExhaustedError(err)) {
-        throw new ProjectionStoreQuotaExhaustedError(
+    await wrapKvErrors({
+      op: () => this.kv.put(key, value, metadata ? { metadata } : undefined),
+      wrapQuotaAs: cause =>
+        new ProjectionStoreQuotaExhaustedError(
           `KV daily write quota exhausted while writing ${key}`,
-          err,
-        );
-      }
-      throw err;
-    }
+          cause,
+        ),
+    });
   }
 
   /** Page through `kv.list({ prefix })` and project each entry to its
@@ -154,20 +252,15 @@ export class KvProjectionRepository implements ProjectionRepository {
     prefix: string,
     keyToIdent: (key: string) => string,
   ): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await this.kv.list<CoverageMetadata>({ prefix, cursor });
-      for (const entry of page.keys) {
-        if (!entry.metadata) continue;
-        const ident = keyToIdent(entry.name);
-        if (ident.length === 0) continue;
-        out.set(ident, entry.metadata.asOfRound);
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-      if (!cursor) break;
-    }
-    return out;
+    const entries = await pagedKvList<CoverageMetadata, [string, number]>({
+      kv: this.kv,
+      prefix,
+      transform: (key, metadata) => {
+        if (!metadata) return null;
+        const ident = keyToIdent(key);
+        return ident.length === 0 ? null : [ident, metadata.asOfRound];
+      },
+    });
+    return new Map(entries);
   }
 }
