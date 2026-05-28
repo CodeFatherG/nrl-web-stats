@@ -84,6 +84,8 @@ The application runs as a Cloudflare Worker using the Hono HTTP framework. The e
 - **Round 1 edge case**: When `round === 1`, the use case stores a result with `noPreviousRound: true` and all movement arrays empty, since there is no prior round to compare against
 - **Relationship to other caches**: Has no TTL — entries remain until explicitly invalidated, since player movements for a given round are immutable once team lists are finalised. (`AnalyticsCache` was removed by spec 037 — see "Analytics Precomputed Artifacts" below.)
 
+**KV adapter scaffolding** (spec 041): the envelope JSON.parse + safeParse + null-on-failure plumbing, the quota-exhausted predicate + write-side wrapper, and the cursor-paged listing loop have been hoisted into three shared helpers — `src/infrastructure/persistence/envelope.ts` (`parseEnvelopeJson`), `src/infrastructure/persistence/kv-errors.ts` (`isQuotaExhaustedError` + `wrapKvErrors`), and `src/infrastructure/persistence/kv-list.ts` (`pagedKvList`). Each KV-backed adapter retains its own per-artifact Zod envelope schema and encode function to preserve byte-identical on-disk JSON.
+
 ## Scheduled Tasks
 
 | Cron | Timing (UTC) | Timing (AEST) | Action |
