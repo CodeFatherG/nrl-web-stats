@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
 import Alert from '@mui/material/Alert';
@@ -110,20 +110,18 @@ function MovementSection<T extends AnyMovement>({
   );
 }
 
-export function SummaryView() {
+export function OverviewView() {
   const { currentYear } = useAppContext();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const year = Number(searchParams.get('year') ?? currentYear);
   const [hideInterchange, setHideInterchange] = useState(true);
   const [expandedSection, setExpandedSection] = useState<string | false>(false);
 
   const handleSectionChange = (id: string, isExpanded: boolean) =>
     setExpandedSection(isExpanded ? id : false);
 
-  const movementsQuery = useMovementsQuery(year);
+  const movementsQuery = useMovementsQuery(currentYear);
   const movementsRound = movementsQuery.data && movementsQuery.data.available ? movementsQuery.data.round : 0;
-  const dashboardQuery = useRoundDashboardQuery(year, movementsRound);
+  const dashboardQuery = useRoundDashboardQuery(currentYear, movementsRound);
 
   if (movementsQuery.isLoading) return <SkeletonPage variant="cards" />;
   if (movementsQuery.isError) return <Alert severity="error">Failed to load player movements.</Alert>;
@@ -133,7 +131,7 @@ export function SummaryView() {
   if (!data || !data.available) {
     return (
       <Box>
-        <PageHeader title="Summary" subtitle="Player Movements" />
+        <PageHeader title="Overview" subtitle="Player Movements" />
         <Alert severity="info">Round data is still being processed. Please check back later.</Alert>
       </Box>
     );
@@ -142,8 +140,12 @@ export function SummaryView() {
   if (data.noPreviousRound) {
     return (
       <Box>
-        <PageHeader title="Summary" subtitle={`Round ${data.round}, ${data.season}`} />
-        <RoundMatchesGSRCard year={year} round={data.round} />
+        <PageHeader title="Overview" subtitle={`Round ${data.round}, ${data.season}`} />
+        <RoundMatchesGSRCard
+          year={currentYear}
+          round={data.round}
+          title={`Current — Round ${data.round}`}
+        />
         <DashboardTiles dashboardQuery={dashboardQuery} />
         <Alert severity="info" sx={{ mt: 2 }}>No previous round data available yet for player movements.</Alert>
       </Box>
@@ -251,11 +253,29 @@ export function SummaryView() {
   return (
     <Box>
       <PageHeader
-        title="Summary"
+        title="Overview"
         subtitle={`Round ${data.round}, ${data.season}`}
       />
 
-      <RoundMatchesGSRCard year={year} round={data.round} />
+      <Grid container spacing={1.5} sx={{ mb: 1.5 }}>
+        <Grid item xs={12} md={data.round > 1 ? 6 : 12}>
+          <RoundMatchesGSRCard
+            year={currentYear}
+            round={data.round}
+            title={`Current — Round ${data.round}`}
+          />
+        </Grid>
+        {data.round > 1 && (
+          <Grid item xs={12} md={6}>
+            <RoundMatchesGSRCard
+              year={currentYear}
+              round={data.round - 1}
+              title={`Last — Round ${data.round - 1}`}
+              subtitle="Final scores"
+            />
+          </Grid>
+        )}
+      </Grid>
 
       <DashboardTiles dashboardQuery={dashboardQuery} />
 

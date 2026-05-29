@@ -14,9 +14,13 @@ import { createMatchId } from '../../utils/matchId';
 interface RoundMatchesGSRCardProps {
   year: number;
   round: number;
+  title?: string;
+  subtitle?: string;
 }
 
-export function RoundMatchesGSRCard({ year, round }: RoundMatchesGSRCardProps) {
+export function RoundMatchesGSRCard({ year, round, title, subtitle }: RoundMatchesGSRCardProps) {
+  const headerTitle = title ?? `Round ${round}`;
+  const headerSubtitle = subtitle ?? 'Game Strength Ratings';
   const navigate = useNavigate();
   const roundQuery = useRoundQuery(year, round);
   const gsrQuery = useGameStrengthQuery(year, round);
@@ -34,27 +38,27 @@ export function RoundMatchesGSRCard({ year, round }: RoundMatchesGSRCardProps) {
 
   if (roundQuery.isLoading) {
     return (
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Round {round}</Typography>
+      <Paper variant="outlined" sx={{ p: 1.25, height: '100%' }}>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.75 }}>{headerTitle}</Typography>
         <Skeleton variant="rectangular" height={80} />
       </Paper>
     );
   }
   if (roundQuery.isError || !roundQuery.data) {
-    return <Alert severity="error" sx={{ mb: 2 }}>Failed to load round matches.</Alert>;
+    return <Alert severity="error">Failed to load round matches.</Alert>;
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 1.5 }}>
-        <Typography variant="subtitle2" fontWeight={600}>Round {round}</Typography>
-        <Typography variant="caption" color="text.secondary">Game Strength Ratings</Typography>
+    <Paper variant="outlined" sx={{ p: 1.25, height: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.75 }}>
+        <Typography variant="subtitle2" fontWeight={600}>{headerTitle}</Typography>
+        <Typography variant="caption" color="text.secondary">{headerSubtitle}</Typography>
       </Box>
-      <Grid container spacing={1.5}>
+      <Grid container spacing={1}>
         {roundQuery.data.matches.map((match, i) => {
           const matchId = createMatchId(year, round, match.homeTeam, match.awayTeam);
           return (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={i}>
+            <Grid item xs={12} sm={6} key={i}>
               <MatchCard
                 homeTeamCode={match.homeTeam}
                 awayTeamCode={match.awayTeam}

@@ -14,7 +14,6 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import GroupsIcon from '@mui/icons-material/Groups';
 import PersonIcon from '@mui/icons-material/Person';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import SummarizeIcon from '@mui/icons-material/Summarize';
 import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
@@ -34,7 +33,7 @@ interface NavItem {
 }
 
 const PRIMARY_NAV: NavItem[] = [
-  { path: '/', label: 'Dashboard', Icon: DashboardIcon },
+  { path: '/', label: 'Overview', Icon: DashboardIcon },
   { path: '/round', label: 'Round', Icon: CalendarMonthIcon },
   { path: '/teams', label: 'Teams', Icon: GroupsIcon },
   { path: '/players', label: 'Players', Icon: PersonIcon },
@@ -42,7 +41,6 @@ const PRIMARY_NAV: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
-  { path: '/summary', label: 'Summary', Icon: SummarizeIcon },
   { path: '/casualty-ward', label: 'Casualty Ward', Icon: LocalHospitalIcon },
   { path: '/compare', label: 'Compare', Icon: CompareArrowsIcon },
   { path: '/bye', label: 'Bye Overview', Icon: EventBusyIcon },

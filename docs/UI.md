@@ -12,7 +12,7 @@ The app has a responsive layout with:
 ### Primary Navigation
 | Label | Path |
 |-------|------|
-| Dashboard | `/` |
+| Overview | `/` |
 | Round | `/round` or `/round/{N}` |
 | Teams | `/team/{CODE}` |
 | Players | `/players` |
@@ -21,7 +21,6 @@ The app has a responsive layout with:
 ### Secondary Navigation (sidebar lower / "More" drawer on mobile)
 | Label | Path |
 |-------|------|
-| Summary | `/summary` |
 | Casualty Ward | `/casualty-ward` |
 | Compare | `/compare` or `/compare/{id1,id2,...}` |
 | Bye Overview | `/bye` |
@@ -32,7 +31,7 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 
 | URL | View | Parameters |
 |-----|------|------------|
-| `/` | Dashboard (season overview) | `?year=N` |
+| `/` | Overview (current + last round, projections, movements) | `?year=N` |
 | `/round` | Round view (auto-detects current round) | `?year=N` |
 | `/round/{N}` | Round N detail | `N`: round number, `?year=N` |
 | `/teams` | Redirects to first team | — |
@@ -44,7 +43,7 @@ Every view has a shareable, bookmarkable URL. Navigating directly to any URL loa
 | `/supercoach/{N}` | Supercoach round N | `N`: round number |
 | `/compare` | Player compare (empty) | — |
 | `/compare/{ids}` | Compare players | `ids`: comma-separated player IDs |
-| `/summary` | Player movements summary | `?year=N` |
+| `/summary` | Redirects to `/` (legacy) | `?year=N` preserved |
 | `/casualty-ward` | Casualty ward | — |
 | `/bye` | Bye schedule overview | `?year=N` |
 
@@ -56,15 +55,25 @@ Toggle between light and dark themes via the button in the top bar. Preference i
 
 A year selector in the top bar changes the active season. Selecting a year updates the `?year=N` URL parameter and refetches all data for that year via React Query's cache.
 
-## Dashboard View (`/`)
+## Overview View (`/`)
 
-**Purpose**: Season-level overview — current round status, key stats, and the compact season grid.
+**Purpose**: Weekly Supercoach decision dashboard — current and just-played rounds at a glance, plus projections, break-evens, and player movements. This is the app's landing page.
 
 **Features**:
-- Current round hero card (most recent incomplete or in-progress round)
-- Season stat strip (rounds played, total rounds, matches played)
-- Player movements alert (links to `/summary` if movements detected)
-- Full season compact grid — click any round to open `/round/{N}`; click any match to open `/match/{ID}`
+- **Current round matches card** — compact `MatchCard` grid showing every match in the current round with home/away GSR badges colourised by the `GSRBadge` palette (dark green → dark red across `normalizedOverallGSR`). Clicking a card opens `/match/{ID}`. Sourced from `useRoundQuery` + `useGameStrengthQuery`.
+- **Last round matches card** — same component rendered for `currentRound - 1` with subtitle "Final scores". Each `MatchCard` shows the home/away final scores for completed matches. Hidden in round 1 / when no previous round exists.
+- **Dashboard tiles** — responsive grid (`Grid xs={12} sm={6} lg={3}`):
+  - Top 10 Projected Scorers (contextual: opponent + venue applied via the precomputed contextual profile)
+  - Top 10 Projected Captains (same context, captaincy-mode candidate pool)
+  - Top 10 Break Evens (highest BE — the players that need the biggest score to hold or grow)
+  - Bottom 10 Break Evens (lowest BE — typical trade targets)
+  - Rows are team-coloured via `getTeamBackground` and link to `/player/{ID}`. Sourced from `useRoundDashboardQuery` → `GET /api/supercoach/:year/round/:round/dashboard`. While the artifact is computing, the section shows a "being computed — check back shortly" alert.
+- **Player Movements section** (below the tiles): Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed.
+  - Mobile: chip list per section; desktop: DataTable per section
+  - "Hide interchange promotions" checkbox in the Promoted section
+  - Branches on `data.available` from the discriminated `/api/player-movements` response (spec 035).
+
+The legacy `/summary` path redirects to `/` with the query string preserved for back-compat.
 
 ## Round View (`/round/{N}`)
 
@@ -146,23 +155,6 @@ A year selector in the top bar changes the active season. Selecting a year updat
 - Tabs: Overview (Radar chart for 6-axis stat comparison) | Scores (SC trend bar charts) | Projections (floor/ceiling/projected)
 - URL encodes player IDs as comma-separated: `/compare/123,456`
 - Add/remove updates URL with `navigate()`
-
-## Summary View (`/summary`)
-
-**Purpose**: Weekly Supercoach decision dashboard for the current round — at-a-glance Game Strength Ratings, top/bottom break-evens, contextual top scorers and top captains, plus the existing player movements between the last two rounds.
-
-**Features**:
-- **Round matches card** — compact `MatchCard` grid showing every match in the current round with home/away GSR badges colourised by the `GSRBadge` palette (dark green → dark red across `normalizedOverallGSR`). Clicking a card opens `/match/{ID}`. Sourced from `useRoundQuery` + `useGameStrengthQuery`.
-- **Dashboard tiles** — responsive 2×2 grid (`Grid xs={12} md={6}`):
-  - Top 10 Projected Scorers (contextual: opponent + venue applied via the precomputed contextual profile)
-  - Top 10 Projected Captains (same context, captaincy-mode candidate pool)
-  - Top 10 Break Evens (highest BE — the players that need the biggest score to hold or grow)
-  - Bottom 10 Break Evens (lowest BE — typical trade targets)
-  - Rows are team-coloured via `getTeamBackground` and link to `/player/{ID}`. Sourced from `useRoundDashboardQuery` → `GET /api/supercoach/:year/round/:round/dashboard`. While the artifact is computing, the section shows a "being computed — check back shortly" alert.
-- **Player Movements section** (below the tiles, unchanged): Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed.
-  - Mobile: chip list per section; desktop: DataTable per section
-  - "Hide interchange promotions" checkbox in the Promoted section
-  - Branches on `data.available` from the discriminated `/api/player-movements` response (spec 035).
 
 ## Casualty Ward (`/casualty-ward`)
 
