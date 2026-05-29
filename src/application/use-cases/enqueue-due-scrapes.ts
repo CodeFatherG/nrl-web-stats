@@ -28,6 +28,7 @@ import type { MatchOutlookRepository } from '../../domain/repositories/match-out
 import type { PlayerTrendsRepository } from '../../domain/repositories/player-trends-repository.js';
 import type { CompositionImpactRepository } from '../../domain/repositories/composition-impact-repository.js';
 import type { TeamStrengthRankingsRepository } from '../../domain/repositories/team-strength-rankings-repository.js';
+import type { LeagueRoundProjectionsRepository } from '../../domain/repositories/league-round-projections-repository.js';
 import type { MatchResultSource } from '../../domain/ports/match-result-source.js';
 import type { PlayerStatsSource } from '../../domain/ports/player-stats-source.js';
 import type { SupplementaryStatsSource } from '../../domain/ports/supplementary-stats-source.js';
@@ -84,6 +85,11 @@ export interface EnqueueDueScrapesDeps {
    *  `precompute-team-strength-rankings` job per active year per tick when
    *  any sub-artifact is missing or its `asOfRound` lags the watermark. */
   teamStrengthRankingsRepository: TeamStrengthRankingsRepository;
+  /** League-round dashboard artifact store. Discovery emits one
+   *  `precompute-league-round-projections` job per `(year, round ≤ watermark)`
+   *  whose stored `asOfRound` lags the current watermark, but ONLY after the
+   *  player/team-rankings precompute is complete at the watermark. */
+  leagueRoundProjectionsRepository: LeagueRoundProjectionsRepository;
 }
 
 export interface EnqueueDueScrapesInput {
@@ -501,6 +507,44 @@ export class EnqueueDueScrapesUseCase {
           },
           () => Promise.resolve(true),
         );
+      }
+    }
+
+    // --------------------------------------------------------------------
+    // 13. League-round dashboard precompute. Same emission semantics as
+    //     player movements (section 7): one job per round with complete
+    //     team lists whose stored `asOfRound` lags the watermark. This
+    //     naturally covers the upcoming round (the one being decided
+    //     about) plus any historical round that hasn't been backfilled.
+    //
+    //     Gated on `findPrecomputeStatus(year).asOfRound >= watermark`
+    //     so every player + team-mode aggregate the use case may read
+    //     is guaranteed present at the watermark. A partial-input write
+    //     would otherwise persist until the next watermark bump with no
+    //     mechanism to refresh once the missing aggregates land at the
+    //     same watermark.
+    // --------------------------------------------------------------------
+    if (watermark > 0) {
+      const status = await this.deps.projectionRepository.findPrecomputeStatus(currentYear);
+      if (status !== null && status.asOfRound >= watermark) {
+        const completedTeamListRounds =
+          await this.deps.teamListRepository.findRoundsWithCompleteTeamLists(currentYear);
+        const coverage =
+          await this.deps.leagueRoundProjectionsRepository.listCoveredRounds(currentYear);
+        for (const round of [...completedTeamListRounds].sort((a, b) => a - b)) {
+          const coveredAt = coverage.get(round) ?? -1;
+          if (coveredAt >= watermark) continue;
+          await tryPublish(
+            {
+              type: 'precompute-league-round-projections',
+              version: 1,
+              year: currentYear,
+              round,
+              asOfRound: watermark,
+            },
+            () => Promise.resolve(true),
+          );
+        }
       }
     }
 

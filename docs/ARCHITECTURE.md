@@ -371,3 +371,38 @@ cold-start or watermark-mismatch (HTTP 200 in both branches):
 - `src/application/adapters/ranking-service-adapter.ts` (single consumer of the deleted `database/rankings.ts` free functions)
 - `tests/unit/database/rankings-fixture-reads.test.ts` (asserted coalescing of the deleted in-process Map)
 - `tests/unit/season-thresholds.test.ts` (math half migrated into the compute use-case test; pure-utility half lives at `tests/unit/domain/team-strength-rankings.test.ts`)
+
+## Precomputed League-Round Dashboard (Summary tiles)
+
+The Summary view (`/summary`) renders a weekly Supercoach decision dashboard
+built from a single precomputed `(year, round)` artifact: top/bottom 10
+break-evens + top 10 contextual-adjusted scorers + top 10 contextual-adjusted
+captains. The artifact composes inputs that other precomputed pipelines have
+already produced — no live D1 work happens on read.
+
+### Layering
+
+| Concern | File | Notes |
+|---|---|---|
+| Domain port | `src/domain/repositories/league-round-projections-repository.ts` | `LeagueRoundProjectionsRepository`, `LeagueRoundProjectionsArtifact`, `LeagueRoundProjectionsStoreQuotaExhaustedError`. Coverage probe is `round → asOfRound` (KV-list metadata only). |
+| KV adapter | `src/infrastructure/persistence/kv-league-round-projections-repository.ts` | Key `league-round-projections:v1:{year}:{round}`; `{ asOfRound }` written into KV metadata so the discovery sweep does not read bodies. |
+| In-memory adapter | `src/infrastructure/persistence/in-memory-league-round-projections-repository.ts` | Local-dev fallback when `env.CACHE` is unset. |
+| Envelope codec | `src/infrastructure/persistence/league-round-projections-envelope.ts` | Zod-validated `schemaVersion: 1` envelope; payload mirrors the wire shape returned by the read endpoint. |
+| Precompute use case | `src/application/use-cases/precompute-league-round-projections.ts` | Artifact at `round` represents going INTO `round` — matches the movements artifact convention. Reads `D1SupplementaryStatsRepository.findByRound(year, round - 1)` for break-evens (nrl.com publishes BE after the just-played round; round 1 yields empty break-even slices), `ProjectionRepository.findTeamRankingsAggregate` (candidate pools for `composite` and `captaincy`), `ProjectionRepository.findPlayerAggregate` (contextual slice for each candidate), and `MatchRepository.findByYearAndRound(year, round)` (per-team opponent + venue for the round being decided). Applies `VENUE_NORMALISATION` to resolve raw stadium strings, runs `applyMultipliers` per candidate, re-ranks each mode, and saves the artifact. |
+| New queue variant | `src/application/ports/job-queue.ts` | `precompute-league-round-projections { year, round, asOfRound }`. |
+| Dispatch arm | `src/application/use-cases/handle-scrape-job.ts` | Routes the new job to `PrecomputeLeagueRoundProjectionsUseCase`; `LeagueRoundProjectionsStoreQuotaExhaustedError` is classified terminal. |
+| Discovery | `src/application/use-cases/enqueue-due-scrapes.ts` | Per-tick gap-set probe gated on `findPrecomputeStatus(year).asOfRound >= watermark` so every candidate pool AND every player aggregate is guaranteed present before the league-round job runs. Required because the artifact is written at `asOfRound = watermark` and the read-side freshness check is `coveredAt >= watermark` — a partial-input write would persist until the next watermark bump with no mechanism to refresh once the missing aggregates land at the same watermark. Once the gate is open, emits one job per round in `teamListRepository.findRoundsWithCompleteTeamLists(year)` whose stored `asOfRound` lags the current watermark — same enumeration as the movements precompute. This naturally covers the upcoming round (the one being decided about) plus any historical round that hasn't been backfilled. |
+| Read endpoint | `src/api/handlers.ts → getRoundDashboard` | `GET /api/supercoach/:year/round/:round/dashboard`. Returns the discriminated availability envelope (`{ available: true, asOfRound, data }` or `{ available: false, asOfRound: null, reason: 'precompute-pending' }`); never falls back to live compute. |
+
+### Trigger
+
+The artifact has no dedicated post-scrape signal. It is filled by the
+cron-driven discovery sweep on the tick after the existing projection
+precompute (`precompute-player-projection` + `precompute-team-rankings`)
+finishes catching up at the current watermark. Typical lag: ≤ one cron
+interval after `PrecomputeStatus.asOfRound` advances.
+
+### Removed
+
+Nothing — this is additive. The existing Summary view continues to render the
+player-movements accordions below the new tile grid.

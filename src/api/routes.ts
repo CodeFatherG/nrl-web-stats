@@ -86,6 +86,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/supercoach/:year/player/:playerId/contextual-projection', handlers.getContextualProjection(deps));
   api.get('/supercoach/:year/player/:playerId/contextual-profile', handlers.getContextualProfile(deps));
   api.get('/supercoach/:year/player/:playerId', handlers.getPlayerSupercoachSeason(deps));
+  api.get('/supercoach/:year/round/:round/dashboard', handlers.getRoundDashboard(deps));
   api.get('/supercoach/:year/:round', handlers.getSupercoachScores(deps));
 
   // Analytics

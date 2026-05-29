@@ -146,6 +146,18 @@ export interface PrecomputeTeamStrengthRankingsJob extends BaseJob {
   readonly asOfRound: number;
 }
 
+/** Precompute the league-round dashboard artifact (top/bottom break-evens +
+ *  contextual top scorers + contextual top captains) for one `(year, round)`.
+ *  Gated on the player/team-rankings precompute being complete at the
+ *  watermark — discovery only emits this job once `findPrecomputeStatus(year)`
+ *  has caught up to `asOfRound`. */
+export interface PrecomputeLeagueRoundProjectionsJob extends BaseJob {
+  readonly type: 'precompute-league-round-projections';
+  readonly year: number;
+  readonly round: number;
+  readonly asOfRound: number;
+}
+
 export type ScrapeJob =
   | ScrapeMatchResultsJob
   | ScrapePlayerStatsJob
@@ -161,7 +173,8 @@ export type ScrapeJob =
   | PrecomputePlayerTrendsJob
   | PrecomputeCompositionImpactJob
   | ScrapeDrawJob
-  | PrecomputeTeamStrengthRankingsJob;
+  | PrecomputeTeamStrengthRankingsJob
+  | PrecomputeLeagueRoundProjectionsJob;
 
 export type ScrapeJobType = ScrapeJob['type'];
 
@@ -285,6 +298,14 @@ const PrecomputeTeamStrengthRankingsJobSchema = z.object({
   asOfRound: z.number().int().nonnegative(),
 });
 
+const PrecomputeLeagueRoundProjectionsJobSchema = z.object({
+  type: z.literal('precompute-league-round-projections'),
+  version: z.literal(1),
+  year: YearSchema,
+  round: RoundSchema,
+  asOfRound: z.number().int().nonnegative(),
+});
+
 export const ScrapeJobSchema = z.discriminatedUnion('type', [
   ScrapeMatchResultsJobSchema,
   ScrapePlayerStatsJobSchema,
@@ -301,6 +322,7 @@ export const ScrapeJobSchema = z.discriminatedUnion('type', [
   PrecomputeCompositionImpactJobSchema,
   ScrapeDrawJobSchema,
   PrecomputeTeamStrengthRankingsJobSchema,
+  PrecomputeLeagueRoundProjectionsJobSchema,
 ]);
 
 // ---------------------------------------------------------------------------

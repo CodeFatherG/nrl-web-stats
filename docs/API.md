@@ -1341,6 +1341,71 @@ The `id` values in this response are the valid values for the `venue` query para
 
 **Errors**: None (returns empty array if no venues are seeded).
 
+---
+
+### GET /api/supercoach/:year/round/:round/dashboard
+
+Returns the precomputed league-round dashboard artifact for the Summary view: top/bottom break-evens plus contextual top scorers and top captains for the round.
+
+The `round` path parameter follows the same convention as the player-movements artifact — it identifies the round being *decided about*. Break-evens come from supplementary stats published after the prior round (which is when nrl.com / SuperCoach calculate break-evens for the upcoming round); fixture context (opponent + venue) comes from the requested round; projections are at the latest available watermark. Round 1 has no prior round, so its break-even slices are empty.
+
+The artifact is written by the `precompute-league-round-projections` queue job. Reads the standard discriminated envelope used by other precomputed artifacts.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `round` (number, required): Round number (positive integer)
+
+**Response — Available** (200):
+```json
+{
+  "available": true,
+  "asOfRound": 12,
+  "data": {
+    "year": 2026,
+    "round": 12,
+    "breakEvens": {
+      "top": [
+        { "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+          "scPosition": "FRF", "price": 720000, "breakEven": 105 }
+      ],
+      "bottom": [
+        { "playerId": "508811", "playerName": "Some Rookie", "teamCode": "BRO",
+          "scPosition": "CTR", "price": 198000, "breakEven": -18 }
+      ]
+    },
+    "scorers": [
+      {
+        "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+        "position": "Five-Eighth", "opponent": "BRO", "venue": "aami_park",
+        "baseTotal": 78.4, "adjustedTotal": 92.6, "adjustedFloor": 70.1, "adjustedCeiling": 118.4,
+        "rank": 1
+      }
+    ],
+    "captains": [
+      { "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+        "position": "Five-Eighth", "opponent": "BRO", "venue": "aami_park",
+        "baseTotal": 78.4, "adjustedTotal": 96.3, "adjustedFloor": 70.1, "adjustedCeiling": 118.4,
+        "rank": 1 }
+    ]
+  }
+}
+```
+
+**Response — Pending** (200): Returned when no artifact exists yet for the requested round. The next cron tick fills the gap once the per-player and per-team-rankings precomputes have caught up at the watermark.
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+**Field Descriptions**:
+- `breakEvens.top` / `breakEvens.bottom` — up to 100 highest and 100 lowest break-evens for the round (rows with null break-even are excluded). `playerId` may be `null` when the supplementary-stats row's player name does not resolve to a known player season summary. The current UI only renders the first 10 of each, but the payload carries the full top/bottom 100 for future "show more" surfacing.
+- `scorers` — up to 100 by `adjustedTotal` derived from the `composite` team-rankings pool with each player's fixture opponent + venue applied via the precomputed contextual profile.
+- `captains` — up to 100 by `adjustedTotal` derived from the `captaincy` team-rankings pool with the same context applied.
+- `venue` — canonical stadium ID (see `GET /api/supercoach/venues`), or `null` when the round's fixture has no stadium / the stadium is unmapped.
+
+**Errors**:
+- 400 `INVALID_YEAR`: year < 1998
+- 400 `INVALID_ROUND`: round not a positive integer
+- 500 `INTERNAL_ERROR`: unexpected store-side failure
 
 ---
 

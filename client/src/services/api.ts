@@ -663,3 +663,47 @@ export async function getGameStrengthRatings(year: number, round: number): Promi
 export function isGSRAvailable(r: GSRResponse): r is GSRPayload {
   return !('available' in r);
 }
+
+// ─── Round dashboard (Summary tiles) ──────────────────────────────────────────
+
+export interface DashboardBreakEvenRow {
+  playerId: string | null;
+  playerName: string;
+  teamCode: string;
+  scPosition: string | null;
+  price: number;
+  breakEven: number;
+}
+
+export interface DashboardProjectionRow {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  position: string;
+  opponent: string;
+  venue: string | null;
+  baseTotal: number;
+  adjustedTotal: number;
+  adjustedFloor: number;
+  adjustedCeiling: number;
+  rank: number;
+}
+
+export interface RoundDashboardData {
+  year: number;
+  round: number;
+  breakEvens: {
+    top: DashboardBreakEvenRow[];
+    bottom: DashboardBreakEvenRow[];
+  };
+  scorers: DashboardProjectionRow[];
+  captains: DashboardProjectionRow[];
+}
+
+export type RoundDashboardResponse =
+  | { available: true; asOfRound: number; data: RoundDashboardData }
+  | { available: false; asOfRound: null; reason: string };
+
+export async function getRoundDashboard(year: number, round: number): Promise<RoundDashboardResponse> {
+  return fetchApi<RoundDashboardResponse>(`/supercoach/${year}/round/${round}/dashboard`);
+}

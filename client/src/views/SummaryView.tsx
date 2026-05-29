@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid';
 import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -12,10 +13,14 @@ import Chip from '@mui/material/Chip';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useAppContext } from '../hooks/useAppContext';
 import { useMovementsQuery } from '../hooks/useMovementsQuery';
+import { useRoundDashboardQuery } from '../hooks/useRoundDashboardQuery';
 import { PageHeader } from '../components/shared/PageHeader';
 import { DataTable, type ColumnDef } from '../components/shared/DataTable';
 import { SkeletonPage } from '../components/shared/SkeletonPage';
 import { getTeamBackground } from '../utils/teamColors';
+import { RoundMatchesGSRCard } from '../components/summary/RoundMatchesGSRCard';
+import { BreakEvenTile } from '../components/summary/BreakEvenTile';
+import { TopProjectionsTile } from '../components/summary/TopProjectionsTile';
 import type {
   InjuredRecord,
   DroppedRecord,
@@ -117,6 +122,8 @@ export function SummaryView() {
     setExpandedSection(isExpanded ? id : false);
 
   const movementsQuery = useMovementsQuery(year);
+  const movementsRound = movementsQuery.data && movementsQuery.data.available ? movementsQuery.data.round : 0;
+  const dashboardQuery = useRoundDashboardQuery(year, movementsRound);
 
   if (movementsQuery.isLoading) return <SkeletonPage variant="cards" />;
   if (movementsQuery.isError) return <Alert severity="error">Failed to load player movements.</Alert>;
@@ -135,8 +142,10 @@ export function SummaryView() {
   if (data.noPreviousRound) {
     return (
       <Box>
-        <PageHeader title="Summary" subtitle="Player Movements" />
-        <Alert severity="info">No previous round data available yet.</Alert>
+        <PageHeader title="Summary" subtitle={`Round ${data.round}, ${data.season}`} />
+        <RoundMatchesGSRCard year={year} round={data.round} />
+        <DashboardTiles dashboardQuery={dashboardQuery} />
+        <Alert severity="info" sx={{ mt: 2 }}>No previous round data available yet for player movements.</Alert>
       </Box>
     );
   }
@@ -242,9 +251,17 @@ export function SummaryView() {
   return (
     <Box>
       <PageHeader
-        title="Player Movements Summary"
+        title="Summary"
         subtitle={`Round ${data.round}, ${data.season}`}
       />
+
+      <RoundMatchesGSRCard year={year} round={data.round} />
+
+      <DashboardTiles dashboardQuery={dashboardQuery} />
+
+      <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 3, mb: 1 }}>
+        Player Movements
+      </Typography>
 
       <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
         <MovementSection<InjuredRecord>
@@ -304,5 +321,52 @@ export function SummaryView() {
         />
       </Box>
     </Box>
+  );
+}
+
+type DashboardQueryResult = ReturnType<typeof useRoundDashboardQuery>;
+
+function DashboardTiles({ dashboardQuery }: { dashboardQuery: DashboardQueryResult }) {
+  if (dashboardQuery.isLoading) {
+    return (
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        {[0, 1, 2, 3].map(i => (
+          <Grid item xs={12} md={6} key={i}>
+            <SkeletonPage variant="cards" />
+          </Grid>
+        ))}
+      </Grid>
+    );
+  }
+  if (dashboardQuery.isError) {
+    return <Alert severity="warning" sx={{ mb: 2 }}>Failed to load round dashboard.</Alert>;
+  }
+  const dash = dashboardQuery.data;
+  if (!dash || !dash.available) {
+    return (
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Round dashboard is being computed — check back shortly.
+      </Alert>
+    );
+  }
+  const { breakEvens, scorers, captains } = dash.data;
+  // Backend precomputes top 100; we display top 10 today. Bump the slice
+  // here when surfacing a deeper list (e.g. behind a "show more" control).
+  const VISIBLE = 10;
+  return (
+    <Grid container spacing={2} sx={{ mb: 2 }}>
+      <Grid item xs={12} sm={6} lg={3}>
+        <TopProjectionsTile title="Top 10 Projected Scorers" rows={scorers.slice(0, VISIBLE)} />
+      </Grid>
+      <Grid item xs={12} sm={6} lg={3}>
+        <TopProjectionsTile title="Top 10 Projected Captains" rows={captains.slice(0, VISIBLE)} />
+      </Grid>
+      <Grid item xs={12} sm={6} lg={3}>
+        <BreakEvenTile title="Top 10 Break Evens" rows={breakEvens.top.slice(0, VISIBLE)} />
+      </Grid>
+      <Grid item xs={12} sm={6} lg={3}>
+        <BreakEvenTile title="Bottom 10 Break Evens" rows={breakEvens.bottom.slice(0, VISIBLE)} />
+      </Grid>
+    </Grid>
   );
 }

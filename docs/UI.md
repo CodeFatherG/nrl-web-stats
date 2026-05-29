@@ -149,13 +149,20 @@ A year selector in the top bar changes the active season. Selecting a year updat
 
 ## Summary View (`/summary`)
 
-**Purpose**: Player movements between the last two rounds.
+**Purpose**: Weekly Supercoach decision dashboard for the current round — at-a-glance Game Strength Ratings, top/bottom break-evens, contextual top scorers and top captains, plus the existing player movements between the last two rounds.
 
 **Features**:
-- Sections per movement type: Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed
-- Mobile: chip list per section; desktop: DataTable per section
-- "Hide interchange promotions" checkbox in the Promoted section
-- Branches on `data.available` from the new `{ available }`-discriminated `/api/player-movements` response (spec 035). When `data.available === false`, displays a "not yet available" alert in place of the movement sections. The previous `data.pending` field is gone.
+- **Round matches card** — compact `MatchCard` grid showing every match in the current round with home/away GSR badges colourised by the `GSRBadge` palette (dark green → dark red across `normalizedOverallGSR`). Clicking a card opens `/match/{ID}`. Sourced from `useRoundQuery` + `useGameStrengthQuery`.
+- **Dashboard tiles** — responsive 2×2 grid (`Grid xs={12} md={6}`):
+  - Top 10 Projected Scorers (contextual: opponent + venue applied via the precomputed contextual profile)
+  - Top 10 Projected Captains (same context, captaincy-mode candidate pool)
+  - Top 10 Break Evens (highest BE — the players that need the biggest score to hold or grow)
+  - Bottom 10 Break Evens (lowest BE — typical trade targets)
+  - Rows are team-coloured via `getTeamBackground` and link to `/player/{ID}`. Sourced from `useRoundDashboardQuery` → `GET /api/supercoach/:year/round/:round/dashboard`. While the artifact is computing, the section shows a "being computed — check back shortly" alert.
+- **Player Movements section** (below the tiles, unchanged): Injured, Dropped to Reserve, Benched (Starter→Interchange), Returning from Injury, Covering Injury, Promoted, Position Changed.
+  - Mobile: chip list per section; desktop: DataTable per section
+  - "Hide interchange promotions" checkbox in the Promoted section
+  - Branches on `data.available` from the discriminated `/api/player-movements` response (spec 035).
 
 ## Casualty Ward (`/casualty-ward`)
 

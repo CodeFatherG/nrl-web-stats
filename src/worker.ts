@@ -86,6 +86,11 @@ import { KvTeamStrengthRankingsRepository } from './infrastructure/persistence/k
 import { InMemoryTeamStrengthRankingsRepository } from './infrastructure/persistence/in-memory-team-strength-rankings-repository.js';
 import { GetTeamStrengthRankingsUseCase } from './application/use-cases/get-team-strength-rankings.js';
 import { ComputeTeamStrengthRankingsUseCase } from './application/use-cases/compute-team-strength-rankings.js';
+// League-round dashboard precompute
+import type { LeagueRoundProjectionsRepository } from './domain/repositories/league-round-projections-repository.js';
+import { KvLeagueRoundProjectionsRepository } from './infrastructure/persistence/kv-league-round-projections-repository.js';
+import { InMemoryLeagueRoundProjectionsRepository } from './infrastructure/persistence/in-memory-league-round-projections-repository.js';
+import { PrecomputeLeagueRoundProjectionsUseCase } from './application/use-cases/precompute-league-round-projections.js';
 
 // Environment bindings type
 export interface Env {
@@ -174,6 +179,12 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
   const matchResultsScrapeWatermarkRepository: MatchResultsScrapeWatermarkRepository = cache
     ? new KvMatchResultsScrapeWatermarkRepository(cache)
     : new InMemoryMatchResultsScrapeWatermarkRepository();
+
+  // League-round dashboard artifact store (top/bottom break-evens +
+  // contextual top scorers / captains for the SummaryView dashboard).
+  const leagueRoundProjectionsRepository: LeagueRoundProjectionsRepository = cache
+    ? new KvLeagueRoundProjectionsRepository(cache)
+    : new InMemoryLeagueRoundProjectionsRepository();
 
   // Per-request D1 binding constructions still happen in the factories
   // below; the composite is built per-request inside those factories so
@@ -338,6 +349,7 @@ function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queu
       });
     },
     teamStrengthRankingsRepository,
+    leagueRoundProjectionsRepository,
   } satisfies HandlerDeps);
 
   depsInitialized = true;
@@ -463,6 +475,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
       playerTrendsRepository: deps.playerTrendsRepository,
       compositionImpactRepository: deps.compositionImpactRepository,
       teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
+      leagueRoundProjectionsRepository: deps.leagueRoundProjectionsRepository,
     });
     await enqueueUseCase.execute({
       scheduledTime: new Date(event.scheduledTime),
@@ -548,6 +561,17 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
   });
 
+  // League-round dashboard precompute — composes the precomputed
+  // projection aggregates + D1 supplementary_stats + round fixtures into
+  // a single dashboard artifact for the SummaryView.
+  const precomputeLeagueRoundProjectionsUC = new PrecomputeLeagueRoundProjectionsUseCase({
+    leagueRoundProjectionsRepository: deps.leagueRoundProjectionsRepository,
+    projectionRepository: deps.projectionRepository,
+    matchRepository: deps.matchRepository,
+    playerRepository: playerRepo,
+    supplementaryRepo: suppRepo,
+  });
+
   const dispatcher = new HandleScrapeJobUseCase({
     scrapeMatchResults: deps.scrapeMatchResultsUseCase,
     scrapePlayerStats: scrapePlayerStatsUC,
@@ -564,6 +588,7 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     precomputeCompositionImpact: precomputeCompositionImpactUC,
     scrapeDraw: deps.scrapeDrawUseCase,
     computeTeamStrengthRankings: computeTeamStrengthRankingsUC,
+    precomputeLeagueRoundProjections: precomputeLeagueRoundProjectionsUC,
   });
 
   const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);

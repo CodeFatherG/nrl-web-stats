@@ -52,6 +52,7 @@ import type { MatchOutlookRepository } from '../domain/repositories/match-outloo
 import type { PlayerTrendsRepository } from '../domain/repositories/player-trends-repository.js';
 import type { CompositionImpactRepository } from '../domain/repositories/composition-impact-repository.js';
 import type { TeamStrengthRankingsRepository } from '../domain/repositories/team-strength-rankings-repository.js';
+import type { LeagueRoundProjectionsRepository } from '../domain/repositories/league-round-projections-repository.js';
 import { available, precomputePending } from './availability-envelope.js';
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
@@ -162,6 +163,9 @@ export interface HandlerDeps {
    *  cron-discovery sweep and queue consumer can reach it without going
    *  through the read-path use case. */
   teamStrengthRankingsRepository: TeamStrengthRankingsRepository;
+  /** League-round dashboard artifact store. Read-only on the handler side
+   *  (writer is the precompute use case in the queue handler). */
+  leagueRoundProjectionsRepository: LeagueRoundProjectionsRepository;
 }
 
 // Environment bindings type
@@ -1804,6 +1808,44 @@ export function getPlayerMovements(deps: HandlerDeps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'INTERNAL_ERROR', `Failed to get player movements: ${message}`, 500);
+    }
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/round/:round/dashboard
+ *
+ * Returns the precomputed league-round dashboard artifact (top/bottom
+ * break-evens + contextual top scorers + contextual top captains). Returns
+ * `{ available: false }` until the precompute fills the gap.
+ */
+export function getRoundDashboard(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be a positive integer', 400);
+    }
+
+    try {
+      const artifact = await deps.leagueRoundProjectionsRepository
+        .findByYearAndRound(yearResult.data, roundResult.data);
+      if (artifact === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(artifact.asOfRound, {
+        year: artifact.year,
+        round: artifact.round,
+        breakEvens: artifact.breakEvens,
+        scorers: artifact.scorers,
+        captains: artifact.captains,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'INTERNAL_ERROR', `Failed to get round dashboard: ${message}`, 500);
     }
   };
 }

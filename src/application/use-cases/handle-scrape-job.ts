@@ -23,6 +23,7 @@ import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/
 import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
 import { FixtureStoreQuotaExhaustedError } from '../../domain/repositories/fixture-repository.js';
 import { TeamStrengthRankingsStoreQuotaExhaustedError } from '../../domain/repositories/team-strength-rankings-repository.js';
+import { LeagueRoundProjectionsStoreQuotaExhaustedError } from '../../domain/repositories/league-round-projections-repository.js';
 import { MatchResultsScrapeWatermarkStoreQuotaExhaustedError } from '../../domain/repositories/match-results-scrape-watermark-repository.js';
 import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
 import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
@@ -39,6 +40,7 @@ import type { PrecomputePlayerTrendsUseCase } from './precompute-player-trends.j
 import type { PrecomputeCompositionImpactUseCase } from './precompute-composition-impact.js';
 import type { ScrapeDrawUseCase } from './scrape-draw.js';
 import type { ComputeTeamStrengthRankingsUseCase } from './compute-team-strength-rankings.js';
+import type { PrecomputeLeagueRoundProjectionsUseCase } from './precompute-league-round-projections.js';
 import { queueLogger } from '../../utils/queue-logger.js';
 
 /**
@@ -71,6 +73,9 @@ export interface HandleScrapeJobDeps {
   scrapeDraw?: ScrapeDrawUseCase;
   /** Spec 039: batched precompute of the team-strength-rankings artifact. */
   computeTeamStrengthRankings?: ComputeTeamStrengthRankingsUseCase;
+  /** League-round dashboard precompute (top/bottom break-evens + contextual
+   *  top scorers / captains). */
+  precomputeLeagueRoundProjections?: PrecomputeLeagueRoundProjectionsUseCase;
 }
 
 /** Classify thrown errors so the dispatcher can choose retry vs terminal. */
@@ -110,6 +115,9 @@ function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; rea
   }
   if (err instanceof TeamStrengthRankingsStoreQuotaExhaustedError) {
     return { kind: 'terminal', reason: 'team-strength-rankings-store-quota-exhausted' };
+  }
+  if (err instanceof LeagueRoundProjectionsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'league-round-projections-store-quota-exhausted' };
   }
   // Spec 040 — quota-exhausted match-results scrape watermark write. The
   // match-results D1 state is already durable; only the watermark write
@@ -294,6 +302,16 @@ export class HandleScrapeJobUseCase {
           throw new Error('precompute-team-strength-rankings dispatched but no ComputeTeamStrengthRankingsUseCase wired');
         }
         await this.deps.computeTeamStrengthRankings.execute(job.year, job.asOfRound);
+        return;
+      case 'precompute-league-round-projections':
+        if (!this.deps.precomputeLeagueRoundProjections) {
+          throw new Error('precompute-league-round-projections dispatched but no PrecomputeLeagueRoundProjectionsUseCase wired');
+        }
+        await this.deps.precomputeLeagueRoundProjections.execute({
+          year: job.year,
+          round: job.round,
+          asOfRound: job.asOfRound,
+        });
         return;
       default: {
         // Exhaustiveness check — the discriminated union should make this unreachable.
