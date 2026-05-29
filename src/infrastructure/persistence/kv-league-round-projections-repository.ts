@@ -3,10 +3,14 @@
  * LeagueRoundProjectionsRepository port.
  *
  * Key layout:
- *   league-round-projections:v1:{year}:{round}
+ *   league-round-projections:v2:{year}:{round}
  *
  * Each key carries `{ asOfRound: number }` metadata so coverage probes
  * (`kv.list({ metadata: true })`) read the watermark without fetching values.
+ *
+ * v2 bump: filter to players named in team lists. Stale v1 artifacts include
+ * unnamed/injured players and must not satisfy the coverage check — both
+ * listings and reads must miss them so discovery re-emits.
  */
 
 import {
@@ -18,7 +22,7 @@ import { decodeArtifact, encodeArtifact } from './league-round-projections-envel
 import { wrapKvErrors } from './kv-errors.js';
 import { pagedKvList } from './kv-list.js';
 
-const KEY_PREFIX = 'league-round-projections:v1';
+const KEY_PREFIX = 'league-round-projections:v2';
 
 function yearPrefix(year: number): string {
   return `${KEY_PREFIX}:${year}:`;

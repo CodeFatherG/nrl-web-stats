@@ -21,6 +21,7 @@ import type {
 import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
+import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { SupplementaryPlayerStats } from '../../domain/ports/supplementary-stats-source.js';
 import type { ProjectionValues } from '../../analytics/contextual-projection-types.js';
 import { applyMultipliers } from '../../analytics/contextual-projection-service.js';
@@ -33,6 +34,23 @@ const PROJECTION_TOP_N = 100;
 // after dedupe and bye exclusion.
 const CANDIDATE_POOL_PER_TEAM = 30;
 
+/**
+ * Normalise a player name for cross-source matching. The supplementary stats
+ * source emits "Isaako, Jamayne" (Last, First) while team lists emit
+ * "Jamayne Isaako" (First Last). Both collapse to "jamayne isaako" here so
+ * a single lookup key works for either source.
+ */
+function normalisePlayerName(name: string): string {
+  const trimmed = name.trim();
+  const commaIdx = trimmed.indexOf(',');
+  if (commaIdx !== -1) {
+    const last = trimmed.slice(0, commaIdx).trim();
+    const first = trimmed.slice(commaIdx + 1).trim();
+    return `${first} ${last}`.toLowerCase();
+  }
+  return trimmed.toLowerCase();
+}
+
 interface SupplementaryRepoLike {
   findByRound(season: number, round: number): Promise<SupplementaryPlayerStats[]>;
 }
@@ -43,6 +61,7 @@ export interface PrecomputeLeagueRoundProjectionsDeps {
   matchRepository: MatchRepository;
   playerRepository: PlayerRepository;
   supplementaryRepo: SupplementaryRepoLike;
+  teamListRepository: TeamListRepository;
 }
 
 export interface PrecomputeLeagueRoundProjectionsInput {
@@ -73,17 +92,26 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
       }
     }
 
-    // ── 2. Player-name → playerId lookup (for break-even rows) ──────────────
-    const summaries = await this.deps.playerRepository.findAllSeasonSummaries(year);
+    // ── 2. Named players for this round (from team lists) ──────────────────
+    // Discovery (enqueue-due-scrapes §13) only emits this job after every
+    // team has published its lineup, so we can treat the team lists as the
+    // authoritative roster for the round. We build two views:
+    //   • namedPlayerIds — Set<string> for fast id-based filtering of the
+    //     projection candidate pool (candidate playerIds are strings, while
+    //     SquadMember.playerId is number — coerce).
+    //   • playerIdByNameTeam — name+team-keyed map for resolving break-even
+    //     rows from the supplementary stats source, which only carries name
+    //     and team (no playerId). The supp source uses "Last, First" while
+    //     team lists use "First Last", so both are normalised through
+    //     `normalisePlayerName` before keying.
+    const teamLists = await this.deps.teamListRepository.findByYearAndRound(year, round);
+    const namedPlayerIds = new Set<string>();
     const playerIdByNameTeam = new Map<string, string>();
-    for (const s of summaries) {
-      playerIdByNameTeam.set(`${s.playerName.toLowerCase()}::${s.teamCode}`, s.playerId);
-    }
-    const playerIdByName = new Map<string, string>();
-    for (const s of summaries) {
-      // First-write-wins: ambiguous names fall back to whichever season summary loaded first
-      if (!playerIdByName.has(s.playerName.toLowerCase())) {
-        playerIdByName.set(s.playerName.toLowerCase(), s.playerId);
+    for (const list of teamLists) {
+      for (const member of list.members) {
+        const id = String(member.playerId);
+        namedPlayerIds.add(id);
+        playerIdByNameTeam.set(`${normalisePlayerName(member.playerName)}::${list.teamCode}`, id);
       }
     }
 
@@ -94,12 +122,12 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
     // and apply to the upcoming round's decisions). Round 1 has no prior
     // round, so it gets empty break-even slices.
     const breakEvens = round > 1
-      ? await this.computeBreakEvens(year, round - 1, playerIdByNameTeam, playerIdByName)
+      ? await this.computeBreakEvens(year, round - 1, playerIdByNameTeam)
       : { top: [], bottom: [] };
 
     // ── 4. Candidate pools from precomputed team rankings ───────────────────
-    const composite = await this.collectCandidates(year, 'composite');
-    const captaincy = await this.collectCandidates(year, 'captaincy');
+    const composite = await this.collectCandidates(year, 'composite', namedPlayerIds);
+    const captaincy = await this.collectCandidates(year, 'captaincy', namedPlayerIds);
 
     // ── 5. Apply contextual adjustment, rank, slice ─────────────────────────
     const scorers = await this.rankWithContext(year, composite, teamContext, PROJECTION_TOP_N);
@@ -133,8 +161,7 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
   private async computeBreakEvens(
     year: number,
     round: number,
-    idByNameTeam: Map<string, string>,
-    idByName: Map<string, string>,
+    namedPlayerIdByNameTeam: ReadonlyMap<string, string>,
   ): Promise<BreakEvenSlices> {
     const rows = await this.deps.supplementaryRepo.findByRound(year, round);
 
@@ -142,11 +169,15 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
     for (const r of rows) {
       if (r.breakEven === null || r.price === null) continue;
       const teamCode = r.teamCode ?? '';
-      const lookup = idByNameTeam.get(`${r.playerName.toLowerCase()}::${teamCode}`)
-        ?? idByName.get(r.playerName.toLowerCase())
-        ?? null;
+      // Resolving against the team-list map serves two purposes: it filters
+      // to named-only players AND yields the canonical playerId. A miss
+      // means the player isn't named for the upcoming round.
+      const playerId = namedPlayerIdByNameTeam.get(
+        `${normalisePlayerName(r.playerName)}::${teamCode}`,
+      ) ?? null;
+      if (playerId === null) continue;
       eligible.push({
-        playerId: lookup,
+        playerId,
         playerName: r.playerName,
         teamCode,
         scPosition: r.scPosition,
@@ -169,6 +200,7 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
   private async collectCandidates(
     year: number,
     mode: 'composite' | 'captaincy',
+    namedPlayerIds: ReadonlySet<string>,
   ): Promise<Array<{ playerId: string; baseScore: number }>> {
     // Pull every team-ranking aggregate we have for the year. The discovery
     // gate ensures all 17 teams are covered before this job runs; on miss
@@ -191,6 +223,7 @@ export class PrecomputeLeagueRoundProjectionsUseCase {
       if (!agg) continue;
       const top = agg.rankings.rankedPlayers.slice(0, CANDIDATE_POOL_PER_TEAM);
       for (const p of top) {
+        if (!namedPlayerIds.has(p.profile.playerId)) continue;
         candidates.push({
           playerId: p.profile.playerId,
           baseScore: p.compositeScore ?? 0,

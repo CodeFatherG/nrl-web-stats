@@ -22,6 +22,8 @@ import type {
 } from '../../src/domain/repositories/projection-repository.js';
 import type { ContextualProfileResult } from '../../src/analytics/contextual-projection-types.js';
 import type { PlayerProjectionProfile, RankingMode } from '../../src/analytics/player-projection-types.js';
+import type { TeamListRepository } from '../../src/domain/repositories/team-list-repository.js';
+import type { TeamList } from '../../src/domain/team-list.js';
 
 const YEAR = 2026;
 const ROUND = 5;
@@ -153,6 +155,26 @@ function fakePlayerAggregate(
   };
 }
 
+function fakeTeamList(
+  matchId: string,
+  teamCode: string,
+  members: Array<{ playerId: string; playerName: string; jersey?: number }>,
+): TeamList {
+  return {
+    matchId,
+    teamCode,
+    year: YEAR,
+    round: ROUND,
+    members: members.map((m, i) => ({
+      jerseyNumber: m.jersey ?? i + 1,
+      playerName: m.playerName,
+      position: 'Centre',
+      playerId: Number(m.playerId),
+    })),
+    scrapedAt: new Date().toISOString(),
+  };
+}
+
 // ── Stub repositories ────────────────────────────────────────────────────────
 
 class StubMatchRepo implements MatchRepository {
@@ -187,6 +209,30 @@ class StubSuppRepo {
   async findByRound() { return this.rows; }
 }
 
+class StubTeamListRepo implements TeamListRepository {
+  constructor(private readonly lists: TeamList[] = []) {}
+  async save() {}
+  async saveAll() {}
+  async findByMatch(matchId: string): Promise<TeamList[]> {
+    return this.lists.filter(l => l.matchId === matchId);
+  }
+  async findByYearAndRound(year: number, round: number): Promise<TeamList[]> {
+    return this.lists.filter(l => l.year === year && l.round === round);
+  }
+  async hasTeamList(matchId: string, teamCode: string): Promise<boolean> {
+    return this.lists.some(l => l.matchId === matchId && l.teamCode === teamCode);
+  }
+  async hasTeamListsForMatch(matchId: string): Promise<boolean> {
+    return this.lists.some(l => l.matchId === matchId);
+  }
+  async getRoundsWithTeamLists(year: number): Promise<Set<number>> {
+    return new Set(this.lists.filter(l => l.year === year).map(l => l.round));
+  }
+  async findRoundsWithCompleteTeamLists(): Promise<ReadonlySet<number>> {
+    return new Set();
+  }
+}
+
 function suppRow(name: string, teamCode: string, breakEven: number | null, price = 500000): SupplementaryPlayerStats {
   return {
     playerName: name, season: YEAR, round: ROUND,
@@ -211,48 +257,58 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
 
   it('writes top/bottom break-evens and contextual top scorers + captains', async () => {
     // Two-team round: BRI plays MEL at Suncorp Stadium.
-    const matchRepo = new StubMatchRepo([fakeMatch('BRI', 'MEL', 'Suncorp Stadium')]);
+    const match = fakeMatch('BRI', 'MEL', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
     const summaries = [
-      fakeSummary('bri-1', 'BRI', 'Alice Smith'),
-      fakeSummary('bri-2', 'BRI', 'Bob Jones'),
-      fakeSummary('mel-1', 'MEL', 'Cam Brown'),
+      fakeSummary('101', 'BRI', 'Alice Smith'),
+      fakeSummary('102', 'BRI', 'Bob Jones'),
+      fakeSummary('201', 'MEL', 'Cam Brown'),
     ];
     const playerRepo = new StubPlayerRepo(summaries);
     const suppRepo = new StubSuppRepo([
       suppRow('Alice Smith', 'BRI', 100, 600000),
       suppRow('Bob Jones', 'BRI', -10, 200000),
       suppRow('Cam Brown', 'MEL', 50, 400000),
-      suppRow('Dan Null', 'MEL', null, 300000), // filtered out
+      suppRow('Dan Null', 'MEL', null, 300000), // filtered out (null break-even)
+    ]);
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList(match.id, 'BRI', [
+        { playerId: '101', playerName: 'Alice Smith' },
+        { playerId: '102', playerName: 'Bob Jones' },
+      ]),
+      fakeTeamList(match.id, 'MEL', [
+        { playerId: '201', playerName: 'Cam Brown' },
+      ]),
     ]);
 
     // Seed team rankings for both modes
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('BRI', 'composite', [
-      { playerId: 'bri-1', compositeScore: 90 },
-      { playerId: 'bri-2', compositeScore: 80 },
+      { playerId: '101', compositeScore: 90 },
+      { playerId: '102', compositeScore: 80 },
     ]));
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('MEL', 'composite', [
-      { playerId: 'mel-1', compositeScore: 85 },
+      { playerId: '201', compositeScore: 85 },
     ]));
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('BRI', 'captaincy', [
-      { playerId: 'bri-1', compositeScore: 110 },
+      { playerId: '101', compositeScore: 110 },
     ]));
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('MEL', 'captaincy', [
-      { playerId: 'mel-1', compositeScore: 105 },
+      { playerId: '201', compositeScore: 105 },
     ]));
 
     // Seed player aggregates with contextual profiles. Alice gets +20% vs MEL,
     // Bob no adjustment, Cam +10% vs BRI + venue.
     await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
-      'bri-1', 'BRI', 60,
-      fakeContextualProfile('bri-1', 'BRI', { MEL: 1.2 }, { suncorp: 1.05 }),
+      '101', 'BRI', 60,
+      fakeContextualProfile('101', 'BRI', { MEL: 1.2 }, { suncorp: 1.05 }),
     ));
     await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
-      'bri-2', 'BRI', 50,
-      fakeContextualProfile('bri-2', 'BRI'),
+      '102', 'BRI', 50,
+      fakeContextualProfile('102', 'BRI'),
     ));
     await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
-      'mel-1', 'MEL', 55,
-      fakeContextualProfile('mel-1', 'MEL', { BRI: 1.1 }, { suncorp: 1.0 }),
+      '201', 'MEL', 55,
+      fakeContextualProfile('201', 'MEL', { BRI: 1.1 }, { suncorp: 1.0 }),
     ));
 
     const uc = new PrecomputeLeagueRoundProjectionsUseCase({
@@ -261,6 +317,7 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
     });
 
     await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });
@@ -273,33 +330,42 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
     expect(artifact!.breakEvens.top[0]).toMatchObject({ playerName: 'Alice Smith', breakEven: 100 });
     expect(artifact!.breakEvens.bottom[0]).toMatchObject({ playerName: 'Bob Jones', breakEven: -10 });
     // playerId resolved from season summary
-    expect(artifact!.breakEvens.top[0].playerId).toBe('bri-1');
+    expect(artifact!.breakEvens.top[0].playerId).toBe('101');
 
     // Scorers: Alice's adjusted = 60 * 1.2 * 1.05 = 75.6 (top); Cam = 55 * 1.1 * 1.0 = 60.5; Bob = 50.
-    expect(artifact!.scorers[0].playerId).toBe('bri-1');
+    expect(artifact!.scorers[0].playerId).toBe('101');
     expect(artifact!.scorers[0].adjustedTotal).toBeCloseTo(75.6);
     expect(artifact!.scorers[0].opponent).toBe('MEL');
     expect(artifact!.scorers[0].venue).toBe('suncorp');
-    expect(artifact!.scorers[1].playerId).toBe('mel-1');
+    expect(artifact!.scorers[1].playerId).toBe('201');
 
     // Captains: Alice still tops via base 60 * 1.2 * 1.05; Cam second.
-    expect(artifact!.captains[0].playerId).toBe('bri-1');
+    expect(artifact!.captains[0].playerId).toBe('101');
     expect(artifact!.captains).toHaveLength(2);
   });
 
   it('skips candidates whose team is on bye (no fixture in round)', async () => {
-    const matchRepo = new StubMatchRepo([fakeMatch('BRI', 'MEL', 'Suncorp Stadium')]);
-    const playerRepo = new StubPlayerRepo([fakeSummary('syd-1', 'SYD', 'Syd Player')]);
+    // SYD has a (hypothetical) team list in our stub but no fixture this round,
+    // so the bye filter in rankWithContext should still drop them after the
+    // named-player filter lets them through.
+    const match = fakeMatch('BRI', 'MEL', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
+    const playerRepo = new StubPlayerRepo([fakeSummary('301', 'SYD', 'Syd Player')]);
     const suppRepo = new StubSuppRepo([]);
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList('2026-R5-SYD-XXX', 'SYD', [
+        { playerId: '301', playerName: 'Syd Player' },
+      ]),
+    ]);
 
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('SYD', 'composite', [
-      { playerId: 'syd-1', compositeScore: 90 },
+      { playerId: '301', compositeScore: 90 },
     ]));
     await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('SYD', 'captaincy', [
-      { playerId: 'syd-1', compositeScore: 90 },
+      { playerId: '301', compositeScore: 90 },
     ]));
     await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
-      'syd-1', 'SYD', 70, fakeContextualProfile('syd-1', 'SYD'),
+      '301', 'SYD', 70, fakeContextualProfile('301', 'SYD'),
     ));
 
     const uc = new PrecomputeLeagueRoundProjectionsUseCase({
@@ -308,6 +374,7 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
     });
 
     await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });
@@ -317,12 +384,37 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
     expect(artifact!.captains).toHaveLength(0);
   });
 
-  it('round 1 has no prior round, so break-even slices are empty', async () => {
-    const matchRepo = new StubMatchRepo([fakeMatch('BRI', 'MEL', 'Suncorp Stadium')]);
-    const playerRepo = new StubPlayerRepo([]);
-    // Stub returns rows regardless of round — proves the use case skips
-    // the call for round 1 rather than relying on the stub returning empty.
-    const suppRepo = new StubSuppRepo([suppRow('Alice', 'BRI', 100)]);
+  it('excludes scorer/captain candidates not named in the round team list', async () => {
+    // BRI vs MEL; team rankings include Alice and Bob, but only Alice is
+    // named in the team list. Bob must not appear in scorers or captains.
+    const match = fakeMatch('BRI', 'MEL', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
+    const playerRepo = new StubPlayerRepo([
+      fakeSummary('101', 'BRI', 'Alice Smith'),
+      fakeSummary('102', 'BRI', 'Bob Jones'),
+    ]);
+    const suppRepo = new StubSuppRepo([]);
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList(match.id, 'BRI', [
+        { playerId: '101', playerName: 'Alice Smith' },
+      ]),
+      fakeTeamList(match.id, 'MEL', []),
+    ]);
+
+    await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('BRI', 'composite', [
+      { playerId: '101', compositeScore: 90 },
+      { playerId: '102', compositeScore: 80 },
+    ]));
+    await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking('BRI', 'captaincy', [
+      { playerId: '101', compositeScore: 90 },
+      { playerId: '102', compositeScore: 80 },
+    ]));
+    await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
+      '101', 'BRI', 60, fakeContextualProfile('101', 'BRI', { MEL: 1.0 }),
+    ));
+    await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
+      '102', 'BRI', 55, fakeContextualProfile('102', 'BRI', { MEL: 1.0 }),
+    ));
 
     const uc = new PrecomputeLeagueRoundProjectionsUseCase({
       leagueRoundProjectionsRepository: leagueRepo,
@@ -330,6 +422,122 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
+    });
+
+    await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });
+
+    const artifact = await leagueRepo.findByYearAndRound(YEAR, ROUND);
+    const scorerIds = artifact!.scorers.map(s => s.playerId);
+    const captainIds = artifact!.captains.map(s => s.playerId);
+    expect(scorerIds).toContain('101');
+    expect(scorerIds).not.toContain('102');
+    expect(captainIds).toContain('101');
+    expect(captainIds).not.toContain('102');
+  });
+
+  it('resolves break-even rows when supp stats use "Last, First" and team list uses "First Last"', async () => {
+    // Regression: the supplementary stats source emits names like
+    // "Isaako, Jamayne" while team lists store "Jamayne Isaako". The
+    // normaliser must bridge both formats; without it every break-even row
+    // gets dropped as un-named.
+    const match = fakeMatch('DOL', 'BRI', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
+    const playerRepo = new StubPlayerRepo([]);
+    const suppRepo = new StubSuppRepo([
+      suppRow('Isaako, Jamayne', 'DOL', 155, 827200),
+      suppRow('Riki, Jordan', 'BRI', 80, 500000),
+    ]);
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList(match.id, 'DOL', [
+        { playerId: '900001', playerName: 'Jamayne Isaako' },
+      ]),
+      fakeTeamList(match.id, 'BRI', [
+        { playerId: '900002', playerName: 'Jordan Riki' },
+      ]),
+    ]);
+
+    const uc = new PrecomputeLeagueRoundProjectionsUseCase({
+      leagueRoundProjectionsRepository: leagueRepo,
+      projectionRepository: projectionRepo,
+      matchRepository: matchRepo,
+      playerRepository: playerRepo,
+      supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
+    });
+
+    await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });
+
+    const artifact = await leagueRepo.findByYearAndRound(YEAR, ROUND);
+    expect(artifact!.breakEvens.top).toHaveLength(2);
+    // Top row preserves the original supp name, but the playerId resolves
+    // through the team list.
+    expect(artifact!.breakEvens.top[0]).toMatchObject({
+      playerName: 'Isaako, Jamayne',
+      teamCode: 'DOL',
+      playerId: '900001',
+      breakEven: 155,
+    });
+    expect(artifact!.breakEvens.top[1]).toMatchObject({
+      playerName: 'Riki, Jordan',
+      teamCode: 'BRI',
+      playerId: '900002',
+    });
+  });
+
+  it('excludes break-even rows whose player is not named in the round team list', async () => {
+    const match = fakeMatch('BRI', 'MEL', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
+    const playerRepo = new StubPlayerRepo([
+      fakeSummary('101', 'BRI', 'Alice Smith'),
+      fakeSummary('102', 'BRI', 'Bob Jones'),
+    ]);
+    const suppRepo = new StubSuppRepo([
+      suppRow('Alice Smith', 'BRI', 100, 600000),
+      suppRow('Bob Jones', 'BRI', -10, 200000),
+    ]);
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList(match.id, 'BRI', [
+        { playerId: '101', playerName: 'Alice Smith' },
+      ]),
+      fakeTeamList(match.id, 'MEL', []),
+    ]);
+
+    const uc = new PrecomputeLeagueRoundProjectionsUseCase({
+      leagueRoundProjectionsRepository: leagueRepo,
+      projectionRepository: projectionRepo,
+      matchRepository: matchRepo,
+      playerRepository: playerRepo,
+      supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
+    });
+
+    await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });
+
+    const artifact = await leagueRepo.findByYearAndRound(YEAR, ROUND);
+    const topNames = artifact!.breakEvens.top.map(r => r.playerName);
+    const bottomNames = artifact!.breakEvens.bottom.map(r => r.playerName);
+    expect(topNames).toContain('Alice Smith');
+    expect(topNames).not.toContain('Bob Jones');
+    expect(bottomNames).toContain('Alice Smith');
+    expect(bottomNames).not.toContain('Bob Jones');
+  });
+
+  it('round 1 has no prior round, so break-even slices are empty', async () => {
+    const matchRepo = new StubMatchRepo([fakeMatch('BRI', 'MEL', 'Suncorp Stadium')]);
+    const playerRepo = new StubPlayerRepo([]);
+    // Stub returns rows regardless of round — proves the use case skips
+    // the call for round 1 rather than relying on the stub returning empty.
+    const suppRepo = new StubSuppRepo([suppRow('Alice', 'BRI', 100)]);
+    const teamListRepo = new StubTeamListRepo([]);
+
+    const uc = new PrecomputeLeagueRoundProjectionsUseCase({
+      leagueRoundProjectionsRepository: leagueRepo,
+      projectionRepository: projectionRepo,
+      matchRepository: matchRepo,
+      playerRepository: playerRepo,
+      supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
     });
 
     await uc.execute({ year: YEAR, round: 1, asOfRound: 0 });
@@ -340,8 +548,9 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
   });
 
   it('reads supplementary stats from round - 1 (the most recently published)', async () => {
-    const matchRepo = new StubMatchRepo([fakeMatch('BRI', 'MEL', 'Suncorp Stadium')]);
-    const playerRepo = new StubPlayerRepo([fakeSummary('bri-1', 'BRI', 'Alice Smith')]);
+    const match = fakeMatch('BRI', 'MEL', 'Suncorp Stadium');
+    const matchRepo = new StubMatchRepo([match]);
+    const playerRepo = new StubPlayerRepo([fakeSummary('101', 'BRI', 'Alice Smith')]);
     // Stub that records the round it was queried with.
     let queriedRound = -1;
     const suppRepo = {
@@ -350,6 +559,11 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
         return [suppRow('Alice Smith', 'BRI', 42)];
       },
     };
+    const teamListRepo = new StubTeamListRepo([
+      fakeTeamList(match.id, 'BRI', [
+        { playerId: '101', playerName: 'Alice Smith' },
+      ]),
+    ]);
 
     const uc = new PrecomputeLeagueRoundProjectionsUseCase({
       leagueRoundProjectionsRepository: leagueRepo,
@@ -357,6 +571,7 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
     });
 
     await uc.execute({ year: YEAR, round: 5, asOfRound: AS_OF });
@@ -379,15 +594,19 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
 
     const summaries: PlayerSeasonSummary[] = [];
     const suppRows: SupplementaryPlayerStats[] = [];
+    const teamLists: TeamList[] = [];
 
-    for (const teamCode of teamCodes) {
+    for (let t = 0; t < teamCodes.length; t++) {
+      const teamCode = teamCodes[t];
       const candidates: Array<{ playerId: string; compositeScore: number }> = [];
+      const members: Array<{ playerId: string; playerName: string; jersey: number }> = [];
       for (let i = 0; i < 30; i++) {
-        const pid = `${teamCode}-${i}`;
+        const pid = String((t + 1) * 1000 + i);
         const name = `${teamCode}Player${i}`;
         summaries.push(fakeSummary(pid, teamCode, name));
         suppRows.push(suppRow(name, teamCode, i * 10));
         candidates.push({ playerId: pid, compositeScore: 200 - i });
+        members.push({ playerId: pid, playerName: name, jersey: i + 1 });
         await projectionRepo.savePlayerAggregate(fakePlayerAggregate(
           pid, teamCode, 80 - i,
           fakeContextualProfile(pid, teamCode, { ANY: 1.0 }),
@@ -395,9 +614,15 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       }
       await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking(teamCode, 'composite', candidates));
       await projectionRepo.saveTeamRankingsAggregate(fakeTeamRanking(teamCode, 'captaincy', candidates));
+      // Assign the team list to whichever match this team plays in.
+      const match = matches.find(m => m.homeTeamCode === teamCode || m.awayTeamCode === teamCode);
+      if (match) {
+        teamLists.push(fakeTeamList(match.id, teamCode, members));
+      }
     }
     const playerRepo = new StubPlayerRepo(summaries);
     const suppRepo = new StubSuppRepo(suppRows);
+    const teamListRepo = new StubTeamListRepo(teamLists);
 
     const uc = new PrecomputeLeagueRoundProjectionsUseCase({
       leagueRoundProjectionsRepository: leagueRepo,
@@ -405,6 +630,7 @@ describe('PrecomputeLeagueRoundProjectionsUseCase', () => {
       matchRepository: matchRepo,
       playerRepository: playerRepo,
       supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
     });
 
     await uc.execute({ year: YEAR, round: ROUND, asOfRound: AS_OF });

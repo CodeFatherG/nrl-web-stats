@@ -570,6 +570,7 @@ const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) =>
     matchRepository: deps.matchRepository,
     playerRepository: playerRepo,
     supplementaryRepo: suppRepo,
+    teamListRepository: teamListRepo,
   });
 
   const dispatcher = new HandleScrapeJobUseCase({
