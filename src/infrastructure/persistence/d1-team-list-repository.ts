@@ -165,4 +165,22 @@ export class D1TeamListRepository implements TeamListRepository {
       .all();
     return new Set(results.map(r => r.round as number));
   }
+
+  async findRoundsWithCompleteTeamLists(year: number): Promise<ReadonlySet<number>> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT tl.round AS round
+         FROM team_lists tl
+         WHERE tl.year = ?
+         GROUP BY tl.round
+         HAVING COUNT(DISTINCT tl.team_code) >= (
+           SELECT COUNT(*) * 2
+           FROM matches m
+           WHERE m.year = tl.year AND m.round = tl.round
+         )`
+      )
+      .bind(year)
+      .all();
+    return new Set(results.map(r => r.round as number));
+  }
 }

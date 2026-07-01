@@ -265,4 +265,12 @@ export class NrlComMatchResultAdapter implements MatchResultSource {
       return failure(`Failed to fetch match results from nrl.com: ${message}`);
     }
   }
+
+  async isAvailable(_year: number, _round: number): Promise<boolean> {
+    // Match-results discovery is already gated by D1 state (findRoundsNeedingScrape
+    // only returns rounds with completed matches lacking persisted results); the
+    // upstream draw API is always reachable once such rounds exist. Trust the
+    // predicate; no extra HTTP cost on discovery.
+    return true;
+  }
 }

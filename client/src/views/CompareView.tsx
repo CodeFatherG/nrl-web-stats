@@ -69,6 +69,7 @@ export interface PlayerComparisonData {
   playerName: string;
   teamCode: string;
   position: string;
+  scPosition: string | null;
   seasonStats: SeasonStatsSnapshot | null;
   scRounds: Array<{ round: number; totalScore: number | null; opponent: string | null; isComplete: boolean }>;
   sc: import('../services/api').PlayerSeasonSupercoachResponse | null;
@@ -98,7 +99,7 @@ import { CompareSeasonStatsTable, STAT_COLS, SC_COLS, NRL_COLS } from '../compon
 import { CompareRoundScoresTable } from '../components/CompareRoundScoresTable';
 import { CompareProjectionsTable } from '../components/CompareProjectionsTable';
 import { PlayerSearchInput } from '../components/PlayerSearchInput';
-import { getRadarAxes } from '../utils/positionGroups';
+import { getRadarAxes, getRadarAxesFromSupercoach } from '../utils/positionGroups';
 import {
   getPlayer,
   getPlayerSupercoachSeason,
@@ -250,6 +251,7 @@ export function CompareView() {
           playerName: pid,
           teamCode: '',
           position: '',
+          scPosition: null,
           seasonStats: null,
           scRounds: [],
           sc: null,
@@ -270,6 +272,7 @@ export function CompareView() {
         playerName: playerData.name,
         teamCode: playerData.teamCode,
         position: playerData.position,
+        scPosition: playerData.scPosition ?? null,
         seasonStats: buildSeasonStats(performances, scData),
         scRounds: (scData?.matches ?? []).map(m => ({
           round: m.round,
@@ -307,9 +310,28 @@ export function CompareView() {
 
   const loadedPlayers = players.filter(p => !p.loading && p.playerName !== p.playerId);
 
-  // Position-aware NRL radar axes
+  // Position-aware NRL radar axes — prefer Supercoach positions (lineup-relevant groupings)
+  // per player. Players without scPosition fall back to their NRL canonical position so
+  // their axes still join the union.
   const nrlAxes = useMemo(
-    () => getRadarAxes(loadedPlayers.map(p => p.position)),
+    () => {
+      const scInputs: string[] = [];
+      const nrlFallbacks: string[] = [];
+      for (const p of loadedPlayers) {
+        if (p.scPosition) scInputs.push(p.scPosition);
+        else if (p.position) nrlFallbacks.push(p.position);
+      }
+      const scAxes = scInputs.length > 0 ? getRadarAxesFromSupercoach(scInputs) : [];
+      const nrlAxesFallback = nrlFallbacks.length > 0 ? getRadarAxes(nrlFallbacks) : [];
+      if (scAxes.length === 0) return nrlAxesFallback.length > 0 ? nrlAxesFallback : getRadarAxes([]);
+      if (nrlAxesFallback.length === 0) return scAxes;
+      // Merge unique axes from both
+      const merged = [...scAxes];
+      for (const a of nrlAxesFallback) {
+        if (!merged.some(m => m.key === a.key)) merged.push(a);
+      }
+      return merged;
+    },
     [loadedPlayers],
   );
 

@@ -144,6 +144,41 @@ describe('NrlSupercoachStatsAdapter', () => {
       expect(talakai.teamCode).toBe('SHA');
     });
 
+    it('extracts Supercoach position from Posn1 (single) and combines Posn1+Posn2 (dual)', async () => {
+      mockFetchResponses([{ data: fixtureData }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      // Single position: Posn1 populated, Posn2 empty
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.scPosition).toBe('HFB');
+
+      const walsh = result.data.find(p => p.playerName === 'Walsh, Reece')!;
+      expect(walsh.scPosition).toBe('FLB');
+
+      // Five-eighth must preserve the '/' inside the value, not be split as a dual
+      const munster = result.data.find(p => p.playerName === 'Munster, Cameron')!;
+      expect(munster.scPosition).toBe('5/8,HFB');
+
+      // Dual position: both Posn1 and Posn2 populated
+      const talakai = result.data.find(p => p.playerName === 'Talakai, Siosifa')!;
+      expect(talakai.scPosition).toBe('CTW,2RF');
+    });
+
+    it('returns null scPosition when Posn1 and Posn2 are both empty', async () => {
+      const noPosn = JSON.parse(JSON.stringify(fixtureData));
+      noPosn.rows[0].Posn1 = '';
+      noPosn.rows[0].Posn2 = '';
+      mockFetchResponses([{ data: noPosn }]);
+
+      const result = await adapter.fetchSupplementaryStats(2026, 1);
+      if (!result.success) throw new Error('Expected success');
+
+      const cleary = result.data.find(p => p.playerName === 'Cleary, Nathan')!;
+      expect(cleary.scPosition).toBeNull();
+    });
+
     it('verifies Munster supplementary stats', async () => {
       mockFetchResponses([{ data: fixtureData }]);
 

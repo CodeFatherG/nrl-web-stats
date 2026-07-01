@@ -59,7 +59,7 @@ function makeRoundGSR(year = 2026, round = 5): RoundGSR {
   };
 }
 
-function makeMinimalDeps(executeImpl: (...args: any[]) => Promise<RoundGSR>): HandlerDeps {
+function makeMinimalDeps(executeImpl: (...args: any[]) => Promise<RoundGSR | null>): HandlerDeps {
   return {
     createGetGameStrengthUseCase: () => ({ execute: executeImpl } as any),
     createLockGameStrengthUseCase: () => ({} as any),
@@ -83,15 +83,17 @@ function makeMinimalDeps(executeImpl: (...args: any[]) => Promise<RoundGSR>): Ha
     createSupplementaryStatsRepository: () => ({} as any),
     createGetContextualProjectionUseCase: () => ({} as any),
     createGetContextualProfileUseCase: () => ({} as any),
-    playerMovementsCache: {} as any,
+    playerMovementsRepository: {} as any,
     createComputePlayerMovementsUseCase: () => ({} as any),
+    projectionRepository: {} as any,
+    gameStrengthRepository: () => ({} as any),
   };
 }
 
 describe('getGameStrengthRatings handler', () => {
   let app: Hono;
 
-  function setupApp(executeImpl: (...args: any[]) => Promise<RoundGSR>) {
+  function setupApp(executeImpl: (...args: any[]) => Promise<RoundGSR | null>) {
     const deps = makeMinimalDeps(executeImpl);
     app = new Hono();
     app.get('/api/supercoach/:year/game-strength/:round', handlers.getGameStrengthRatings(deps));
@@ -188,6 +190,28 @@ describe('getGameStrengthRatings handler', () => {
       const res = await app.request('/api/supercoach/2026/game-strength/5?halfLife=0', undefined, FAKE_ENV);
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toBe('INVALID_HALF_LIFE');
+    });
+  });
+
+  describe('{ available: false } envelope on null use-case result (spec 036)', () => {
+    beforeEach(() => {
+      setupApp(() => Promise.resolve(null));
+    });
+
+    it('returns 200 with { available: false } when the use case returns null', async () => {
+      const res = await app.request('/api/supercoach/2026/game-strength/20', undefined, FAKE_ENV);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { available: boolean };
+      expect(body).toEqual({ available: false });
+    });
+
+    it('does not return { available: false } for the happy path — only the discriminator key when missing', async () => {
+      // Sanity: happy path still returns the unwrapped RoundGSR, not wrapped in an envelope
+      setupApp(() => Promise.resolve(makeRoundGSR()));
+      const res = await app.request('/api/supercoach/2026/game-strength/5', undefined, FAKE_ENV);
+      const body = await res.json() as RoundGSR & { available?: boolean };
+      expect(body).not.toHaveProperty('available');
+      expect(body.year).toBe(2026);
     });
   });
 

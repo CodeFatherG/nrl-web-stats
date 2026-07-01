@@ -9,6 +9,12 @@ import { InMemoryMatchRepository } from '../../src/database/in-memory-match-repo
 import { NrlComMatchResultAdapter } from '../../src/infrastructure/adapters/nrl-com-match-result-adapter.js';
 import { ScrapeMatchResultsUseCase } from '../../src/application/use-cases/scrape-match-results.js';
 import { createGetSeasonSummaryUseCase } from '../../src/application/use-cases/get-season-summary.js';
+import { GetTeamStrengthRankingsUseCase } from '../../src/application/use-cases/get-team-strength-rankings.js';
+import { InMemoryTeamStrengthRankingsRepository } from '../../src/infrastructure/persistence/in-memory-team-strength-rankings-repository.js';
+import { InMemoryFixtureRepository } from '../../src/infrastructure/persistence/in-memory-fixture-repository.js';
+import { setFixtureRepository, resetDatabase } from '../../src/database/store.js';
+import { buildFixturesFromMatches } from '../../src/database/legacy-fixture-bridge.js';
+import type { Match } from '../../src/domain/match.js';
 import { createMatchFromSchedule, MatchStatus } from '../../src/domain/match.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,13 +34,28 @@ function mockFetchResponse(data: unknown, status = 200): void {
   }));
 }
 
+async function seedFixtures(year: number, matches: Match[]): Promise<InMemoryFixtureRepository> {
+  const repo = new InMemoryFixtureRepository();
+  await repo.save(year, buildFixturesFromMatches(year, matches));
+  setFixtureRepository(repo);
+  return repo;
+}
+
+function makeRankings(): GetTeamStrengthRankingsUseCase {
+  return new GetTeamStrengthRankingsUseCase({
+    repository: new InMemoryTeamStrengthRankingsRepository(),
+    watermarkFn: async () => 0,
+  });
+}
+
 describe('Match Results API Integration', () => {
   let matchRepository: InMemoryMatchRepository;
   let adapter: NrlComMatchResultAdapter;
   let scrapeUseCase: ScrapeMatchResultsUseCase;
 
   beforeEach(() => {
-    matchRepository = new InMemoryMatchRepository();
+    resetDatabase();
+      matchRepository = new InMemoryMatchRepository();
     adapter = new NrlComMatchResultAdapter();
     scrapeUseCase = new ScrapeMatchResultsUseCase(adapter, matchRepository);
   });
@@ -107,7 +128,8 @@ describe('Match Results API Integration', () => {
     await scrapeUseCase.execute(2025, 1);
 
     // 3. Get season summary with matchRepository
-    const seasonSummary = await createGetSeasonSummaryUseCase(matchRepository).execute(2025);
+    const fixtureRepo = await seedFixtures(2025, scheduleMatches);
+    const seasonSummary = await createGetSeasonSummaryUseCase(fixtureRepo, makeRankings(), matchRepository).execute(2025);
 
     expect(seasonSummary).not.toBeNull();
     if (!seasonSummary) return;
@@ -139,8 +161,9 @@ describe('Match Results API Integration', () => {
     ];
     await matchRepository.saveAll(scheduleMatches);
 
-    // Season summary without matchRepository (old behavior)
-    const seasonSummaryOld = await createGetSeasonSummaryUseCase().execute(2025);
+    const fixtureRepo = await seedFixtures(2025, scheduleMatches);
+    // Season summary without matchRepository (no enrichment)
+    const seasonSummaryOld = await createGetSeasonSummaryUseCase(fixtureRepo, makeRankings()).execute(2025);
     expect(seasonSummaryOld).not.toBeNull();
     const round1Old = seasonSummaryOld!.rounds.find(r => r.round === 1);
     const matchOld = round1Old!.matches.find(m => m.homeTeam === 'CBR');
@@ -150,7 +173,7 @@ describe('Match Results API Integration', () => {
     expect(matchOld!.scheduledTime).toBeNull();
 
     // Season summary WITH matchRepository but no enrichment
-    const seasonSummaryNew = await createGetSeasonSummaryUseCase(matchRepository).execute(2025);
+    const seasonSummaryNew = await createGetSeasonSummaryUseCase(fixtureRepo, makeRankings(), matchRepository).execute(2025);
     expect(seasonSummaryNew).not.toBeNull();
     const round1New = seasonSummaryNew!.rounds.find(r => r.round === 1);
     const matchNew = round1New!.matches.find(m => m.homeTeam === 'CBR');

@@ -1,6 +1,10 @@
 /**
  * Integration tests for analytics API handlers.
- * Tests the handler functions directly with mock dependencies.
+ *
+ * Spec 037: handlers now wrap responses in an AvailabilityEnvelope. The four
+ * endpoints serve from precomputed-artifact repositories; this test uses an
+ * `InMemoryTeamFormRepository` populated via the precompute use case so the
+ * GET handler returns `{ available: true, asOfRound, data }`.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -8,15 +12,15 @@ import { Hono } from 'hono';
 import type { HandlerDeps } from '../../src/api/handlers.js';
 import * as handlers from '../../src/api/handlers.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
-import type { FixtureRepository } from '../../src/application/ports/fixture-repository.js';
-import { AnalyticsCache } from '../../src/analytics/analytics-cache.js';
+import type { FixtureArtifact, FixtureRepository } from '../../src/domain/repositories/fixture-repository.js';
 import { GetTeamFormUseCase } from '../../src/application/use-cases/get-team-form.js';
+import { PrecomputeTeamFormUseCase } from '../../src/application/use-cases/precompute-team-form.js';
+import { InMemoryTeamFormRepository } from '../../src/infrastructure/persistence/in-memory-team-form-repository.js';
 import { broMatchesSeason2026 } from '../fixtures/analytics/matches.js';
-import { broFixtures2026, allFixtures2026 } from '../fixtures/analytics/fixtures.js';
+import { allFixtures2026 } from '../fixtures/analytics/fixtures.js';
 import type { Match } from '../../src/domain/match.js';
 import type { Fixture } from '../../src/models/fixture.js';
 
-// Minimal mock implementations
 function createMockMatchRepository(matches: Match[]): MatchRepository {
   return {
     save: async () => {},
@@ -33,31 +37,50 @@ function createMockMatchRepository(matches: Match[]): MatchRepository {
   };
 }
 
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
+  return {
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures.filter(f => f.year === year),
+  };
+}
+
 function createMockFixtureRepository(fixtures: Fixture[]): FixtureRepository {
   return {
-    findByYear: (year) => fixtures.filter(f => f.year === year),
-    findByTeam: (code) => fixtures.filter(f => f.teamCode === code),
-    findByRound: (year, round) => fixtures.filter(f => f.year === year && f.round === round),
-    findByYearAndTeam: (year, code) => fixtures.filter(f => f.year === year && f.teamCode === code),
-    isYearLoaded: () => true,
-    getLoadedYears: () => [2026],
-    getAllTeams: () => [],
-    getTeamByCode: () => undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => fixtures.length,
-    loadFixtures: () => {},
+    findByYear: async (year) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return makeArtifact(year, yearFixtures);
+    },
+    findByYearAndTeam: async (year, code) => {
+      const yearFixtures = fixtures.filter(f => f.year === year);
+      if (yearFixtures.length === 0) return null;
+      return {
+        ...makeArtifact(year, yearFixtures),
+        payload: yearFixtures.filter(f => f.teamCode === code),
+      };
+    },
+    listScrapedYears: async () => new Map([[2026, '2026-05-20T00:00:00.000Z']]),
+    save: async () => {},
   };
 }
 
 describe('Analytics Handlers Integration', () => {
   let app: Hono;
   let deps: HandlerDeps;
+  let teamFormRepo: InMemoryTeamFormRepository;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const matchRepo = createMockMatchRepository(broMatchesSeason2026);
     const fixtureRepo = createMockFixtureRepository(allFixtures2026);
-    const cache = new AnalyticsCache();
-    const getTeamFormUseCase = new GetTeamFormUseCase(matchRepo, fixtureRepo, cache);
+    teamFormRepo = new InMemoryTeamFormRepository();
+    const getTeamFormUseCase = new GetTeamFormUseCase(matchRepo, fixtureRepo, teamFormRepo);
+    const precompute = new PrecomputeTeamFormUseCase(matchRepo, fixtureRepo, teamFormRepo);
+
+    // Seed default-windowSize aggregate so the read path returns available: true.
+    await precompute.execute({ year: 2026, asOfRound: 5, teamCode: 'BRO' });
+    await precompute.execute({ year: 1999, asOfRound: 0, teamCode: 'BRO' });
 
     deps = {
       scrapeDrawUseCase: {} as HandlerDeps['scrapeDrawUseCase'],
@@ -69,32 +92,61 @@ describe('Analytics Handlers Integration', () => {
       getMatchOutlookUseCase: {} as HandlerDeps['getMatchOutlookUseCase'],
       getPlayerTrendsUseCase: {} as HandlerDeps['getPlayerTrendsUseCase'],
       getCompositionImpactUseCase: {} as HandlerDeps['getCompositionImpactUseCase'],
-    };
+      teamFormRepository: teamFormRepo,
+      matchOutlookRepository: {} as HandlerDeps['matchOutlookRepository'],
+      playerTrendsRepository: {} as HandlerDeps['playerTrendsRepository'],
+      compositionImpactRepository: {} as HandlerDeps['compositionImpactRepository'],
+      watermarkFn: async () => 5,
+    } as HandlerDeps;
 
     app = new Hono();
     app.get('/api/analytics/form/:year/:teamCode', handlers.getTeamForm(deps));
   });
 
   describe('GET /api/analytics/form/:year/:teamCode', () => {
-    it('returns form trajectory with valid params', async () => {
+    it('returns AvailabilityEnvelope with default window (available)', async () => {
       const res = await app.request('/api/analytics/form/2026/BRO');
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.teamCode).toBe('BRO');
-      expect(body.year).toBe(2026);
-      expect(body.windowSize).toBe(5);
-      expect(body.snapshots).toBeDefined();
-      expect(Array.isArray(body.snapshots)).toBe(true);
-      expect(body.snapshots.length).toBeGreaterThan(0);
-      expect(body.rollingFormRating).toBeTypeOf('number');
-      expect(body.classification).toBeDefined();
+      expect(body.available).toBe(true);
+      expect(body.asOfRound).toBe(5);
+      expect(body.data.teamCode).toBe('BRO');
+      expect(body.data.year).toBe(2026);
+      expect(body.data.windowSize).toBe(5);
+      expect(Array.isArray(body.data.snapshots)).toBe(true);
     });
 
-    it('accepts custom window query param', async () => {
-      const res = await app.request('/api/analytics/form/2026/BRO?window=3');
+    it('returns precompute-pending envelope when no aggregate exists', async () => {
+      // Wipe the seeded data
+      teamFormRepo = new InMemoryTeamFormRepository();
+      const matchRepo = createMockMatchRepository(broMatchesSeason2026);
+      const fixtureRepo = createMockFixtureRepository(allFixtures2026);
+      const getTeamFormUseCase = new GetTeamFormUseCase(matchRepo, fixtureRepo, teamFormRepo);
+      const freshDeps: HandlerDeps = {
+        ...deps,
+        matchRepository: matchRepo,
+        getTeamFormUseCase,
+        teamFormRepository: teamFormRepo,
+      };
+      const freshApp = new Hono();
+      freshApp.get('/api/analytics/form/:year/:teamCode', handlers.getTeamForm(freshDeps));
+      const res = await freshApp.request('/api/analytics/form/2026/BRO');
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.windowSize).toBe(3);
+      expect(body.available).toBe(false);
+      expect(body.asOfRound).toBeNull();
+      expect(body.reason).toBe('precompute-pending');
+    });
+
+    it('non-default window runs live compute and returns available', async () => {
+      // Pass a fake env binding so the handler can reach c.env.DB in the
+      // live-compute branch (FR-016).
+      const res = await app.request('/api/analytics/form/2026/BRO?window=3', undefined, { DB: {} as D1Database });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.available).toBe(true);
+      expect(body.asOfRound).toBe(5);
+      expect(body.data.windowSize).toBe(3);
     });
 
     it('returns 400 for invalid team code', async () => {
@@ -102,41 +154,6 @@ describe('Analytics Handlers Integration', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('VALIDATION_ERROR');
-    });
-
-    it('returns 200 with null ratings for empty results', async () => {
-      // Use a year with no data
-      const res = await app.request('/api/analytics/form/1999/BRO');
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.snapshots).toHaveLength(0);
-      expect(body.rollingFormRating).toBeNull();
-      expect(body.classification).toBeNull();
-      expect(body.sampleSizeWarning).toBe(true);
-    });
-
-    it('response shape matches contract', async () => {
-      const res = await app.request('/api/analytics/form/2026/BRO');
-      const body = await res.json();
-
-      // Top-level fields
-      expect(body).toHaveProperty('teamCode');
-      expect(body).toHaveProperty('teamName');
-      expect(body).toHaveProperty('year');
-      expect(body).toHaveProperty('windowSize');
-      expect(body).toHaveProperty('rollingFormRating');
-      expect(body).toHaveProperty('classification');
-      expect(body).toHaveProperty('sampleSizeWarning');
-      expect(body).toHaveProperty('snapshots');
-
-      // Snapshot fields
-      const snapshot = body.snapshots[0];
-      expect(snapshot).toHaveProperty('round');
-      expect(snapshot).toHaveProperty('result');
-      expect(snapshot).toHaveProperty('margin');
-      expect(snapshot).toHaveProperty('opponentCode');
-      expect(snapshot).toHaveProperty('opponentStrengthRating');
-      expect(snapshot).toHaveProperty('formScore');
     });
   });
 });

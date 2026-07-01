@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
 import { createApiRoutes } from './api/routes.js';
 import { setDebugMode, logger } from './utils/logger.js';
-import { cacheStore, getNextMondayExpiry } from './cache/store.js';
 import { SuperCoachStatsAdapter } from './infrastructure/adapters/supercoach-stats-adapter.js';
 import { NrlComMatchResultAdapter } from './infrastructure/adapters/nrl-com-match-result-adapter.js';
 import { D1MatchRepository } from './infrastructure/persistence/d1-match-repository.js';
 import { InMemoryMatchRepository } from './database/in-memory-match-repository.js';
 import { ScrapeDrawUseCase } from './application/use-cases/scrape-draw.js';
-import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsNeedingSupplementaryStats, findRoundsInPlayerStatsUpdateWindow } from './application/use-cases/scrape-match-results.js';
-import { cacheServiceAdapter } from './application/adapters/cache-service-adapter.js';
-import { resultCacheStore } from './cache/result-cache.js';
+import { ScrapeMatchResultsUseCase } from './application/use-cases/scrape-match-results.js';
+import type { MatchResultsScrapeWatermarkRepository } from './domain/repositories/match-results-scrape-watermark-repository.js';
+import { KvMatchResultsScrapeWatermarkRepository } from './infrastructure/persistence/kv-match-results-scrape-watermark-repository.js';
+import { InMemoryMatchResultsScrapeWatermarkRepository } from './infrastructure/persistence/in-memory-match-results-scrape-watermark-repository.js';
 import { D1PlayerRepository } from './infrastructure/persistence/d1-player-repository.js';
 import { NrlComPlayerStatsAdapter } from './infrastructure/adapters/nrl-com-player-stats-adapter.js';
 import { ScrapePlayerStatsUseCase } from './application/use-cases/scrape-player-stats.js';
@@ -19,7 +19,6 @@ import { ScrapeSupplementaryStatsUseCase } from './application/use-cases/scrape-
 import { GetSupercoachScoresUseCase } from './application/use-cases/get-supercoach-scores.js';
 import { D1PlayerNameLinkRepository } from './infrastructure/persistence/d1-player-name-link-repo.js';
 import { loadScoringConfig } from './config/supercoach-scoring-config.js';
-import { AnalyticsCache } from './analytics/analytics-cache.js';
 import { NrlComTeamListAdapter } from './infrastructure/adapters/nrl-com-team-list-adapter.js';
 import { D1TeamListRepository } from './infrastructure/persistence/d1-team-list-repository.js';
 import { ScrapeTeamListsUseCase } from './application/use-cases/scrape-team-lists.js';
@@ -34,21 +33,74 @@ import { GetPlayerProjectionUseCase } from './application/use-cases/get-player-p
 import { GetTeamProjectionRankingsUseCase } from './application/use-cases/get-team-projection-rankings.js';
 import { GetContextualProjectionUseCase } from './application/use-cases/get-contextual-projection.js';
 import { GetContextualProfileUseCase } from './application/use-cases/get-contextual-profile.js';
-import { playerMovementsCache } from './analytics/player-movements-cache.js';
 import { ComputePlayerMovementsUseCase } from './application/use-cases/compute-player-movements.js';
-import { gameStrengthCache } from './analytics/game-strength-cache.js';
+import type { PlayerMovementsRepository } from './domain/repositories/player-movements-repository.js';
+import { KvPlayerMovementsRepository } from './infrastructure/persistence/kv-player-movements-repository.js';
+import { InMemoryPlayerMovementsRepository } from './infrastructure/persistence/in-memory-player-movements-repository.js';
 import { D1GameStrengthRepository } from './infrastructure/persistence/d1-game-strength-repository.js';
+import type { GameStrengthRepository } from './domain/repositories/game-strength-repository.js';
+import type { ProvisionalGameStrengthRepository } from './domain/repositories/provisional-game-strength-repository.js';
+import { KvProvisionalGameStrengthRepository } from './infrastructure/persistence/kv-provisional-game-strength-repository.js';
+import { InMemoryProvisionalGameStrengthRepository } from './infrastructure/persistence/in-memory-provisional-game-strength-repository.js';
+import { CompositeGameStrengthRepository } from './infrastructure/persistence/composite-game-strength-repository.js';
 import { GetGameStrengthUseCase } from './application/use-cases/get-game-strength.js';
 import { LockGameStrengthRatingsUseCase } from './application/use-cases/lock-game-strength-ratings.js';
-import { fixtureRepositoryAdapter } from './application/adapters/fixture-repository-adapter.js';
+import type { FixtureRepository } from './domain/repositories/fixture-repository.js';
+import { KvFixtureRepository } from './infrastructure/persistence/kv-fixture-repository.js';
+import { InMemoryFixtureRepository } from './infrastructure/persistence/in-memory-fixture-repository.js';
+import { setFixtureRepository } from './database/store.js';
 import { buildLegacyFixtureBridge } from './database/legacy-fixture-bridge.js';
 import type { HandlerDeps } from './api/handlers.js';
+import type { ScrapeJob } from './application/ports/job-queue.js';
+import { CloudflareQueueProducer } from './infrastructure/queue/cloudflare-queue-producer.js';
+import { InMemoryJobQueue } from './infrastructure/queue/in-memory-job-queue.js';
+import { fromCfMessageBatch, type CfMessageBatchLike } from './infrastructure/queue/cloudflare-job-batch.js';
+import { EnqueueDueScrapesUseCase } from './application/use-cases/enqueue-due-scrapes.js';
+import { HandleScrapeJobUseCase } from './application/use-cases/handle-scrape-job.js';
+import type { ProjectionRepository } from './domain/repositories/projection-repository.js';
+import { KvProjectionRepository } from './infrastructure/cache/kv-projection-repository.js';
+import { InMemoryProjectionRepository } from './infrastructure/cache/in-memory-projection-repository.js';
+import { currentWatermark } from './application/services/current-watermark.js';
+import { PrecomputePlayerProjectionUseCase } from './application/use-cases/precompute-player-projection.js';
+import { PrecomputeTeamRankingsUseCase } from './application/use-cases/precompute-team-rankings.js';
+// Spec 037 — four precomputed-artifact repositories for the analytics endpoints
+import type { TeamFormRepository } from './domain/repositories/team-form-repository.js';
+import { KvTeamFormRepository } from './infrastructure/persistence/kv-team-form-repository.js';
+import { InMemoryTeamFormRepository } from './infrastructure/persistence/in-memory-team-form-repository.js';
+import type { MatchOutlookRepository } from './domain/repositories/match-outlook-repository.js';
+import { KvMatchOutlookRepository } from './infrastructure/persistence/kv-match-outlook-repository.js';
+import { InMemoryMatchOutlookRepository } from './infrastructure/persistence/in-memory-match-outlook-repository.js';
+import type { PlayerTrendsRepository } from './domain/repositories/player-trends-repository.js';
+import { KvPlayerTrendsRepository } from './infrastructure/persistence/kv-player-trends-repository.js';
+import { InMemoryPlayerTrendsRepository } from './infrastructure/persistence/in-memory-player-trends-repository.js';
+import type { CompositionImpactRepository } from './domain/repositories/composition-impact-repository.js';
+import { KvCompositionImpactRepository } from './infrastructure/persistence/kv-composition-impact-repository.js';
+import { InMemoryCompositionImpactRepository } from './infrastructure/persistence/in-memory-composition-impact-repository.js';
+import { PrecomputeTeamFormUseCase } from './application/use-cases/precompute-team-form.js';
+import { PrecomputeMatchOutlookUseCase } from './application/use-cases/precompute-match-outlook.js';
+import { PrecomputePlayerTrendsUseCase } from './application/use-cases/precompute-player-trends.js';
+import { PrecomputeCompositionImpactUseCase } from './application/use-cases/precompute-composition-impact.js';
+// Spec 039 — durable team-strength-rankings repository + use cases
+import type { TeamStrengthRankingsRepository } from './domain/repositories/team-strength-rankings-repository.js';
+import { KvTeamStrengthRankingsRepository } from './infrastructure/persistence/kv-team-strength-rankings-repository.js';
+import { InMemoryTeamStrengthRankingsRepository } from './infrastructure/persistence/in-memory-team-strength-rankings-repository.js';
+import { GetTeamStrengthRankingsUseCase } from './application/use-cases/get-team-strength-rankings.js';
+import { ComputeTeamStrengthRankingsUseCase } from './application/use-cases/compute-team-strength-rankings.js';
+// League-round dashboard precompute
+import type { LeagueRoundProjectionsRepository } from './domain/repositories/league-round-projections-repository.js';
+import { KvLeagueRoundProjectionsRepository } from './infrastructure/persistence/kv-league-round-projections-repository.js';
+import { InMemoryLeagueRoundProjectionsRepository } from './infrastructure/persistence/in-memory-league-round-projections-repository.js';
+import { PrecomputeLeagueRoundProjectionsUseCase } from './application/use-cases/precompute-league-round-projections.js';
 
 // Environment bindings type
 export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
   DB: D1Database;
+  SCRAPE_QUEUE: Queue<ScrapeJob>;
+  /** Cloudflare KV — precomputed projection artifacts (spec 034). Optional in
+   *  local/dev: when absent the worker falls back to InMemoryProjectionRepository. */
+  CACHE?: KVNamespace;
 }
 
 // Stateless module-level singletons
@@ -58,7 +110,6 @@ const playerStatsSource = new NrlComPlayerStatsAdapter();
 const supplementaryStatsSource = new NrlSupercoachStatsAdapter();
 const teamListSource = new NrlComTeamListAdapter();
 const casualtyWardSource = new NrlComCasualtyWardAdapter();
-const analyticsCache = new AnalyticsCache();
 const createPlayerRepo = (db: D1Database) => new D1PlayerRepository(db);
 
 // D1-dependent deps — lazily initialized on first request when env.DB is available
@@ -66,23 +117,111 @@ let depsInitialized = false;
 let legacyStoreHydrated = false;
 const deps = {} as HandlerDeps;
 
-function initializeDeps(db?: D1Database): void {
+function initializeDeps(db?: D1Database, cache?: KVNamespace, scrapeQueue?: Queue<ScrapeJob>): void {
   if (depsInitialized) return;
 
   // Use D1 when available, fall back to in-memory for environments without D1 (e.g. tests)
   const matchRepository = db ? new D1MatchRepository(db) : new InMemoryMatchRepository();
 
+  // Composition root for the durable fixture artifact (spec 038). One
+  // artifact per year, addressed via FixtureRepository.
+  const fixtureRepository: FixtureRepository = cache
+    ? new KvFixtureRepository(cache)
+    : new InMemoryFixtureRepository();
+  setFixtureRepository(fixtureRepository);
+
+  // Composition root for the projection store. Swapping this single line to
+  // a different concrete adapter (e.g. UpstashProjectionRepository) is the
+  // ONLY change required to switch backends — every use case, handler, and
+  // test depends on the domain port only (spec 034, FR-013, SC-006).
+  const projectionRepository: ProjectionRepository = cache
+    ? new KvProjectionRepository(cache)
+    : new InMemoryProjectionRepository();
+
+  // Composition root for the player-movements artifact store (spec 035).
+  // Same selection rule as projectionRepository above.
+  const playerMovementsRepository: PlayerMovementsRepository = cache
+    ? new KvPlayerMovementsRepository(cache)
+    : new InMemoryPlayerMovementsRepository();
+
+  // Composition root for the provisional game-strength-rating sub-adapter
+  // (spec 036). KV in production, in-memory otherwise; see
+  // tests/integration/no-cache-binding-fallback.test.ts. This is internal —
+  // application-layer callers see only the unified `GameStrengthRepository`
+  // port via the composite below.
+  const provisionalGsrSubAdapter: ProvisionalGameStrengthRepository = cache
+    ? new KvProvisionalGameStrengthRepository(cache)
+    : new InMemoryProvisionalGameStrengthRepository();
+
+  // Spec 037 — composition roots for the four analytics precomputed-artifact
+  // repositories. Same KV/in-memory selection rule as above.
+  const teamFormRepository: TeamFormRepository = cache
+    ? new KvTeamFormRepository(cache)
+    : new InMemoryTeamFormRepository();
+  const matchOutlookRepository: MatchOutlookRepository = cache
+    ? new KvMatchOutlookRepository(cache)
+    : new InMemoryMatchOutlookRepository();
+  const playerTrendsRepository: PlayerTrendsRepository = cache
+    ? new KvPlayerTrendsRepository(cache)
+    : new InMemoryPlayerTrendsRepository();
+  const compositionImpactRepository: CompositionImpactRepository = cache
+    ? new KvCompositionImpactRepository(cache)
+    : new InMemoryCompositionImpactRepository();
+
+  // Spec 039 — durable team-strength-rankings repository (ninth precomputed-
+  // artifact store). KV in production, in-memory otherwise.
+  const teamStrengthRankingsRepository: TeamStrengthRankingsRepository = cache
+    ? new KvTeamStrengthRankingsRepository(cache)
+    : new InMemoryTeamStrengthRankingsRepository();
+
+  // Spec 040 — durable cross-isolate watermark for the match-results scrape.
+  // KV in production, in-memory otherwise (local dev / tests).
+  const matchResultsScrapeWatermarkRepository: MatchResultsScrapeWatermarkRepository = cache
+    ? new KvMatchResultsScrapeWatermarkRepository(cache)
+    : new InMemoryMatchResultsScrapeWatermarkRepository();
+
+  // League-round dashboard artifact store (top/bottom break-evens +
+  // contextual top scorers / captains for the SummaryView dashboard).
+  const leagueRoundProjectionsRepository: LeagueRoundProjectionsRepository = cache
+    ? new KvLeagueRoundProjectionsRepository(cache)
+    : new InMemoryLeagueRoundProjectionsRepository();
+
+  // Per-request D1 binding constructions still happen in the factories
+  // below; the composite is built per-request inside those factories so
+  // each request gets a D1 sub-adapter scoped to its own binding (the
+  // provisional sub-adapter is module-level and shared).
+  const buildGameStrengthRepository = (reqDb: D1Database): GameStrengthRepository =>
+    new CompositeGameStrengthRepository(
+      new D1GameStrengthRepository(reqDb),
+      provisionalGsrSubAdapter,
+    );
+
   Object.assign(deps, {
-    scrapeDrawUseCase: new ScrapeDrawUseCase(cacheServiceAdapter, dataSource, matchRepository),
-    scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, resultCacheStore),
+    projectionRepository,
+    gameStrengthRepository: buildGameStrengthRepository,
+    scrapeDrawUseCase: new ScrapeDrawUseCase(fixtureRepository, dataSource, matchRepository),
+    fixtureRepository,
+    jobProducer: scrapeQueue
+      ? new CloudflareQueueProducer(scrapeQueue)
+      : new InMemoryJobQueue(),
+    scrapeMatchResultsUseCase: new ScrapeMatchResultsUseCase(matchResultSource, matchRepository, matchResultsScrapeWatermarkRepository),
     matchRepository,
     createPlayerRepository: createPlayerRepo,
     createScrapePlayerStatsUseCase: (reqDb: D1Database) =>
       new ScrapePlayerStatsUseCase(playerStatsSource, new D1PlayerRepository(reqDb), new D1SupplementaryStatsRepository(reqDb)),
-    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
-    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepositoryAdapter, analyticsCache),
-    getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, analyticsCache),
-    getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, analyticsCache),
+    getTeamFormUseCase: new GetTeamFormUseCase(matchRepository, fixtureRepository, teamFormRepository),
+    getMatchOutlookUseCase: new GetMatchOutlookUseCase(matchRepository, fixtureRepository, matchOutlookRepository),
+    getPlayerTrendsUseCase: new GetPlayerTrendsUseCase(createPlayerRepo, playerTrendsRepository),
+    getCompositionImpactUseCase: new GetCompositionImpactUseCase(matchRepository, createPlayerRepo, compositionImpactRepository),
+    teamFormRepository,
+    matchOutlookRepository,
+    playerTrendsRepository,
+    compositionImpactRepository,
+    watermarkFn: (reqDb: D1Database, year: number) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
+      return currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+    },
     createScrapeSupplementaryStatsUseCase: (reqDb: D1Database) =>
       new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, new D1SupplementaryStatsRepository(reqDb)),
     createGetSupercoachScoresUseCase: (reqDb: D1Database) =>
@@ -101,58 +240,83 @@ function initializeDeps(db?: D1Database): void {
     createCasualtyWardRepository: (reqDb: D1Database) => new D1CasualtyWardRepository(reqDb),
     createGetPlayerProjectionUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetPlayerProjectionUseCase(playerRepo, scUseCase);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      // SPEC-034-READTHROUGH — /projection populates the FULL aggregate on
+      // miss by also computing contextualProfile. To avoid infinite recursion
+      // (contextualProfile internally calls projectionUseCase.execute → which
+      // is THIS use case), we build a NO-read-through inner /projection for
+      // contextualProfile to use, and a WITH-read-through outer /projection
+      // for the route handler.
+      const innerPlayerProj = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      const contextualProfileForReadThrough = new GetContextualProfileUseCase(
+        playerRepo, scUseCase, innerPlayerProj, matchRepository, projectionRepository, watermarkFn,
+      );
+      return new GetPlayerProjectionUseCase(
+        playerRepo, scUseCase, projectionRepository, watermarkFn,
+        contextualProfileForReadThrough,
+      );
     },
     createGetTeamProjectionRankingsUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      return new GetTeamProjectionRankingsUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
     },
     createSupplementaryStatsRepository: (reqDb: D1Database) => new D1SupplementaryStatsRepository(reqDb),
     createGetContextualProjectionUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
-      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      return new GetContextualProjectionUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, projectionRepository, watermarkFn);
     },
     createGetContextualProfileUseCase: (reqDb: D1Database) => {
       const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
       const scUseCase = new GetSupercoachScoresUseCase(
         playerRepo,
-        new D1SupplementaryStatsRepository(reqDb),
+        suppRepo,
         loadScoringConfig(new Date().getFullYear()),
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase);
-      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, analyticsCache);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      const projectionUseCase = new GetPlayerProjectionUseCase(playerRepo, scUseCase, projectionRepository, watermarkFn);
+      return new GetContextualProfileUseCase(playerRepo, scUseCase, projectionUseCase, matchRepository, projectionRepository, watermarkFn);
     },
-    playerMovementsCache,
+    playerMovementsRepository,
     createComputePlayerMovementsUseCase: (reqDb: D1Database) =>
       new ComputePlayerMovementsUseCase(
         new D1TeamListRepository(reqDb),
         matchRepository,
         new D1CasualtyWardRepository(reqDb),
-        playerMovementsCache
+        playerMovementsRepository
       ),
     createGetGameStrengthUseCase: (reqDb: D1Database) => {
       const scUseCase = new GetSupercoachScoresUseCase(
@@ -162,7 +326,7 @@ function initializeDeps(db?: D1Database): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new GetGameStrengthUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+      return new GetGameStrengthUseCase(scUseCase, fixtureRepository, buildGameStrengthRepository(reqDb));
     },
     createLockGameStrengthUseCase: (reqDb: D1Database) => {
       const scUseCase = new GetSupercoachScoresUseCase(
@@ -172,64 +336,47 @@ function initializeDeps(db?: D1Database): void {
         new D1PlayerNameLinkRepository(reqDb),
         matchRepository
       );
-      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepositoryAdapter, new D1GameStrengthRepository(reqDb), gameStrengthCache);
+      return new LockGameStrengthRatingsUseCase(scUseCase, fixtureRepository, buildGameStrengthRepository(reqDb));
     },
+    createGetTeamStrengthRankingsUseCase: (reqDb: D1Database) => {
+      const playerRepo = new D1PlayerRepository(reqDb);
+      const suppRepo = new D1SupplementaryStatsRepository(reqDb);
+      const watermarkFn = (year: number) =>
+        currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+      return new GetTeamStrengthRankingsUseCase({
+        repository: teamStrengthRankingsRepository,
+        watermarkFn,
+      });
+    },
+    teamStrengthRankingsRepository,
+    leagueRoundProjectionsRepository,
   } satisfies HandlerDeps);
 
   depsInitialized = true;
 }
 
-/** Hydrate the legacy in-memory fixture store from D1 on cold start.
- *  Strength ratings are persisted in D1 so no external fetch is needed. */
+/** Hydrate the durable fixture artifact from D1 on cold start when the
+ *  repository has no artifact for a year that D1 already knows about.
+ *  Production runs against KV where the artifact persists, so this only
+ *  fires on a fresh KV namespace or local in-memory fallback. */
 async function hydrateLegacyStore(): Promise<void> {
   if (legacyStoreHydrated) return;
   legacyStoreHydrated = true;
 
   try {
     const years = await deps.matchRepository.getLoadedYears();
+    const scrapedYears = await deps.fixtureRepository.listScrapedYears();
     for (const year of years) {
+      if (scrapedYears.has(year)) continue;
       const matches = await deps.matchRepository.findByYear(year);
-      buildLegacyFixtureBridge(year, matches);
+      await buildLegacyFixtureBridge(deps.fixtureRepository, year, matches);
     }
     if (years.length > 0) {
-      logger.info('Legacy fixture store hydrated from D1', { years });
+      logger.info('Fixture artifact hydrated from D1', { years });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Failed to hydrate legacy fixture store', { error: message });
-  }
-}
-
-/** Check if strength ratings are stale (past Monday 4pm AEST) and refresh from SuperCoach.
- *  Only updates non-completed matches; completed match ratings are frozen in D1. */
-let ratingsLastRefreshed: Date | null = null;
-
-async function refreshRatingsIfStale(): Promise<void> {
-  const now = new Date();
-
-  // On first request, use D1 data as-is (already hydrated). Track "now" as baseline.
-  if (ratingsLastRefreshed === null) {
-    ratingsLastRefreshed = now;
-    return;
-  }
-
-  // Check if a Monday 4pm AEST boundary has passed since last refresh
-  const nextExpiry = getNextMondayExpiry(ratingsLastRefreshed);
-  if (now < nextExpiry) return;
-
-  ratingsLastRefreshed = now;
-
-  try {
-    const years = await deps.matchRepository.getLoadedYears();
-    for (const year of years) {
-      await deps.scrapeDrawUseCase.execute(year, true);
-    }
-    if (years.length > 0) {
-      logger.info('Strength ratings refreshed from SuperCoach', { years });
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Failed to refresh strength ratings', { error: message });
+    logger.error('Failed to hydrate fixture artifact', { error: message });
   }
 }
 
@@ -238,9 +385,8 @@ const app = new Hono<{ Bindings: Env }>();
 // Initialize logger and D1-dependent deps on first request
 app.use('*', async (c, next) => {
   setDebugMode(c.env?.ENVIRONMENT !== 'production');
-  initializeDeps(c.env?.DB);
+  initializeDeps(c.env?.DB, c.env?.CACHE, c.env?.SCRAPE_QUEUE);
   await hydrateLegacyStore();
-  await refreshRatingsIfStale();
   await next();
 });
 
@@ -292,16 +438,9 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
     hasDB: !!env.DB,
   });
 
-  // Monday cache invalidation (existing behavior)
-  if (event.cron === '0 6 * * MON') {
-    cacheStore.invalidateAll();
-    logger.info('[CRON] Cache invalidated by Monday scheduled trigger');
-    return;
-  }
-
   // Ensure deps are initialized for scheduled handler
   logger.info('[CRON] Initializing deps', { depsAlreadyInitialized: depsInitialized });
-  initializeDeps(env.DB);
+  initializeDeps(env.DB, env.CACHE, env.SCRAPE_QUEUE);
   const matchRepository = deps.matchRepository;
 
   // Log loaded years to verify D1 connectivity
@@ -309,402 +448,157 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) 
   const matchCount = await matchRepository.getMatchCount();
   logger.info('[CRON] D1 state', { loadedYears, matchCount });
 
-  // Post-game result scraping: find rounds with completed games needing scrape
-  const currentTime = new Date(event.scheduledTime);
-  const roundsToScrape = await findRoundsNeedingScrape(matchRepository, currentTime);
-
-  logger.info('[CRON] findRoundsNeedingScrape result', {
-    currentTime: currentTime.toISOString(),
-    roundsToScrape,
-    count: roundsToScrape.length,
-  });
-
-  // Create per-request use cases with D1 binding
-  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
-  const scrapePlayerStatsUseCase = new ScrapePlayerStatsUseCase(
-    playerStatsSource,
-    new D1PlayerRepository(env.DB),
-    suppRepo
-  );
-  const scrapeSupplementaryUseCase = new ScrapeSupplementaryStatsUseCase(
-    supplementaryStatsSource,
-    suppRepo
-  );
-  const lockGSRUseCase = deps.createLockGameStrengthUseCase(env.DB);
-
-  for (const { year, round } of roundsToScrape) {
-    try {
-      logger.info('[CRON] Starting match results scrape', { year, round });
-      const result = await deps.scrapeMatchResultsUseCase.execute(year, round);
-      logger.info('[CRON] Match results scrape complete', {
-        year,
-        round,
-        success: result.success,
-        enriched: result.enrichedCount,
-        created: result.createdCount,
-        skipped: result.skippedCount,
-        warnings: result.warnings.length,
-      });
-
-      // After match results are scraped, also scrape player stats
-      logger.info('[CRON] Starting player stats scrape', { year, round });
-      const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
-      logger.info('[CRON] Player stats scrape complete', {
-        year,
-        round,
-        playersProcessed: playerResult.playersProcessed,
-        matchesScraped: playerResult.matchesScraped,
-        created: playerResult.created,
-        updated: playerResult.updated,
-        skipped: playerResult.skipped,
-        warnings: playerResult.warnings.length,
-      });
-
-      // Also scrape supplementary stats (may fail if source lags 24-48h — non-fatal)
-      try {
-        logger.info('[CRON] Starting supplementary stats scrape', { year, round });
-        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('[CRON] Supplementary stats scrape complete', {
-          year,
-          round,
-          playersScraped: suppResult.playersScraped,
-          cached: suppResult.cached,
-        });
-
-        // Attempt GSR locking after supplementary stats scrape (idempotent — checks completeness internally)
-        try {
-          await lockGSRUseCase.execute(year, round);
-        } catch (gsrError) {
-          logger.error('[CRON] GSR locking failed (non-fatal, will retry next cycle)', {
-            year, round,
-            error: gsrError instanceof Error ? gsrError.message : 'Unknown error',
-          });
-        }
-      } catch (suppError) {
-        logger.error('[CRON] Supplementary stats scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: suppError instanceof Error ? suppError.message : 'Unknown error',
-          stack: suppError instanceof Error ? suppError.stack : undefined,
-        });
-      }
-    } catch (error) {
-      logger.error('[CRON] Scheduled scrape failed', {
-        year,
-        round,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-    }
-  }
-
-  // Also find completed rounds missing player stats
-  const playerRepo = new D1PlayerRepository(env.DB);
-  const roundsNeedingPlayerStats = await findRoundsNeedingPlayerStats(matchRepository, playerRepo);
-
-  logger.info('[CRON] findRoundsNeedingPlayerStats result', {
-    rounds: roundsNeedingPlayerStats,
-    count: roundsNeedingPlayerStats.length,
-  });
-
-  // Scrape player stats for completed rounds that were missed (e.g. match results
-  // were scraped via the UI before the cron had a chance to trigger player stats)
-  const alreadyQueued = new Set(roundsToScrape.map(r => `${r.year}-${r.round}`));
-  const playerStatsOnly = roundsNeedingPlayerStats.filter(
-    r => !alreadyQueued.has(`${r.year}-${r.round}`)
-  );
-
-  logger.info('[CRON] Player stats backfill candidates', {
-    total: roundsNeedingPlayerStats.length,
-    alreadyQueued: alreadyQueued.size,
-    backfillCount: playerStatsOnly.length,
-    rounds: playerStatsOnly,
-  });
-
-  if (playerStatsOnly.length > 0) {
-    for (const { year, round } of playerStatsOnly) {
-      try {
-        logger.info('[CRON] Starting backfill player stats scrape', { year, round });
-        const playerResult = await scrapePlayerStatsUseCase.execute(year, round, true);
-        logger.info('[CRON] Backfill player stats scrape complete', {
-          year,
-          round,
-          playersProcessed: playerResult.playersProcessed,
-          matchesScraped: playerResult.matchesScraped,
-          created: playerResult.created,
-          updated: playerResult.updated,
-          skipped: playerResult.skipped,
-          warnings: playerResult.warnings.length,
-        });
-
-        // Also backfill supplementary stats (non-fatal)
-        try {
-          const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-          logger.info('[CRON] Backfill supplementary stats scrape complete', {
-            year,
-            round,
-            playersScraped: suppResult.playersScraped,
-            cached: suppResult.cached,
-          });
-        } catch (suppError) {
-          logger.error('[CRON] Backfill supplementary stats scrape failed (will retry next cycle)', {
-            year,
-            round,
-            error: suppError instanceof Error ? suppError.message : 'Unknown error',
-            stack: suppError instanceof Error ? suppError.stack : undefined,
-          });
-        }
-      } catch (error) {
-        logger.error('[CRON] Backfill player stats scrape failed', {
-          year,
-          round,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-      }
-    }
-  }
-
-  // Independent supplementary stats discovery
-  const roundsNeedingSuppStats = await findRoundsNeedingSupplementaryStats(matchRepository, suppRepo);
-
-  // Exclude rounds already handled above
-  const allHandled = new Set([
-    ...roundsToScrape.map(r => `${r.year}-${r.round}`),
-    ...playerStatsOnly.map(r => `${r.year}-${r.round}`),
-  ]);
-  const suppStatsOnly = roundsNeedingSuppStats.filter(
-    r => !allHandled.has(`${r.year}-${r.round}`)
-  );
-
-  logger.info('[CRON] Supplementary stats backfill candidates', {
-    total: roundsNeedingSuppStats.length,
-    backfillCount: suppStatsOnly.length,
-    rounds: suppStatsOnly,
-  });
-
-  if (suppStatsOnly.length > 0) {
-    for (const { year, round } of suppStatsOnly) {
-      try {
-        logger.info('[CRON] Starting independent supplementary stats scrape', { year, round });
-        const suppResult = await scrapeSupplementaryUseCase.execute(year, round);
-        logger.info('[CRON] Independent supplementary stats scrape complete', {
-          year,
-          round,
-          playersScraped: suppResult.playersScraped,
-          cached: suppResult.cached,
-        });
-      } catch (suppError) {
-        logger.error('[CRON] Independent supplementary stats scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: suppError instanceof Error ? suppError.message : 'Unknown error',
-          stack: suppError instanceof Error ? suppError.stack : undefined,
-        });
-      }
-    }
-  }
-
-  // Player stats revision window: re-scrape rounds that have complete stats but no supp stats yet.
-  // nrl.com may revise stats after game completion — we keep ingesting until supp stats lock the round.
-  const updateWindowRounds = await findRoundsInPlayerStatsUpdateWindow(matchRepository, playerRepo, suppRepo);
-  const updateWindowOnly = updateWindowRounds.filter(r => !allHandled.has(`${r.year}-${r.round}`));
-
-  logger.info('[CRON] Player stats update-window candidates', {
-    total: updateWindowRounds.length,
-    backfillCount: updateWindowOnly.length,
-    rounds: updateWindowOnly,
-  });
-
-  if (updateWindowOnly.length > 0) {
-    for (const { year, round } of updateWindowOnly) {
-      try {
-        logger.info('[CRON] Starting update-window player stats re-scrape', { year, round });
-        const updateResult = await scrapePlayerStatsUseCase.execute(year, round);
-        logger.info('[CRON] Update-window player stats re-scrape complete', {
-          year,
-          round,
-          playersProcessed: updateResult.playersProcessed,
-          matchesScraped: updateResult.matchesScraped,
-          updated: updateResult.updated,
-          skipped: updateResult.skipped,
-          skipReason: updateResult.skipReason,
-        });
-      } catch (updateError) {
-        logger.error('[CRON] Update-window player stats re-scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: updateError instanceof Error ? updateError.message : 'Unknown error',
-        });
-      }
-    }
-  }
-
-  // Price/break-even backfill: re-scrape rounds where price or break_even are NULL (migration leftovers)
-  const roundsWithNullPriceBE = await suppRepo.findRoundsWithNullPriceBreakEven();
-
-  logger.info('[CRON] Price/break-even backfill candidates', {
-    roundsDetected: roundsWithNullPriceBE.length,
-    rounds: roundsWithNullPriceBE,
-  });
-
-  if (roundsWithNullPriceBE.length > 0) {
-    let filled = 0;
-    let skipped = 0;
-    for (const { year, round } of roundsWithNullPriceBE) {
-      try {
-        logger.info('[CRON] Starting price/BE backfill scrape', { year, round });
-        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
-        logger.info('[CRON] Price/BE backfill scrape complete', {
-          year,
-          round,
-          playersScraped: backfillResult.playersScraped,
-        });
-        filled++;
-      } catch (backfillError) {
-        logger.error('[CRON] Price/BE backfill scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
-        });
-        skipped++;
-      }
-    }
-    logger.info('[CRON] Price/BE backfill complete', { filled, skipped, total: roundsWithNullPriceBE.length });
-  }
-
-  // Team list scraping: initial Tuesday scrape + window-based updates (24h/90min before match)
-  const currentYear = new Date(event.scheduledTime).getFullYear();
   try {
-    const teamListUseCase = new ScrapeTeamListsUseCase(
+    const playerRepo = new D1PlayerRepository(env.DB);
+    const teamListRepo = new D1TeamListRepository(env.DB);
+    const suppRepo = new D1SupplementaryStatsRepository(env.DB);
+    const producer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+    const watermarkFn = (year: number) =>
+      currentWatermark(year, { matchRepository, playerRepository: playerRepo, supplementaryRepo: suppRepo });
+    const enqueueUseCase = new EnqueueDueScrapesUseCase({
+      matchRepository,
+      playerRepository: playerRepo,
+      supplementaryRepo: suppRepo,
+      teamListRepository: teamListRepo,
+      gameStrengthRepository: deps.gameStrengthRepository(env.DB),
+      matchResultSource,
+      playerStatsSource,
+      supplementaryStatsSource,
       teamListSource,
-      new D1TeamListRepository(env.DB),
-      matchRepository
-    );
-
-    // Find the current/upcoming round and scrape team lists
-    const allMatches = await matchRepository.findByYear(currentYear);
-    const upcomingRounds = [...new Set(
-      allMatches
-        .filter(m => m.status !== 'Completed')
-        .map(m => m.round)
-    )].sort((a, b) => a - b);
-
-    if (upcomingRounds.length > 0) {
-      // Scrape the next upcoming round
-      const nextRound = upcomingRounds[0];
-      logger.info('[CRON] Starting team list scrape', { year: currentYear, round: nextRound });
-      const tlResult = await teamListUseCase.execute(currentYear, nextRound);
-      logger.info('[CRON] Team list scrape complete', {
-        year: currentYear,
-        round: nextRound,
-        scraped: tlResult.scrapedCount,
-        skipped: tlResult.skippedCount,
-        warnings: tlResult.warnings.length,
-      });
-
-      try {
-        const computeUseCase = new ComputePlayerMovementsUseCase(
-          new D1TeamListRepository(env.DB),
-          matchRepository,
-          new D1CasualtyWardRepository(env.DB),
-          playerMovementsCache
-        );
-        await computeUseCase.execute(currentYear, nextRound);
-        logger.info('[CRON] Player movements computed', { year: currentYear, round: nextRound });
-      } catch (computeError) {
-        logger.error('[CRON] Player movements computation failed (will retry next cycle)', {
-          error: computeError instanceof Error ? computeError.message : 'Unknown error',
-        });
-      }
-    }
-
-    // Window-based updates: 24 hours and 90 minutes before kickoff
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    const NINETY_MINUTES = 90 * 60 * 1000;
-
-    const windowResult24h = await teamListUseCase.scrapeMatchesInWindow(currentYear, TWENTY_FOUR_HOURS, currentTime);
-    if (windowResult24h.scrapedCount > 0) {
-      logger.info('[CRON] 24h window team list update', { scraped: windowResult24h.scrapedCount });
-    }
-
-    const windowResult90m = await teamListUseCase.scrapeMatchesInWindow(currentYear, NINETY_MINUTES, currentTime);
-    if (windowResult90m.scrapedCount > 0) {
-      logger.info('[CRON] 90min window team list update', { scraped: windowResult90m.scrapedCount });
-    }
-
-    // Backfill completed matches missing team lists
-    const backfillResult = await teamListUseCase.backfillCompleted(currentYear);
-    if (backfillResult.backfilledCount > 0) {
-      logger.info('[CRON] Team list backfill complete', { backfilled: backfillResult.backfilledCount });
-    }
-  } catch (tlError) {
-    logger.error('[CRON] Team list scraping failed (will retry next cycle)', {
-      error: tlError instanceof Error ? tlError.message : 'Unknown error',
-    });
-  }
-
-  // Casualty ward scrape: runs on Tuesday/Wednesday crons to track player injuries
-  try {
-    const casualtyWardUseCase = new ScrapeCasualtyWardUseCase(
       casualtyWardSource,
-      new D1CasualtyWardRepository(env.DB),
-      new D1PlayerRepository(env.DB)
-    );
-    logger.info('[CRON] Starting casualty ward scrape');
-    const cwResult = await casualtyWardUseCase.execute();
-    logger.info('[CRON] Casualty ward scrape complete', {
-      success: cwResult.success,
-      newEntries: cwResult.newEntries,
-      closedEntries: cwResult.closedEntries,
-      updatedEntries: cwResult.updatedEntries,
-      totalOpen: cwResult.totalOpen,
-      warnings: cwResult.warnings.length,
+      producer,
+      projectionRepository: deps.projectionRepository,
+      watermarkFn,
+      playerMovementsRepository: deps.playerMovementsRepository,
+      teamFormRepository: deps.teamFormRepository,
+      matchOutlookRepository: deps.matchOutlookRepository,
+      playerTrendsRepository: deps.playerTrendsRepository,
+      compositionImpactRepository: deps.compositionImpactRepository,
+      teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
+      leagueRoundProjectionsRepository: deps.leagueRoundProjectionsRepository,
     });
-  } catch (cwError) {
-    logger.error('[CRON] Casualty ward scrape failed (will retry next cycle)', {
-      error: cwError instanceof Error ? cwError.message : 'Unknown error',
+    await enqueueUseCase.execute({
+      scheduledTime: new Date(event.scheduledTime),
+      currentYear: new Date(event.scheduledTime).getFullYear(),
+      shadowMode: false,
     });
-  }
-
-  // Team code backfill: re-scrape rounds where team_code is NULL (migration leftovers)
-  const roundsWithNullTeamCode = await suppRepo.findRoundsWithNullTeamCode();
-
-  logger.info('[CRON] Team code backfill candidates', {
-    roundsDetected: roundsWithNullTeamCode.length,
-    rounds: roundsWithNullTeamCode,
-  });
-
-  if (roundsWithNullTeamCode.length > 0) {
-    let filled = 0;
-    let skipped = 0;
-    for (const { year, round } of roundsWithNullTeamCode) {
-      try {
-        logger.info('[CRON] Starting team code backfill scrape', { year, round });
-        const backfillResult = await scrapeSupplementaryUseCase.execute(year, round, true);
-        logger.info('[CRON] Team code backfill scrape complete', {
-          year,
-          round,
-          playersScraped: backfillResult.playersScraped,
-        });
-        filled++;
-      } catch (backfillError) {
-        logger.error('[CRON] Team code backfill scrape failed (will retry next cycle)', {
-          year,
-          round,
-          error: backfillError instanceof Error ? backfillError.message : 'Unknown error',
-        });
-        skipped++;
-      }
-    }
-    logger.info('[CRON] Team code backfill complete', { filled, skipped, total: roundsWithNullTeamCode.length });
+  } catch (discoveryError) {
+    logger.error('[CRON] Discovery failed — no jobs published this tick', {
+      error: discoveryError instanceof Error ? discoveryError.message : 'Unknown error',
+      stack: discoveryError instanceof Error ? discoveryError.stack : undefined,
+    });
   }
 
   logger.info('[CRON] Scheduled handler complete');
 };
 
-// Export for Cloudflare Workers — combine Hono fetch handler with scheduled handler
+const queue: ExportedHandlerQueueHandler<Env, ScrapeJob> = async (batch, env) => {
+  setDebugMode(env.ENVIRONMENT !== 'production');
+  initializeDeps(env.DB, env.CACHE, env.SCRAPE_QUEUE);
+
+  // Per-request scrape use cases — each holds a D1 binding so they're built
+  // here rather than at module load time.
+  const playerRepo = new D1PlayerRepository(env.DB);
+  const suppRepo = new D1SupplementaryStatsRepository(env.DB);
+  const teamListRepo = new D1TeamListRepository(env.DB);
+  const casualtyRepo = new D1CasualtyWardRepository(env.DB);
+  const scrapePlayerStatsUC = new ScrapePlayerStatsUseCase(playerStatsSource, playerRepo, suppRepo);
+  const queueProducer = new CloudflareQueueProducer(env.SCRAPE_QUEUE);
+  const scrapeSuppUC = new ScrapeSupplementaryStatsUseCase(supplementaryStatsSource, suppRepo, queueProducer);
+  const scrapeTeamListsUC = new ScrapeTeamListsUseCase(
+    teamListSource,
+    teamListRepo,
+    deps.matchRepository,
+    queueProducer,
+  );
+  const scrapeCasualtyUC = new ScrapeCasualtyWardUseCase(casualtyWardSource, casualtyRepo, playerRepo);
+  const computeMovementsUC = new ComputePlayerMovementsUseCase(
+    teamListRepo,
+    deps.matchRepository,
+    casualtyRepo,
+    deps.playerMovementsRepository
+  );
+  const lockGsrUC = deps.createLockGameStrengthUseCase(env.DB);
+
+  // Spec 034: per-leaf precompute use cases (fan-out). We use deps' repo-wrapped
+  // read-side use cases here because they expose computeLive() — the precompute
+  // calls that method directly and therefore never recurses through the
+  // repo-first read path.
+  const playerProjectionUC = deps.createGetPlayerProjectionUseCase(env.DB);
+  const teamRankingsUC = deps.createGetTeamProjectionRankingsUseCase(env.DB);
+  const contextualProfileUC = deps.createGetContextualProfileUseCase(env.DB);
+  const precomputePlayerProjectionUC = new PrecomputePlayerProjectionUseCase({
+    projectionRepository: deps.projectionRepository,
+    playerProjectionLive: playerProjectionUC,
+    contextualProfileLive: contextualProfileUC,
+  });
+  const precomputeTeamRankingsUC = new PrecomputeTeamRankingsUseCase({
+    projectionRepository: deps.projectionRepository,
+    teamRankingsLive: teamRankingsUC,
+  });
+
+  // Spec 037: per-(year,identity) precompute leaf jobs for the four
+  // AnalyticsCache-replacing repositories. Each is independent of US-2's
+  // projection precompute pipeline; they read from the same match/player
+  // D1 bindings but write to their own KV / in-memory backed repositories.
+  const precomputeTeamFormUC = new PrecomputeTeamFormUseCase(
+    deps.matchRepository, deps.fixtureRepository, deps.teamFormRepository,
+  );
+  const precomputeMatchOutlookUC = new PrecomputeMatchOutlookUseCase(
+    deps.matchRepository, deps.fixtureRepository, deps.matchOutlookRepository,
+  );
+  const precomputePlayerTrendsUC = new PrecomputePlayerTrendsUseCase(
+    playerRepo, deps.playerTrendsRepository,
+  );
+  const precomputeCompositionImpactUC = new PrecomputeCompositionImpactUseCase(
+    deps.matchRepository, playerRepo, deps.compositionImpactRepository,
+  );
+
+  // Spec 039 — batched team-strength-rankings precompute. Reuses the
+  // process-level repository (KV in prod, in-memory in tests).
+  const computeTeamStrengthRankingsUC = new ComputeTeamStrengthRankingsUseCase({
+    fixtureRepository: deps.fixtureRepository,
+    teamStrengthRankingsRepository: deps.teamStrengthRankingsRepository,
+  });
+
+  // League-round dashboard precompute — composes the precomputed
+  // projection aggregates + D1 supplementary_stats + round fixtures into
+  // a single dashboard artifact for the SummaryView.
+  const precomputeLeagueRoundProjectionsUC = new PrecomputeLeagueRoundProjectionsUseCase({
+    leagueRoundProjectionsRepository: deps.leagueRoundProjectionsRepository,
+    projectionRepository: deps.projectionRepository,
+    matchRepository: deps.matchRepository,
+    playerRepository: playerRepo,
+    supplementaryRepo: suppRepo,
+    teamListRepository: teamListRepo,
+  });
+
+  const dispatcher = new HandleScrapeJobUseCase({
+    scrapeMatchResults: deps.scrapeMatchResultsUseCase,
+    scrapePlayerStats: scrapePlayerStatsUC,
+    scrapeSupplementaryStats: scrapeSuppUC,
+    scrapeTeamLists: scrapeTeamListsUC,
+    scrapeCasualtyWard: scrapeCasualtyUC,
+    computePlayerMovements: computeMovementsUC,
+    lockGameStrength: lockGsrUC,
+    precomputePlayerProjection: precomputePlayerProjectionUC,
+    precomputeTeamRankings: precomputeTeamRankingsUC,
+    precomputeTeamForm: precomputeTeamFormUC,
+    precomputeMatchOutlook: precomputeMatchOutlookUC,
+    precomputePlayerTrends: precomputePlayerTrendsUC,
+    precomputeCompositionImpact: precomputeCompositionImpactUC,
+    scrapeDraw: deps.scrapeDrawUseCase,
+    computeTeamStrengthRankings: computeTeamStrengthRankingsUC,
+    precomputeLeagueRoundProjections: precomputeLeagueRoundProjectionsUC,
+  });
+
+  const jobBatch = fromCfMessageBatch(batch as unknown as CfMessageBatchLike<unknown>);
+  await dispatcher.handle(jobBatch);
+};
+
+// Export for Cloudflare Workers — combine Hono fetch handler with scheduled and queue handlers
 export default {
   fetch: app.fetch,
   scheduled,
+  queue,
 };

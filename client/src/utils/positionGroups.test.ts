@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getRadarAxes } from './positionGroups';
+import { getRadarAxes, getRadarAxesFromSupercoach } from './positionGroups';
 
 describe('getRadarAxes', () => {
   it('single forward group returns forward axes', () => {
@@ -74,5 +74,79 @@ describe('getRadarAxes', () => {
     const axes = getRadarAxes(['Prop', 'LOCK']);
     const keys = axes.map(a => a.key);
     expect(keys).toContain('totalTacklesMade');
+  });
+});
+
+describe('getRadarAxesFromSupercoach', () => {
+  it('FRF resolves to forward axes', () => {
+    const axes = getRadarAxesFromSupercoach(['FRF']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalOffloads');
+    expect(keys).not.toContain('totalKicks');
+  });
+
+  it('HOK resolves to hooker axes', () => {
+    const axes = getRadarAxesFromSupercoach(['HOK']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('dummyHalfRuns');
+  });
+
+  it('HFB resolves to half axes', () => {
+    const axes = getRadarAxesFromSupercoach(['HFB']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalKicks');
+    expect(keys).toContain('lineBreakAssists');
+  });
+
+  it('5/8 (with literal slash) resolves to half axes (does NOT split on slash)', () => {
+    const axes = getRadarAxesFromSupercoach(['5/8']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalKicks');
+    expect(keys).toContain('lineBreakAssists');
+  });
+
+  it('CTW resolves to back axes', () => {
+    const axes = getRadarAxesFromSupercoach(['CTW']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalTries');
+  });
+
+  it('FLB resolves to back axes', () => {
+    const axes = getRadarAxesFromSupercoach(['FLB']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalTries');
+  });
+
+  it('dual HFB,CTW unions half and back axes', () => {
+    const axes = getRadarAxesFromSupercoach(['HFB,CTW']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalKicks');  // half
+    expect(keys).toContain('totalTries');  // back
+  });
+
+  it('multiple players union their groups', () => {
+    const axes = getRadarAxesFromSupercoach(['HOK', 'HFB']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('dummyHalfRuns'); // hooker
+    expect(keys).toContain('totalKicks');    // half
+    expect(keys).not.toContain('totalTries'); // back not included
+  });
+
+  it('null and undefined inputs are skipped', () => {
+    const axes = getRadarAxesFromSupercoach([null, undefined, 'FRF']);
+    const keys = axes.map(a => a.key);
+    expect(keys).toContain('totalOffloads');
+  });
+
+  it('returns ALL_AXES when no token resolves to a known group', () => {
+    const axes = getRadarAxesFromSupercoach(['WFB', 'INT']);
+    // Falls back to full union when nothing recognized
+    const single = getRadarAxesFromSupercoach(['HOK']);
+    expect(axes.length).toBeGreaterThan(single.length);
+  });
+
+  it('empty input returns ALL_AXES', () => {
+    const axes = getRadarAxesFromSupercoach([]);
+    expect(axes.length).toBeGreaterThan(0);
   });
 });

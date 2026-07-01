@@ -25,4 +25,14 @@ export interface MatchResult {
 export interface MatchResultSource {
   /** Fetch match results for a season year, optionally filtered by round. */
   fetchResults(year: number, round?: number): Promise<Result<MatchResult[]>>;
+
+  /**
+   * Cheap upstream-availability probe. Returns true if data for (year, round) is
+   * likely fetchable; false if the upstream signals unavailability (404, empty,
+   * pre-publication window). Implementations MUST swallow exceptions and return
+   * false rather than throwing — discovery treats throws as bugs.
+   * Default semantics: sources that publish immediately on round completion may
+   * return true unconditionally.
+   */
+  isAvailable(year: number, round: number): Promise<boolean>;
 }

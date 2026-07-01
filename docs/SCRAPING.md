@@ -234,11 +234,11 @@ Configured via cron triggers in `wrangler.jsonc`:
 
 | Cron Expression | Timing | Purpose |
 |-----------------|--------|---------|
-| `0 6 * * MON` | Monday 6am UTC (4pm AEST) | Weekly cache invalidation — clears all cached fixture data to force refresh |
+| `0 6 * * MON` | Monday 6am UTC (4pm AEST) | Discovery tick — publishes one `scrape-draw` job per active year (current year, plus prior year before April 1) onto the queue. The job consumer writes the year's artifact to the KV-backed `FixtureRepository`. |
 | `*/30 7-12 * 3-10 THU,FRI,SAT,SUN` | Every 30 min, 7am–12pm UTC, Thu–Sun, Mar–Oct | Post-game scraping — finds completed rounds and scrapes match results and player stats |
 
 **Scheduled Handler Logic**:
-1. Invalidates fixture cache on Monday
+1. Publishes `scrape-draw` jobs (per active year) — the queue consumer updates the durable fixture artifact on Monday. Spec 038 — the previous "invalidate cache" step is gone; the cron no longer scrapes inline.
 2. Identifies rounds needing result scraping (match scheduled time + 2-hour buffer has passed, status still Scheduled)
 3. Identifies rounds needing player stats (all matches Completed, no player stats yet in repository)
 4. Scrapes results first, then player stats for completed rounds

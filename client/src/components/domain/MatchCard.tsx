@@ -32,6 +32,12 @@ interface MatchCardProps {
   strengthThresholds?: StrengthThresholds;
   onClick?: () => void;
   compact?: boolean;
+  /** When false, hides the per-team `StrengthBadge`. GSR badges remain. Default `true`. */
+  showStrength?: boolean;
+  /** Override the GSR badge's value display. Defaults to `!compact` so compact
+   *  cards normally show just the "GSR" label; set `true` to force the numeric
+   *  value even in compact layouts. */
+  showGSRValue?: boolean;
 }
 
 export function MatchCard({
@@ -55,7 +61,10 @@ export function MatchCard({
   strengthThresholds,
   onClick,
   compact = false,
+  showStrength = true,
+  showGSRValue,
 }: MatchCardProps) {
+  const gsrShowValue = showGSRValue ?? !compact;
   const homePrimary = getTeamPrimary(homeTeamCode);
 
   return (
@@ -88,8 +97,8 @@ export function MatchCard({
               {compact ? homeTeamCode : homeTeamName}
             </Typography>
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
-              <StrengthBadge rating={homeStrength} thresholds={strengthThresholds} showValue={!compact} />
-              {homeGSR != null && <GSRBadge normalizedGSR={homeGSR} sampleSizeWarning={homeGSRWarning} showValue={!compact} />}
+              {showStrength && <StrengthBadge rating={homeStrength} thresholds={strengthThresholds} showValue={!compact} />}
+              {homeGSR != null && <GSRBadge normalizedGSR={homeGSR} sampleSizeWarning={homeGSRWarning} showValue={gsrShowValue} />}
             </Box>
           </Box>
 
@@ -112,8 +121,8 @@ export function MatchCard({
               {compact ? awayTeamCode : awayTeamName}
             </Typography>
             <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
-              <StrengthBadge rating={awayStrength} thresholds={strengthThresholds} showValue={!compact} />
-              {awayGSR != null && <GSRBadge normalizedGSR={awayGSR} sampleSizeWarning={awayGSRWarning} showValue={!compact} />}
+              {showStrength && <StrengthBadge rating={awayStrength} thresholds={strengthThresholds} showValue={!compact} />}
+              {awayGSR != null && <GSRBadge normalizedGSR={awayGSR} sampleSizeWarning={awayGSRWarning} showValue={gsrShowValue} />}
             </Box>
           </Box>
         </Box>

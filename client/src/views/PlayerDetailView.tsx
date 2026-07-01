@@ -27,6 +27,7 @@ import { DataTable } from '../components/shared/DataTable';
 import { SkeletonPage } from '../components/shared/SkeletonPage';
 import { ScoreBarChart } from '../components/charts/ScoreBarChart';
 import { SpikeBandChart } from '../components/charts/SpikeBandChart';
+import { SupercoachPositionChips } from '../components/domain/SupercoachPositionChips';
 import { getContextualProjection } from '../services/api';
 import type { PlayerPerformanceDetail } from '../types';
 import { Link as RouterLink } from 'react-router-dom';
@@ -437,7 +438,7 @@ export function PlayerDetailView() {
     <Box>
       <PageHeader
         title={player.name}
-        subtitle={`${player.teamCode} · ${player.position}`}
+        subtitle={`${player.teamCode} · ${player.scPosition ?? player.position}`}
         actions={
           <Box sx={{ display: 'flex', gap: 1 }}>
             <IconButton onClick={() => navigate(-1)} size="small">
@@ -457,9 +458,11 @@ export function PlayerDetailView() {
 
       {/* Profile header */}
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1, alignItems: 'center' }}>
           <Chip label={player.teamCode} size="small" variant="outlined" />
-          <Chip label={player.position} size="small" variant="outlined" />
+          {player.scPosition
+            ? <SupercoachPositionChips scPosition={player.scPosition} />
+            : <Chip label={player.position} size="small" variant="outlined" />}
           {sc && <Chip label={formatCompactCurrency(sc.currentPrice ?? 0)} size="small" variant="outlined" />}
           {sc && <Chip label={`SC Avg: ${sc.seasonAverage.toFixed(1)}`} size="small" color="primary" />}
           {sc && <Chip label={`BE: ${sc.currentBreakeven ?? 0}`} size="small" variant="outlined" />}  

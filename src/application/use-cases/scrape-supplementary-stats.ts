@@ -8,6 +8,7 @@
 import type { SupplementaryStatsSource } from '../../domain/ports/supplementary-stats-source.js';
 import type { D1SupplementaryStatsRepository } from '../../infrastructure/persistence/d1-supplementary-stats-repo.js';
 import type { Warning } from '../../models/types.js';
+import type { JobProducer } from '../ports/job-queue.js';
 import { logger } from '../../utils/logger.js';
 
 /** Result of a supplementary stats scrape */
@@ -24,7 +25,16 @@ export interface ScrapeSupplementaryStatsResult {
 export class ScrapeSupplementaryStatsUseCase {
   constructor(
     private readonly supplementarySource: SupplementaryStatsSource,
-    private readonly supplementaryRepo: D1SupplementaryStatsRepository
+    private readonly supplementaryRepo: D1SupplementaryStatsRepository,
+    /**
+     * Optional job producer. When wired, a successful scrape publishes a
+     * `recompute-game-strength` job for `(year, completedRound = round)` so
+     * the GSR for the next round is locked and the further-future provisional
+     * entries are rebuilt without waiting for the cron-discovery tick.
+     * Optional so tests that don't exercise the publish-on-success path can
+     * skip wiring it (spec 036 T027).
+     */
+    private readonly producer?: JobProducer
   ) {}
 
   async execute(
@@ -72,6 +82,46 @@ export class ScrapeSupplementaryStatsUseCase {
       round,
       playersScraped: stats.length,
     });
+
+    // Publish a recompute-game-strength job so the next round's GSR locks
+    // and the further-future provisional entries are rebuilt. Failure to
+    // publish is logged but does NOT fail the scrape — the cron-discovery
+    // tick is the safety net (spec 036 §plan.md "Race tolerance").
+    if (this.producer) {
+      try {
+        await this.producer.publish({
+          type: 'recompute-game-strength',
+          version: 1,
+          year,
+          completedRound: round,
+        });
+      } catch (publishErr) {
+        logger.error('Failed to publish recompute-game-strength job after scrape', {
+          year, round,
+          error: publishErr instanceof Error ? publishErr.message : 'unknown',
+        });
+      }
+
+      // Spec 039: publish a precompute-team-strength-rankings job so the
+      // ranking artifact is refreshed against the new watermark without
+      // waiting for the cron-discovery tick. We use `round` as the proxy
+      // for `asOfRound`; if the watermark hasn't actually advanced (e.g.
+      // because player stats are still missing), the consumer is idempotent
+      // and a discovery pass will re-enqueue at the true watermark later.
+      try {
+        await this.producer.publish({
+          type: 'precompute-team-strength-rankings',
+          version: 1,
+          year,
+          asOfRound: round,
+        });
+      } catch (publishErr) {
+        logger.error('Failed to publish precompute-team-strength-rankings job after scrape', {
+          year, round,
+          error: publishErr instanceof Error ? publishErr.message : 'unknown',
+        });
+      }
+    }
 
     return {
       year,

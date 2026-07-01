@@ -9,6 +9,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { useAppContext } from '../hooks/useAppContext';
 import { useRoundQuery, useMatchOutlookQuery, useGameStrengthQuery } from '../hooks/useRoundQuery';
+import { isGSRAvailable } from '../services/api';
 import { useAllRankingsQuery } from '../hooks/useTeamQuery';
 import { useSeasonSummaryQuery } from '../hooks/useSeasonQuery';
 import { PageHeader } from '../components/shared/PageHeader';
@@ -50,7 +51,7 @@ export function RoundView() {
 
   const gsrByTeam = useMemo(() => {
     const map = new Map<string, { gsr: number; warning: boolean }>();
-    if (gsrQuery.data) {
+    if (gsrQuery.data && isGSRAvailable(gsrQuery.data)) {
       for (const match of gsrQuery.data.matches) {
         map.set(match.homeTeam.teamCode, { gsr: match.homeTeam.normalizedOverallGSR, warning: match.homeTeam.sampleSizeWarning });
         map.set(match.awayTeam.teamCode, { gsr: match.awayTeam.normalizedOverallGSR, warning: match.awayTeam.sampleSizeWarning });
@@ -64,8 +65,9 @@ export function RoundView() {
 
   const outlookByMatchId = useMemo(() => {
     const map = new Map<string, { label: 'Easy' | 'Competitive' | 'Tough' | 'Upset Alert' }>();
-    if (outlookQuery.data) {
-      for (const m of outlookQuery.data.matches) {
+    // Spec 037: branch on availability before reading data.
+    if (outlookQuery.data?.available) {
+      for (const m of outlookQuery.data.data.matches) {
         map.set(m.matchId, { label: m.label });
       }
     }

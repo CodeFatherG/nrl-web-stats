@@ -24,6 +24,7 @@ export interface SupplementaryPlayerStats {
   readonly price: number | null;   // Price — player Supercoach price in whole dollars
   readonly breakEven: number | null; // BE — score needed to maintain current price
   readonly teamCode: string | null; // Team — 3-letter team code from supplementary source
+  readonly scPosition: string | null; // Posn — Supercoach lineup position(s); dual joined by comma (e.g. "HFB,CTW"). Comma rather than slash because "5/8" is a valid single value.
 }
 
 /** Port for fetching supplementary player statistics */
@@ -33,4 +34,12 @@ export interface SupplementaryStatsSource {
     year: number,
     round: number
   ): Promise<Result<SupplementaryPlayerStats[]>>;
+
+  /**
+   * Cheap upstream-availability probe. Supercoach stats can lag 24-48h after
+   * round completion; discovery uses this to avoid publishing jobs that are
+   * guaranteed to find nothing. Implementations MUST swallow exceptions and
+   * return false rather than throwing.
+   */
+  isAvailable(year: number, round: number): Promise<boolean>;
 }

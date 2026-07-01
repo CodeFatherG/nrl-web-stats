@@ -35,9 +35,18 @@ Health check endpoint.
   "status": "ok",
   "loadedYears": [2024, 2025, 2026],
   "totalFixtures": 1234,
-  "cache": { "hits": 0, "misses": 0, "pendingRequests": {} }
+  "fixtures": {
+    "scrapedYears": [
+      { "year": 2026, "lastScrapedAt": "2026-05-23T20:00:00.000Z" },
+      { "year": 2025, "lastScrapedAt": "2026-05-23T20:00:00.000Z" }
+    ]
+  }
 }
 ```
+
+The `fixtures.scrapedYears` array (one entry per year in the KV-backed
+`FixtureRepository`) replaces the previous `cache` field. Spec 038 — see
+`docs/ARCHITECTURE.md`.
 
 ### GET /api/years
 
@@ -165,6 +174,13 @@ Get all matches and bye teams for a specific round.
 
 ## Rankings
 
+All three rankings endpoints below serve a durable precomputed artifact
+(spec 039). On cold-start or when the stored `asOfRound` lags the current
+watermark, they respond `200 OK` with `{ "available": false, "asOfRound":
+null, "reason": "precompute-pending" }`. Clients MUST branch on `available`
+before reading payload fields. A subsequent cron tick or post-scrape signal
+refreshes the artifact within ~60 seconds.
+
 ### GET /api/rankings/:year
 
 Get all teams' season rankings sorted by schedule difficulty.
@@ -172,7 +188,7 @@ Get all teams' season rankings sorted by schedule difficulty.
 **Path Parameters**:
 - `year` (number, required): Season year (min 1998)
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "year": 2026,
@@ -187,7 +203,12 @@ Get all teams' season rankings sorted by schedule difficulty.
 }
 ```
 
-**Errors**: 400 (invalid year), 404 (no data)
+**Response (precompute pending)** (200):
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+**Errors**: 400 (invalid year)
 
 ### GET /api/rankings/:year/:code
 
@@ -197,7 +218,7 @@ Get a single team's season ranking with per-round breakdown.
 - `year` (number, required): Season year
 - `code` (string, required): Team code
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "team": { "code": "MEL", "name": "Melbourne Storm" },
@@ -217,7 +238,9 @@ Get a single team's season ranking with per-round breakdown.
 }
 ```
 
-**Errors**: 400 (invalid year/code), 404 (not found)
+**Response (precompute pending)** (200): see availability envelope above.
+
+**Errors**: 400 (invalid year/code), 404 (unknown team code)
 
 ### GET /api/rankings/:year/:code/:round
 
@@ -228,7 +251,7 @@ Get a team's ranking for a specific round.
 - `code` (string, required): Team code
 - `round` (number, required): Round number (1–27)
 
-**Response** (200):
+**Response (artifact available)** (200):
 ```json
 {
   "team": { "code": "MEL", "name": "Melbourne Storm" },
@@ -240,7 +263,9 @@ Get a team's ranking for a specific round.
 }
 ```
 
-**Errors**: 400 (invalid parameters), 404 (not found)
+**Response (precompute pending)** (200): see availability envelope above.
+
+**Errors**: 400 (invalid parameters), 404 (unknown team code)
 
 ## Streaks
 
@@ -307,33 +332,35 @@ Compact season overview with all rounds, matches, and bye teams.
 
 ## Scrape Triggers
 
-### POST /api/scrape
+### POST /api/scrape/draw (alias: POST /api/scrape)
 
-Trigger a fixture/strength rating scrape for a season.
+Enqueue a draw-scrape job. Returns immediately; the scrape runs
+asynchronously via the queue consumer and writes the year's fixture
+artifact to the KV-backed `FixtureRepository`. Spec 038.
 
 **Request Body**:
 ```json
-{ "year": 2026, "force": false }
+{ "year": 2026 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `year` | number | Yes | Season year (min 1998) |
-| `force` | boolean | No | Force re-scrape even if cached. Default: false |
 
-**Response** (200):
+**Response** (202 Accepted):
 ```json
 {
-  "success": true, "year": 2026,
-  "teamsLoaded": 16, "fixturesLoaded": 234,
-  "warnings": [
-    { "type": "MALFORMED_CELL", "message": "Could not parse cell", "context": { "round": 1 } }
-  ],
-  "timestamp": "2026-03-15T10:30:00Z"
+  "success": true,
+  "enqueued": true,
+  "job": { "type": "scrape-draw", "year": 2026 },
+  "message": "Scrape job enqueued; durable artifact will update within ~60 seconds."
 }
 ```
 
-**Errors**: 400 (invalid year), 500 (scrape failed)
+Poll `GET /api/health` and look for the year in `fixtures.scrapedYears`
+to confirm the artifact landed.
+
+**Errors**: 400 (invalid year), 500 (publish failed)
 
 ### POST /api/scrape/players
 
@@ -935,6 +962,18 @@ Trigger casualty ward scrape from nrl.com. Uses change detection to insert new e
 
 ## Analytics
 
+> **Spec 037 wire-format**: The four endpoints below — `/api/analytics/form`,
+> `/outlook`, `/trends`, `/composition` — return an **AvailabilityEnvelope**:
+> hit returns `{ available: true, asOfRound: <number>, data: { ...payload } }`,
+> miss returns `{ available: false, asOfRound: null, reason: 'precompute-pending' }`.
+> Both responses use HTTP 200. Clients MUST branch on `available` before
+> reading `data`. Artifacts are populated by the precompute pipeline triggered
+> by cron / scrape signals; the "miss" state is transient (typically minutes
+> after deploy or KV-wipe). Non-default `window` / `significantOnly` query
+> values bypass the precomputed-artifact store and run live compute on the
+> request thread — the response shape is identical but `data` is freshly
+> computed.
+
 ### GET /api/analytics/form/:year/:teamCode
 
 Get team form trajectory showing performance trend over recent rounds.
@@ -944,23 +983,32 @@ Get team form trajectory showing performance trend over recent rounds.
 - `teamCode` (string, required): Team code
 
 **Query Parameters**:
-- `window` (number, optional): Rolling window size (1–27). Default: 5
+- `window` (number, optional): Rolling window size (1–27). Default: 5. Non-default values bypass the artifact store and live-compute.
 
-**Response** (200):
+**Response — hit** (200):
 ```json
 {
-  "teamCode": "MEL", "teamName": "Melbourne Storm",
-  "year": 2026, "windowSize": 5,
-  "snapshots": [
-    {
-      "round": 3, "result": "win", "margin": 12,
-      "opponentCode": "BRO", "opponentStrengthRating": 0.65, "formScore": 0.85
-    }
-  ],
-  "rollingFormRating": 0.72,
-  "classification": "outperforming",
-  "sampleSizeWarning": false
+  "available": true,
+  "asOfRound": 8,
+  "data": {
+    "teamCode": "MEL", "teamName": "Melbourne Storm",
+    "year": 2026, "windowSize": 5,
+    "snapshots": [
+      {
+        "round": 3, "result": "win", "margin": 12,
+        "opponentCode": "BRO", "opponentStrengthRating": 0.65, "formScore": 0.85
+      }
+    ],
+    "rollingFormRating": 0.72,
+    "classification": "outperforming",
+    "sampleSizeWarning": false
+  }
 }
+```
+
+**Response — miss** (200):
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
 ```
 
 `classification` values: `"outperforming"` (>0.65), `"meeting"` (0.35–0.65), `"underperforming"` (<0.35)
@@ -1293,6 +1341,71 @@ The `id` values in this response are the valid values for the `venue` query para
 
 **Errors**: None (returns empty array if no venues are seeded).
 
+---
+
+### GET /api/supercoach/:year/round/:round/dashboard
+
+Returns the precomputed league-round dashboard artifact for the Summary view: top/bottom break-evens plus contextual top scorers and top captains for the round.
+
+The `round` path parameter follows the same convention as the player-movements artifact — it identifies the round being *decided about*. Break-evens come from supplementary stats published after the prior round (which is when nrl.com / SuperCoach calculate break-evens for the upcoming round); fixture context (opponent + venue) comes from the requested round; projections are at the latest available watermark. Round 1 has no prior round, so its break-even slices are empty.
+
+The artifact is written by the `precompute-league-round-projections` queue job. Reads the standard discriminated envelope used by other precomputed artifacts.
+
+**Path Parameters**:
+- `year` (number, required): Season year (≥ 1998)
+- `round` (number, required): Round number (positive integer)
+
+**Response — Available** (200):
+```json
+{
+  "available": true,
+  "asOfRound": 12,
+  "data": {
+    "year": 2026,
+    "round": 12,
+    "breakEvens": {
+      "top": [
+        { "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+          "scPosition": "FRF", "price": 720000, "breakEven": 105 }
+      ],
+      "bottom": [
+        { "playerId": "508811", "playerName": "Some Rookie", "teamCode": "BRO",
+          "scPosition": "CTR", "price": 198000, "breakEven": -18 }
+      ]
+    },
+    "scorers": [
+      {
+        "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+        "position": "Five-Eighth", "opponent": "BRO", "venue": "aami_park",
+        "baseTotal": 78.4, "adjustedTotal": 92.6, "adjustedFloor": 70.1, "adjustedCeiling": 118.4,
+        "rank": 1
+      }
+    ],
+    "captains": [
+      { "playerId": "502490", "playerName": "Cameron Munster", "teamCode": "MEL",
+        "position": "Five-Eighth", "opponent": "BRO", "venue": "aami_park",
+        "baseTotal": 78.4, "adjustedTotal": 96.3, "adjustedFloor": 70.1, "adjustedCeiling": 118.4,
+        "rank": 1 }
+    ]
+  }
+}
+```
+
+**Response — Pending** (200): Returned when no artifact exists yet for the requested round. The next cron tick fills the gap once the per-player and per-team-rankings precomputes have caught up at the watermark.
+```json
+{ "available": false, "asOfRound": null, "reason": "precompute-pending" }
+```
+
+**Field Descriptions**:
+- `breakEvens.top` / `breakEvens.bottom` — up to 100 highest and 100 lowest break-evens for the round (rows with null break-even are excluded). `playerId` may be `null` when the supplementary-stats row's player name does not resolve to a known player season summary. The current UI only renders the first 10 of each, but the payload carries the full top/bottom 100 for future "show more" surfacing.
+- `scorers` — up to 100 by `adjustedTotal` derived from the `composite` team-rankings pool with each player's fixture opponent + venue applied via the precomputed contextual profile.
+- `captains` — up to 100 by `adjustedTotal` derived from the `captaincy` team-rankings pool with the same context applied.
+- `venue` — canonical stadium ID (see `GET /api/supercoach/venues`), or `null` when the round's fixture has no stadium / the stadium is unmapped.
+
+**Errors**:
+- 400 `INVALID_YEAR`: year < 1998
+- 400 `INVALID_ROUND`: round not a positive integer
+- 500 `INTERNAL_ERROR`: unexpected store-side failure
 
 ---
 
@@ -1300,17 +1413,19 @@ The `id` values in this response are the valid values for the `venue` query para
 
 ### GET /api/player-movements
 
-Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is computed and cached automatically when all playing teams have submitted their team lists for a round.
+Returns pre-computed player movements between the previous round and the current round, for Supercoach decision-making. The result is read from a durable artifact store written by a `compute-player-movements` queue job when all playing teams have submitted their team lists for a round (spec 035).
 
-**Response — Pending** (200): Returned when team lists for the current round are not yet complete.
+The response is a discriminated envelope keyed by `available`.
+
+**Response — Not Yet Available** (200): Returned when no artifact exists for any round in the current year (e.g. team lists for the current round are not yet complete and no prior round has an artifact).
 ```json
-{ "pending": true }
+{ "available": false }
 ```
 
 **Response — No Previous Round** (200): Returned for Round 1 of a season (no prior round to compare against).
 ```json
 {
-  "pending": false,
+  "available": true,
   "noPreviousRound": true,
   "season": 2025,
   "round": 1,
@@ -1325,7 +1440,7 @@ Returns pre-computed player movements between the previous round and the current
 **Response — Full Result** (200):
 ```json
 {
-  "pending": false,
+  "available": true,
   "season": 2025,
   "round": 10,
   "dropped": [
@@ -1400,9 +1515,13 @@ Returns pre-computed player movements between the previous round and the current
 - `dropped`, `benched`, and `promoted` are mutually exclusive.
 - `positionChanged` and `returningFromInjury` can co-occur.
 
-**Computation Trigger**: The result is computed automatically after `POST /api/scrape/team-lists` when all teams playing in the round have submitted their lists. The number of expected teams is derived from the match schedule for that round (not a hardcoded constant), so bye weeks are handled automatically.
+**Computation Trigger**: The artifact is written by a `compute-player-movements` queue job. Two trigger paths exist (spec 035 FR-007):
+1. **Post-scrape signal** — `ScrapeTeamListsUseCase` publishes a precompute job after a successful round scrape when every expected team has a lineup present.
+2. **Cron discovery** — `EnqueueDueScrapesUseCase` publishes a precompute job for every round with complete team lists that has no movements artifact yet (gap-set predicate).
 
-**Cold Start**: In-memory cache — returns `{ pending: true }` after a worker cold start until the next scheduled cron or manual scrape trigger.
+Both paths can fire for the same `(year, round)`; the resulting double-runs are idempotent under last-write-wins.
+
+**Cold Start**: The artifact store is Cloudflare KV (durable across isolates), so cold isolates serve from the existing artifact without recomputing. When no `CACHE` binding is configured (local dev, tests), the worker falls back to an in-memory adapter and the endpoint returns `{ "available": false }` until the precompute job runs in the current isolate.
 
 **Errors**:
 - 400 `INVALID_PARAMS`: `season` or `round` is not a valid integer.
@@ -1478,11 +1597,22 @@ Returns Game Strength Ratings (GSR) for every non-bye fixture in the specified N
 - `sampleSizeWarning` — `true` when either team has fewer than `minRoundsForReliability` completed matches in history.
 - `leagueAvgTeamScore` — Mean of all participating teams' `weightedAvgScored` values; used as the normalisation denominator.
 
-**Caching / Stability**:
-- Ratings for the round immediately following each completed round are **locked to D1** at round-completion time and never change.
-- Ratings for further future rounds are held in an **in-memory cache** and rebuilt whenever a round completes.
-- Ratings for the current or past rounds that were not locked are **computed on-demand**.
-- Non-default `halfLife` requests always compute on-demand (not cached or locked).
+**Storage / Stability** (spec 036):
+- Ratings for rounds immediately following each completed round are **locked to D1** (`game_strength_ratings` table) at round-completion time and never change.
+- Ratings for further future rounds are held in a **KV-backed durable provisional store** (key prefix `gsr-provisional:v1:`) and rebuilt whenever a round completes. The store is shared across isolates and regions, so cold isolates see the same values as warm ones.
+- For default-half-life requests where neither the D1 locked row nor a KV provisional entry exists, the response is HTTP 200 with body `{ "available": false }` (see below). The handler does NOT compute on the request thread.
+- Non-default `halfLife` requests always compute on-demand and never return `{ "available": false }`. They bypass both storage layers (the artifact's identity is `(year, round)` only — half-life is a computation parameter, not part of the key).
+- When the `CACHE` binding is absent (local dev, unit tests), the worker uses a per-isolate in-memory fallback for the provisional half.
+
+**Response Shape**:
+
+The response is one of two shapes:
+
+```text
+GSRResponse = GSRPayload | { "available": false }
+```
+
+The `{ "available": false }` branch is returned (with HTTP 200) when a default-half-life request finds no precomputed artifact yet. The frontend can branch on the presence of the `available` field (see `client/src/services/api.ts` helper `isGSRAvailable`).
 
 **Errors**:
 - 400 `INVALID_YEAR` — `year` is before 1998 or not an integer.
@@ -1491,4 +1621,4 @@ Returns Game Strength Ratings (GSR) for every non-bye fixture in the specified N
 - 404 `NO_FIXTURES_FOUND` — No fixtures found for the given year and round.
 - 500 `INTERNAL_ERROR` — Unexpected server error.
 
-See `specs/032-game-strength-rating/contracts/game-strength-endpoint.md` for the full schema.
+See `specs/032-game-strength-rating/contracts/game-strength-endpoint.md` for the full schema and `specs/036-game-strength-artifact/` for the storage substrate change.

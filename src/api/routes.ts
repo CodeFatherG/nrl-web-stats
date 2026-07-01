@@ -43,18 +43,19 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/rounds/:year/:round', handlers.getRoundDetails(deps));
 
   // Rankings
-  api.get('/rankings/:year', handlers.getAllTeamsRanking);
-  api.get('/rankings/:year/:code', handlers.getTeamRanking);
-  api.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler);
+  api.get('/rankings/:year', handlers.getAllTeamsRanking(deps));
+  api.get('/rankings/:year/:code', handlers.getTeamRanking(deps));
+  api.get('/rankings/:year/:code/:round', handlers.getTeamRoundRankingHandler(deps));
 
   // Streaks
-  api.get('/streaks/:year/:code', handlers.getTeamStreaks);
+  api.get('/streaks/:year/:code', handlers.getTeamStreaks(deps));
 
   // Season Summary (use injected deps for metadata)
   api.get('/season/:year/summary', handlers.getSeasonSummary(deps));
 
-  // Scrape trigger (use injected use case)
+  // Scrape trigger — both routes enqueue a scrape-draw job (spec 038).
   api.post('/scrape', handlers.triggerScrape(deps));
+  api.post('/scrape/draw', handlers.triggerScrape(deps));
 
   // Match Detail
   api.get('/matches/:matchId', handlers.getMatchDetail(deps));
@@ -85,6 +86,7 @@ export function createApiRoutes(deps: HandlerDeps): Hono<{ Bindings: Env }> {
   api.get('/supercoach/:year/player/:playerId/contextual-projection', handlers.getContextualProjection(deps));
   api.get('/supercoach/:year/player/:playerId/contextual-profile', handlers.getContextualProfile(deps));
   api.get('/supercoach/:year/player/:playerId', handlers.getPlayerSupercoachSeason(deps));
+  api.get('/supercoach/:year/round/:round/dashboard', handlers.getRoundDashboard(deps));
   api.get('/supercoach/:year/:round', handlers.getSupercoachScores(deps));
 
   // Analytics

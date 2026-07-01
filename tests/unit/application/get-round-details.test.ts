@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { GetRoundDetailsUseCase } from '../../../src/application/use-cases/get-round-details.js';
-import type { FixtureRepository } from '../../../src/application/ports/fixture-repository.js';
+import type { FixtureArtifact, FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
 import type { Fixture } from '../../../src/models/fixture.js';
 
 function createMockFixture(overrides: Partial<Fixture> = {}): Fixture {
   return {
+    id: 'fixture-mock',
     teamCode: 'MNL',
     opponentCode: 'SYD',
     round: 5,
@@ -16,19 +17,21 @@ function createMockFixture(overrides: Partial<Fixture> = {}): Fixture {
   };
 }
 
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
+  return {
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures,
+  };
+}
+
 function createMockFixtureRepo(roundFixtures: Fixture[] = []): FixtureRepository {
   return {
-    findByYear: () => [],
-    findByTeam: () => [],
-    findByRound: () => roundFixtures,
-    findByYearAndTeam: () => [],
-    isYearLoaded: () => true,
-    getLoadedYears: () => [2025],
-    getAllTeams: () => [],
-    getTeamByCode: () => undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => 0,
-    loadFixtures: () => {},
+    findByYear: async (year) => makeArtifact(year, roundFixtures),
+    findByYearAndTeam: async () => null,
+    listScrapedYears: async () => new Map([[2025, '2026-05-20T00:00:00.000Z']]),
+    save: async () => {},
   };
 }
 

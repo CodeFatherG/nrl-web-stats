@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -6,7 +5,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TableSortLabel,
   Paper,
   Tooltip,
   Typography,
@@ -99,11 +97,6 @@ interface CompareSeasonStatsTableProps {
   cols?: StatColDef[];
 }
 
-interface SortState {
-  key: keyof SeasonStatsSnapshot | null;
-  dir: 'asc' | 'desc';
-}
-
 function getStatValue(player: PlayerComparisonData, key: keyof SeasonStatsSnapshot): number | null {
   if (!player.seasonStats) return null;
   const v = player.seasonStats[key];
@@ -111,40 +104,7 @@ function getStatValue(player: PlayerComparisonData, key: keyof SeasonStatsSnapsh
 }
 
 export function CompareSeasonStatsTable({ players, cols = STAT_COLS }: CompareSeasonStatsTableProps) {
-  const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
-
-  const handleColClick = (key: keyof SeasonStatsSnapshot) => {
-    setSort(prev => ({
-      key,
-      dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc',
-    }));
-  };
-
-  const sortedPlayers = sort.key === null ? players : [...players].sort((a, b) => {
-    const col = cols.find(c => c.key === sort.key);
-    if (!col) return 0;
-    const va = getStatValue(a, sort.key!);
-    const vb = getStatValue(b, sort.key!);
-    if (va === null && vb === null) return 0;
-    if (va === null) return 1;
-    if (vb === null) return -1;
-    const cmp = va - vb;
-    const descIsBest = col.higherIsBetter ? -cmp : cmp;
-    return sort.dir === 'desc' ? descIsBest : -descIsBest;
-  });
-
-  // Pre-compute per-column gradient ranges
-  const colRanges: Partial<Record<keyof SeasonStatsSnapshot, { min: number; max: number } | null>> = {};
-  for (const col of cols) {
-    colRanges[col.key] = rowMinMax(players.map(p => getStatValue(p, col.key)));
-  }
-
-  const sortLabelSx = {
-    '& .MuiTableSortLabel-icon': { opacity: 0 },
-    '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
-  } as const;
-
-  const stickyPlayer = {
+  const stickyLabel = {
     position: 'sticky' as const,
     left: 0,
     zIndex: 2,
@@ -164,6 +124,12 @@ export function CompareSeasonStatsTable({ players, cols = STAT_COLS }: CompareSe
           py: { xs: 0.25, sm: 0.5 },
           fontSize: { xs: '0.68rem', sm: '0.8rem' },
         },
+        '& tbody tr:hover .sticky-stat-label': {
+          bgcolor: 'action.selected',
+        },
+        '& tbody tr:hover td:not(.sticky-stat-label)': {
+          boxShadow: 'inset 0 0 0 9999px rgba(0, 0, 0, 0.08)',
+        },
       }}
     >
       <Table size="small" stickyHeader>
@@ -171,35 +137,30 @@ export function CompareSeasonStatsTable({ players, cols = STAT_COLS }: CompareSe
           <TableRow>
             <TableCell
               sx={{
-                ...stickyPlayer,
+                ...stickyLabel,
                 zIndex: 4,
                 fontWeight: 700,
                 minWidth: { xs: 80, sm: 140 },
-                maxWidth: { xs: 80, sm: 'none' },
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
               }}
             >
-              Player
+              Stat
             </TableCell>
-            {cols.map(col => (
+            {players.map(player => (
               <TableCell
-                key={col.key}
+                key={player.playerId}
                 align="right"
-                sx={{ minWidth: { xs: 40, sm: 56 }, whiteSpace: 'nowrap' }}
+                sx={{
+                  minWidth: { xs: 70, sm: 120 },
+                  maxWidth: { xs: 100, sm: 'none' },
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
               >
-                <Tooltip title={col.fullLabel} placement="top" arrow>
-                  <TableSortLabel
-                    active={sort.key === col.key}
-                    direction={sort.key === col.key ? sort.dir : 'desc'}
-                    onClick={() => handleColClick(col.key)}
-                    sx={sortLabelSx}
-                  >
-                    <Typography variant="caption" fontWeight={600} noWrap sx={{ fontSize: 'inherit' }}>
-                      {col.label}
-                    </Typography>
-                  </TableSortLabel>
+                <Tooltip title={player.playerName} placement="top" arrow>
+                  <Typography variant="caption" fontWeight={600} noWrap sx={{ fontSize: 'inherit' }}>
+                    {player.playerName}
+                  </Typography>
                 </Tooltip>
               </TableCell>
             ))}
@@ -207,42 +168,44 @@ export function CompareSeasonStatsTable({ players, cols = STAT_COLS }: CompareSe
         </TableHead>
 
         <TableBody>
-          {sortedPlayers.map(player => (
-            <TableRow key={player.playerId} hover>
-              <Tooltip title={player.playerName} placement="right" disableHoverListener={false}>
-                <TableCell
-                  sx={{
-                    ...stickyPlayer,
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    minWidth: { xs: 80, sm: 140 },
-                    maxWidth: { xs: 80, sm: 'none' },
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {player.playerName}
-                </TableCell>
-              </Tooltip>
-              {cols.map(col => {
-                const val = getStatValue(player, col.key);
-                const range = colRanges[col.key] ?? null;
-                const bg = range !== null && val !== null
-                  ? computeGradientColor(val, range.min, range.max, col.higherIsBetter)
-                  : undefined;
-                return (
+          {cols.map(col => {
+            const values = players.map(p => getStatValue(p, col.key));
+            const range = rowMinMax(values);
+
+            return (
+              <TableRow key={col.key} hover>
+                <Tooltip title={col.fullLabel} placement="right" arrow>
                   <TableCell
-                    key={col.key}
-                    align="right"
-                    style={{ backgroundColor: bg }}
-                    data-testid={`cell-${col.key}-${player.playerId}`}
+                    className="sticky-stat-label"
+                    sx={{
+                      ...stickyLabel,
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      minWidth: { xs: 80, sm: 140 },
+                    }}
                   >
-                    {val === null ? '—' : (col.format ?? String)(val)}
+                    {col.label}
                   </TableCell>
-                );
-              })}
-            </TableRow>
-          ))}
+                </Tooltip>
+                {players.map((player, i) => {
+                  const val = values[i] ?? null;
+                  const bg = range !== null && val !== null
+                    ? computeGradientColor(val, range.min, range.max, col.higherIsBetter)
+                    : undefined;
+                  return (
+                    <TableCell
+                      key={player.playerId}
+                      align="right"
+                      style={{ backgroundColor: bg }}
+                      data-testid={`cell-${col.key}-${player.playerId}`}
+                    >
+                      {val === null ? '—' : (col.format ?? String)(val)}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </TableContainer>

@@ -81,4 +81,10 @@ export class NrlComCasualtyWardAdapter implements CasualtyWardSource {
       return failure(`Failed to fetch casualty ward from nrl.com: ${message}`);
     }
   }
+
+  async isAvailable(): Promise<boolean> {
+    // Casualty ward endpoint is published continuously throughout the season.
+    // No round dependency, no publication lag worth probing for.
+    return true;
+  }
 }

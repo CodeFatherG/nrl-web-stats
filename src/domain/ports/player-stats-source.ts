@@ -80,4 +80,11 @@ export interface PlayerMatchStats {
 export interface PlayerStatsSource {
   /** Fetch player statistics for a specific round in a season. */
   fetchPlayerStats(year: number, round: number): Promise<Result<PlayerMatchStats[]>>;
+
+  /**
+   * Cheap upstream-availability probe — returns false if (year, round) data is
+   * not yet published / not fetchable. Implementations MUST swallow exceptions
+   * and return false rather than throwing.
+   */
+  isAvailable(year: number, round: number): Promise<boolean>;
 }

@@ -1,0 +1,323 @@
+/**
+ * HandleScrapeJobUseCase — execution half of the discovery/execution split.
+ *
+ * Consumes a JobBatch<ScrapeJob>, switches on job.type, delegates to the
+ * appropriate Scrape*UseCase, and decides per-handle whether to ack, retry,
+ * or surface a terminal failure (re-throw so the platform counts the attempt
+ * → DLQ after max_retries).
+ *
+ * Per clarification (2026-05-20): the dispatcher MUST NOT publish follow-up
+ * jobs. Chain effects (player-stats after match-results) are produced by the
+ * next discovery tick re-evaluating D1 state.
+ */
+
+import type { JobBatch, JobHandle, ScrapeJob } from '../ports/job-queue.js';
+import { ScrapeJobSchema } from '../ports/job-queue.js';
+import { ProjectionStoreQuotaExhaustedError } from '../../domain/repositories/projection-repository.js';
+import { PlayerMovementsStoreQuotaExhaustedError } from '../../domain/repositories/player-movements-repository.js';
+import { ProvisionalGameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/provisional-game-strength-repository.js';
+import { GameStrengthStoreQuotaExhaustedError } from '../../domain/repositories/game-strength-repository.js';
+import { TeamFormStoreQuotaExhaustedError } from '../../domain/repositories/team-form-repository.js';
+import { MatchOutlookStoreQuotaExhaustedError } from '../../domain/repositories/match-outlook-repository.js';
+import { PlayerTrendsStoreQuotaExhaustedError } from '../../domain/repositories/player-trends-repository.js';
+import { CompositionImpactStoreQuotaExhaustedError } from '../../domain/repositories/composition-impact-repository.js';
+import { FixtureStoreQuotaExhaustedError } from '../../domain/repositories/fixture-repository.js';
+import { TeamStrengthRankingsStoreQuotaExhaustedError } from '../../domain/repositories/team-strength-rankings-repository.js';
+import { LeagueRoundProjectionsStoreQuotaExhaustedError } from '../../domain/repositories/league-round-projections-repository.js';
+import { MatchResultsScrapeWatermarkStoreQuotaExhaustedError } from '../../domain/repositories/match-results-scrape-watermark-repository.js';
+import type { ScrapeMatchResultsUseCase } from './scrape-match-results.js';
+import type { ScrapePlayerStatsUseCase } from './scrape-player-stats.js';
+import type { ScrapeSupplementaryStatsUseCase } from './scrape-supplementary-stats.js';
+import type { ScrapeTeamListsUseCase } from './scrape-team-lists.js';
+import type { ScrapeCasualtyWardUseCase } from './scrape-casualty-ward.js';
+import type { ComputePlayerMovementsUseCase } from './compute-player-movements.js';
+import type { LockGameStrengthRatingsUseCase } from './lock-game-strength-ratings.js';
+import type { PrecomputePlayerProjectionUseCase } from './precompute-player-projection.js';
+import type { PrecomputeTeamRankingsUseCase } from './precompute-team-rankings.js';
+import type { PrecomputeTeamFormUseCase } from './precompute-team-form.js';
+import type { PrecomputeMatchOutlookUseCase } from './precompute-match-outlook.js';
+import type { PrecomputePlayerTrendsUseCase } from './precompute-player-trends.js';
+import type { PrecomputeCompositionImpactUseCase } from './precompute-composition-impact.js';
+import type { ScrapeDrawUseCase } from './scrape-draw.js';
+import type { ComputeTeamStrengthRankingsUseCase } from './compute-team-strength-rankings.js';
+import type { PrecomputeLeagueRoundProjectionsUseCase } from './precompute-league-round-projections.js';
+import { queueLogger } from '../../utils/queue-logger.js';
+
+/**
+ * Adapters injected as use-case INSTANCES — the dispatcher does not know how
+ * they were constructed (D1 binding, fakes for tests, etc.). Per-job construction
+ * (some use cases are per-request because they hold D1 bindings) is the caller's
+ * responsibility; the dispatcher accepts factories so it can build a fresh use
+ * case per handle when the underlying resource is request-scoped.
+ */
+export interface HandleScrapeJobDeps {
+  scrapeMatchResults: ScrapeMatchResultsUseCase;
+  scrapePlayerStats: ScrapePlayerStatsUseCase;
+  scrapeSupplementaryStats: ScrapeSupplementaryStatsUseCase;
+  scrapeTeamLists: ScrapeTeamListsUseCase;
+  scrapeCasualtyWard: ScrapeCasualtyWardUseCase;
+  computePlayerMovements: ComputePlayerMovementsUseCase;
+  lockGameStrength: LockGameStrengthRatingsUseCase;
+  /** Spec 034: per-player leaf job dispatched by the fan-out discovery pass.
+   *  Optional so test wiring without precompute doesn't have to construct it. */
+  precomputePlayerProjection?: PrecomputePlayerProjectionUseCase;
+  /** Spec 034: per (team, mode) leaf job. */
+  precomputeTeamRankings?: PrecomputeTeamRankingsUseCase;
+  /** Spec 037: four new precomputed-artifact leaf jobs. Optional to keep test
+   *  wiring without precompute scaffolding cheap. */
+  precomputeTeamForm?: PrecomputeTeamFormUseCase;
+  precomputeMatchOutlook?: PrecomputeMatchOutlookUseCase;
+  precomputePlayerTrends?: PrecomputePlayerTrendsUseCase;
+  precomputeCompositionImpact?: PrecomputeCompositionImpactUseCase;
+  /** Spec 038: draw-scrape use case (writes through FixtureRepository). */
+  scrapeDraw?: ScrapeDrawUseCase;
+  /** Spec 039: batched precompute of the team-strength-rankings artifact. */
+  computeTeamStrengthRankings?: ComputeTeamStrengthRankingsUseCase;
+  /** League-round dashboard precompute (top/bottom break-evens + contextual
+   *  top scorers / captains). */
+  precomputeLeagueRoundProjections?: PrecomputeLeagueRoundProjectionsUseCase;
+}
+
+/** Classify thrown errors so the dispatcher can choose retry vs terminal. */
+function classifyError(err: unknown): { kind: 'retry'; delaySeconds: number; reason: string } | { kind: 'terminal'; reason: string } {
+  // Projection-store quota exhausted (spec 034, FR-021): retrying inside the
+  // same UTC day cannot succeed; the watermark predicate re-fires on the next
+  // discovery tick after the daily reset. Match by type, not by message.
+  if (err instanceof ProjectionStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'projection-store-quota-exhausted' };
+  }
+  if (err instanceof PlayerMovementsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'player-movements-store-quota-exhausted' };
+  }
+  if (err instanceof GameStrengthStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'game-strength-store-quota-exhausted' };
+  }
+  // Kept for defense-in-depth in case any code path raises the sub-adapter's
+  // error directly without going through the composite's re-wrap.
+  if (err instanceof ProvisionalGameStrengthStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'provisional-game-strength-store-quota-exhausted' };
+  }
+  // Spec 037 — terminal quota errors for the four new precomputed-artifact families.
+  if (err instanceof TeamFormStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'team-form-store-quota-exhausted' };
+  }
+  if (err instanceof MatchOutlookStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'match-outlook-store-quota-exhausted' };
+  }
+  if (err instanceof PlayerTrendsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'player-trends-store-quota-exhausted' };
+  }
+  if (err instanceof CompositionImpactStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'composition-impact-store-quota-exhausted' };
+  }
+  if (err instanceof FixtureStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'fixture-store-quota-exhausted' };
+  }
+  if (err instanceof TeamStrengthRankingsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'team-strength-rankings-store-quota-exhausted' };
+  }
+  if (err instanceof LeagueRoundProjectionsStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'league-round-projections-store-quota-exhausted' };
+  }
+  // Spec 040 — quota-exhausted match-results scrape watermark write. The
+  // match-results D1 state is already durable; only the watermark write
+  // failed. Terminal so the queue doesn't pin the retry; tomorrow's cron
+  // re-scrapes and re-seeds the watermark.
+  if (err instanceof MatchResultsScrapeWatermarkStoreQuotaExhaustedError) {
+    return { kind: 'terminal', reason: 'match-results-scrape-watermark-store-quota-exhausted' };
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+
+  // HTTP 5xx / network / Workers subrequest pressure — transient, retry with delay
+  if (
+    /HTTP 5\d\d/i.test(message) ||
+    /fetch failed/i.test(message) ||
+    /network/i.test(message) ||
+    /subrequest/i.test(message) ||
+    /timeout/i.test(message) ||
+    /ECONNRESET/i.test(message)
+  ) {
+    return { kind: 'retry', delaySeconds: 120, reason: `transient: ${message}` };
+  }
+
+  // 4xx (excluding 429), schema/parse/validation failures — terminal
+  if (/HTTP 4\d\d/i.test(message) && !/429/.test(message)) {
+    return { kind: 'terminal', reason: `terminal: ${message}` };
+  }
+  if (/Validation failed/i.test(message) || /schema/i.test(message) || /parse/i.test(message)) {
+    return { kind: 'terminal', reason: `terminal: ${message}` };
+  }
+
+  // 429 — backoff longer
+  if (/429/.test(message)) {
+    return { kind: 'retry', delaySeconds: 600, reason: `rate-limited: ${message}` };
+  }
+
+  // Default: retry without delay (let the platform's built-in backoff kick in)
+  return { kind: 'retry', delaySeconds: 0, reason: `unclassified: ${message}` };
+}
+
+export class HandleScrapeJobUseCase {
+  constructor(private readonly deps: HandleScrapeJobDeps) {}
+
+  /** Run every handle in the batch. Each handle is settled (ack or retry) or
+   * throws (terminal → platform attempt counter advances → DLQ at max_retries).
+   */
+  async handle(batch: JobBatch<ScrapeJob>): Promise<void> {
+    for (const handle of batch.handles) {
+      await this.handleOne(handle);
+    }
+  }
+
+  /** Settle a single handle. Exposed for finer-grained dispatch (one handle per invocation). */
+  async handleOne(handle: JobHandle<ScrapeJob>): Promise<void> {
+    // Re-validate body at the dispatcher boundary as a defense-in-depth check.
+    // Adapters MUST already have validated; failure here means the adapter is
+    // broken or someone bypassed the port.
+    const parsed = ScrapeJobSchema.safeParse(handle.body);
+    if (!parsed.success) {
+      queueLogger.jobDlq(
+        handle.body,
+        handle.attemptCount,
+        `schema-validation-failed-in-dispatcher: ${parsed.error.issues[0].message}`
+      );
+      handle.ack(); // ack so it stops redelivering — adapter should have DLQed this already
+      return;
+    }
+    const job = parsed.data as ScrapeJob;
+    queueLogger.jobReceived(job, handle.attemptCount);
+
+    const started = Date.now();
+    try {
+      await this.dispatch(job);
+      const durationMs = Date.now() - started;
+      handle.ack();
+      queueLogger.jobAcked(job, handle.attemptCount, durationMs);
+    } catch (err) {
+      const classification = classifyError(err);
+      if (classification.kind === 'retry') {
+        handle.retry({ delaySeconds: classification.delaySeconds });
+        queueLogger.jobRetry(job, handle.attemptCount, classification.reason, classification.delaySeconds);
+        return;
+      }
+      // Terminal: re-throw so the platform's attempt counter advances.
+      queueLogger.jobDlq(job, handle.attemptCount, classification.reason);
+      throw err;
+    }
+  }
+
+  private async dispatch(job: ScrapeJob): Promise<void> {
+    switch (job.type) {
+      case 'scrape-match-results':
+        await this.deps.scrapeMatchResults.execute(job.year, job.round);
+        return;
+      case 'scrape-player-stats':
+        await this.deps.scrapePlayerStats.execute(job.year, job.round, true);
+        return;
+      case 'scrape-supplementary-stats':
+        await this.deps.scrapeSupplementaryStats.execute(job.year, job.round, job.force === true);
+        return;
+      case 'scrape-team-lists':
+        await this.deps.scrapeTeamLists.execute(job.year, job.round);
+        return;
+      case 'scrape-casualty-ward':
+        await this.deps.scrapeCasualtyWard.execute();
+        return;
+      case 'compute-player-movements':
+        await this.deps.computePlayerMovements.execute(job.year, job.round);
+        return;
+      case 'recompute-game-strength':
+        await this.deps.lockGameStrength.execute(job.year, job.completedRound);
+        return;
+      case 'precompute-player-projection':
+        if (!this.deps.precomputePlayerProjection) {
+          throw new Error('precompute-player-projection dispatched but no PrecomputePlayerProjectionUseCase wired');
+        }
+        await this.deps.precomputePlayerProjection.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          playerId: job.playerId,
+        });
+        return;
+      case 'precompute-team-rankings':
+        if (!this.deps.precomputeTeamRankings) {
+          throw new Error('precompute-team-rankings dispatched but no PrecomputeTeamRankingsUseCase wired');
+        }
+        await this.deps.precomputeTeamRankings.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+          mode: job.mode,
+        });
+        return;
+      case 'precompute-team-form':
+        if (!this.deps.precomputeTeamForm) {
+          throw new Error('precompute-team-form dispatched but no PrecomputeTeamFormUseCase wired');
+        }
+        await this.deps.precomputeTeamForm.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+        });
+        return;
+      case 'precompute-match-outlook':
+        if (!this.deps.precomputeMatchOutlook) {
+          throw new Error('precompute-match-outlook dispatched but no PrecomputeMatchOutlookUseCase wired');
+        }
+        await this.deps.precomputeMatchOutlook.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          round: job.round,
+        });
+        return;
+      case 'precompute-player-trends':
+        if (!this.deps.precomputePlayerTrends) {
+          throw new Error('precompute-player-trends dispatched but no PrecomputePlayerTrendsUseCase wired');
+        }
+        await this.deps.precomputePlayerTrends.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+        });
+        return;
+      case 'precompute-composition-impact':
+        if (!this.deps.precomputeCompositionImpact) {
+          throw new Error('precompute-composition-impact dispatched but no PrecomputeCompositionImpactUseCase wired');
+        }
+        await this.deps.precomputeCompositionImpact.execute({
+          year: job.year,
+          asOfRound: job.asOfRound,
+          teamCode: job.teamCode,
+        });
+        return;
+      case 'scrape-draw':
+        if (!this.deps.scrapeDraw) {
+          throw new Error('scrape-draw dispatched but no ScrapeDrawUseCase wired');
+        }
+        await this.deps.scrapeDraw.execute(job.year);
+        return;
+      case 'precompute-team-strength-rankings':
+        if (!this.deps.computeTeamStrengthRankings) {
+          throw new Error('precompute-team-strength-rankings dispatched but no ComputeTeamStrengthRankingsUseCase wired');
+        }
+        await this.deps.computeTeamStrengthRankings.execute(job.year, job.asOfRound);
+        return;
+      case 'precompute-league-round-projections':
+        if (!this.deps.precomputeLeagueRoundProjections) {
+          throw new Error('precompute-league-round-projections dispatched but no PrecomputeLeagueRoundProjectionsUseCase wired');
+        }
+        await this.deps.precomputeLeagueRoundProjections.execute({
+          year: job.year,
+          round: job.round,
+          asOfRound: job.asOfRound,
+        });
+        return;
+      default: {
+        // Exhaustiveness check — the discriminated union should make this unreachable.
+        const _exhaustive: never = job;
+        throw new Error(`Unhandled job type: ${JSON.stringify(_exhaustive)}`);
+      }
+    }
+  }
+}

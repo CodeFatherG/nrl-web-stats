@@ -11,6 +11,7 @@
 import type { TeamListSource } from '../../domain/ports/team-list-source.js';
 import type { TeamListRepository } from '../../domain/repositories/team-list-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { JobProducer } from '../ports/job-queue.js';
 import { MatchStatus } from '../../domain/match.js';
 import type { Warning } from '../../models/types.js';
 import { logger } from '../../utils/logger.js';
@@ -30,7 +31,11 @@ export class ScrapeTeamListsUseCase {
   constructor(
     private readonly teamListSource: TeamListSource,
     private readonly teamListRepository: TeamListRepository,
-    private readonly matchRepository: MatchRepository
+    private readonly matchRepository: MatchRepository,
+    /** Optional — when present, the use case enqueues a `compute-player-movements`
+     *  job after a successful round scrape that yields complete team lists
+     *  (spec 035 FR-007 post-scrape signal). Tests pass null/undefined to skip. */
+    private readonly producer?: JobProducer
   ) {}
 
   /** Scrape team lists for a specific round (or all rounds if not specified). */
@@ -105,6 +110,31 @@ export class ScrapeTeamListsUseCase {
       skippedCount,
       warnings: warnings.length,
     });
+
+    // Spec 035 (FR-007) post-scrape signal: if every team expected to play
+    // in (year, round) now has a lineup present, enqueue a precompute job
+    // for the player-movements artifact. Double-runs with the cron-discovery
+    // path are tolerated (last-write-wins; plan §race tolerance).
+    if (this.producer) {
+      const expectedTeamCodes = new Set<string>();
+      for (const match of matches) {
+        if (match.homeTeamCode) expectedTeamCodes.add(match.homeTeamCode);
+        if (match.awayTeamCode) expectedTeamCodes.add(match.awayTeamCode);
+      }
+      const presentTeamLists = await this.teamListRepository.findByYearAndRound(year, round);
+      const presentTeamCodes = new Set(presentTeamLists.map(tl => tl.teamCode));
+      if (
+        expectedTeamCodes.size > 0 &&
+        [...expectedTeamCodes].every(t => presentTeamCodes.has(t))
+      ) {
+        await this.producer.publish({
+          type: 'compute-player-movements',
+          version: 1,
+          year,
+          round,
+        });
+      }
+    }
 
     return { success: true, year, round, scrapedCount, skippedCount, backfilledCount: 0, warnings };
   }

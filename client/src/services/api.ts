@@ -66,17 +66,36 @@ export async function getRound(
   return fetchApi<RoundResponse>(`/rounds/${year}/${round}`);
 }
 
+// Spec 039 — the rankings endpoints now return an availability envelope on
+// cold-start / watermark-mismatch. Existing consumers that read fields via
+// optional chaining (e.g. `data?.thresholds`) continue to work — the union
+// type narrows naturally because the precompute-pending branch has neither
+// `thresholds` nor `rankings`.
+// `thresholds` / `rankings` declared as optional `never` on the pending
+// branch so consumers can keep using optional-chaining (`data?.thresholds`)
+// without a type guard — TS narrows to `undefined` on the pending branch.
+type RankingsPending = {
+  available: false;
+  asOfRound: null;
+  reason: string;
+  thresholds?: never;
+  rankings?: never;
+  ranking?: never;
+};
+
 export async function getTeamSeasonRanking(
   year: number,
   teamCode: string
-): Promise<TeamSeasonRankingResponse> {
-  return fetchApi<TeamSeasonRankingResponse>(`/rankings/${year}/${teamCode}`);
+): Promise<TeamSeasonRankingResponse | RankingsPending> {
+  return fetchApi<TeamSeasonRankingResponse | RankingsPending>(
+    `/rankings/${year}/${teamCode}`,
+  );
 }
 
 export async function getAllTeamsRanking(
   year: number
-): Promise<AllTeamsRankingResponse> {
-  return fetchApi<AllTeamsRankingResponse>(`/rankings/${year}`);
+): Promise<AllTeamsRankingResponse | RankingsPending> {
+  return fetchApi<AllTeamsRankingResponse | RankingsPending>(`/rankings/${year}`);
 }
 
 export async function getSeasonSummary(
@@ -93,6 +112,13 @@ export async function getTeamStreaks(
 }
 
 // Analytics API
+// Spec 037 — discriminated wire envelope for the four analytics endpoints.
+// Hit: { available: true, asOfRound, data }. Miss: { available: false, ... }.
+// Clients MUST branch on `available` before reading `data` / `asOfRound`.
+export type AvailabilityEnvelope<T> =
+  | { available: true; asOfRound: number; data: T }
+  | { available: false; asOfRound: null; reason: string };
+
 export interface FormTrajectoryResponse {
   teamCode: string;
   teamName: string;
@@ -185,9 +211,9 @@ export async function getTeamForm(
   year: number,
   teamCode: string,
   window?: number
-): Promise<FormTrajectoryResponse> {
+): Promise<AvailabilityEnvelope<FormTrajectoryResponse>> {
   const params = window ? `?window=${window}` : '';
-  return fetchApi<FormTrajectoryResponse>(`/analytics/form/${year}/${teamCode}${params}`);
+  return fetchApi<AvailabilityEnvelope<FormTrajectoryResponse>>(`/analytics/form/${year}/${teamCode}${params}`);
 }
 
 export async function getPlayerTrends(
@@ -195,28 +221,28 @@ export async function getPlayerTrends(
   teamCode: string,
   window?: number,
   significantOnly?: boolean
-): Promise<PlayerTrendsResponse> {
+): Promise<AvailabilityEnvelope<PlayerTrendsResponse>> {
   const searchParams = new URLSearchParams();
   if (window) searchParams.set('window', String(window));
   if (significantOnly) searchParams.set('significantOnly', 'true');
   const qs = searchParams.toString();
-  return fetchApi<PlayerTrendsResponse>(`/analytics/trends/${year}/${teamCode}${qs ? `?${qs}` : ''}`);
+  return fetchApi<AvailabilityEnvelope<PlayerTrendsResponse>>(`/analytics/trends/${year}/${teamCode}${qs ? `?${qs}` : ''}`);
 }
 
 export async function getMatchOutlook(
   year: number,
   round: number,
   window?: number
-): Promise<MatchOutlookResponse> {
+): Promise<AvailabilityEnvelope<MatchOutlookResponse>> {
   const params = window ? `?window=${window}` : '';
-  return fetchApi<MatchOutlookResponse>(`/analytics/outlook/${year}/${round}${params}`);
+  return fetchApi<AvailabilityEnvelope<MatchOutlookResponse>>(`/analytics/outlook/${year}/${round}${params}`);
 }
 
 export async function getCompositionImpact(
   year: number,
   teamCode: string
-): Promise<CompositionImpactResponse> {
-  return fetchApi<CompositionImpactResponse>(`/analytics/composition/${year}/${teamCode}`);
+): Promise<AvailabilityEnvelope<CompositionImpactResponse>> {
+  return fetchApi<AvailabilityEnvelope<CompositionImpactResponse>>(`/analytics/composition/${year}/${teamCode}`);
 }
 
 export async function getMatchDetail(
@@ -603,7 +629,7 @@ export interface GSRMatch {
   awayTeam: GSRTeamRating;
 }
 
-export interface GSRResponse {
+export interface GSRPayload {
   year: number;
   round: number;
   leagueAvgTeamScore: number;
@@ -616,6 +642,68 @@ export interface GSRResponse {
   };
 }
 
+/**
+ * Server response for the GSR endpoint. Either the rating payload (locked
+ * or provisional — the wire shape is identical), or `{ available: false }`
+ * when no precomputed artifact exists yet for the requested `(year, round)`.
+ * The `available: false` branch is reachable only for default-half-life
+ * requests; custom half-life always computes on demand.
+ *
+ * Discriminate at the call site by checking for the `available` property:
+ *   if ('available' in data) { ... }  // miss
+ *   else                       { ... } // hit — data is GSRPayload
+ */
+export type GSRResponse = GSRPayload | { available: false };
+
 export async function getGameStrengthRatings(year: number, round: number): Promise<GSRResponse> {
   return fetchApi<GSRResponse>(`/supercoach/${year}/game-strength/${round}`);
+}
+
+/** Narrow a `GSRResponse` to a `GSRPayload` (the happy path). */
+export function isGSRAvailable(r: GSRResponse): r is GSRPayload {
+  return !('available' in r);
+}
+
+// ─── Round dashboard (Summary tiles) ──────────────────────────────────────────
+
+export interface DashboardBreakEvenRow {
+  playerId: string | null;
+  playerName: string;
+  teamCode: string;
+  scPosition: string | null;
+  price: number;
+  breakEven: number;
+}
+
+export interface DashboardProjectionRow {
+  playerId: string;
+  playerName: string;
+  teamCode: string;
+  position: string;
+  opponent: string;
+  venue: string | null;
+  baseTotal: number;
+  adjustedTotal: number;
+  adjustedFloor: number;
+  adjustedCeiling: number;
+  rank: number;
+}
+
+export interface RoundDashboardData {
+  year: number;
+  round: number;
+  breakEvens: {
+    top: DashboardBreakEvenRow[];
+    bottom: DashboardBreakEvenRow[];
+  };
+  scorers: DashboardProjectionRow[];
+  captains: DashboardProjectionRow[];
+}
+
+export type RoundDashboardResponse =
+  | { available: true; asOfRound: number; data: RoundDashboardData }
+  | { available: false; asOfRound: null; reason: string };
+
+export async function getRoundDashboard(year: number, round: number): Promise<RoundDashboardResponse> {
+  return fetchApi<RoundDashboardResponse>(`/supercoach/${year}/round/${round}/dashboard`);
 }

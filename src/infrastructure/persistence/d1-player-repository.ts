@@ -944,6 +944,9 @@ export class D1PlayerRepository implements PlayerRepository {
           (SELECT mp2.team_code FROM match_performances mp2
            WHERE mp2.player_id = p.id AND mp2.season = ?
            ORDER BY mp2.round DESC LIMIT 1) AS team_code,
+          (SELECT ss.sc_position FROM supplementary_stats ss
+           WHERE ss.player_name = p.name AND ss.season = ? AND ss.sc_position IS NOT NULL
+           ORDER BY ss.round DESC LIMIT 1) AS sc_position,
           COUNT(*) AS games_played,
           SUM(mp.tries) AS total_tries,
           SUM(mp.all_run_metres) AS total_run_metres,
@@ -958,12 +961,13 @@ export class D1PlayerRepository implements PlayerRepository {
         GROUP BY mp.player_id
         ORDER BY p.name`
       )
-      .bind(season, season)
+      .bind(season, season, season)
       .all<{
         player_id: string;
         player_name: string;
         position: string;
         team_code: string;
+        sc_position: string | null;
         games_played: number;
         total_tries: number;
         total_run_metres: number;
@@ -979,6 +983,7 @@ export class D1PlayerRepository implements PlayerRepository {
       playerName: row.player_name,
       teamCode: row.team_code,
       position: row.position,
+      scPosition: row.sc_position ?? null,
       gamesPlayed: row.games_played,
       totalTries: row.total_tries,
       totalRunMetres: row.total_run_metres,

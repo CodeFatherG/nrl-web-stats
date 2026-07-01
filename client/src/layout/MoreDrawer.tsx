@@ -5,14 +5,12 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import SummarizeIcon from '@mui/icons-material/Summarize';
 import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 
 const SECONDARY_NAV = [
   { path: '/supercoach', label: 'Supercoach', Icon: EmojiEventsIcon },
-  { path: '/summary', label: 'Summary', Icon: SummarizeIcon },
   { path: '/casualty-ward', label: 'Casualty Ward', Icon: LocalHospitalIcon },
   { path: '/compare', label: 'Compare', Icon: CompareArrowsIcon },
   { path: '/bye', label: 'Bye Overview', Icon: EventBusyIcon },

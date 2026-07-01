@@ -1,23 +1,20 @@
-import type { FixtureRepository } from '../ports/fixture-repository.js';
-import type { RankingService } from '../ports/ranking-service.js';
+import type { GetTeamStrengthRankingsUseCase } from './get-team-strength-rankings.js';
 import type { StreakService } from '../ports/streak-service.js';
 import type { StreakAnalysisResult } from '../results/streak-analysis-result.js';
-import { fixtureRepositoryAdapter } from '../adapters/fixture-repository-adapter.js';
-import { rankingServiceAdapter } from '../adapters/ranking-service-adapter.js';
 import { streakServiceAdapter } from '../adapters/streak-service-adapter.js';
+import { getTeamByCode } from '../../database/store.js';
 
 export class AnalyseStreaksUseCase {
   constructor(
-    private readonly fixtures: FixtureRepository,
-    private readonly rankings: RankingService,
-    private readonly streakSvc: StreakService
+    private readonly rankings: GetTeamStrengthRankingsUseCase,
+    private readonly streakSvc: StreakService,
   ) {}
 
-  execute(year: number, teamCode: string): StreakAnalysisResult | null {
-    const team = this.fixtures.getTeamByCode(teamCode);
+  async execute(year: number, teamCode: string): Promise<StreakAnalysisResult | null> {
+    const team = getTeamByCode(teamCode);
     if (!team) return null;
 
-    const ranking = this.rankings.getTeamSeasonRanking(year, teamCode);
+    const ranking = await this.rankings.getSeasonRanking(year, teamCode);
     if (!ranking) return null;
 
     const streaks = this.streakSvc.analyseTeamStreaks(ranking);
@@ -33,6 +30,8 @@ export class AnalyseStreaksUseCase {
   }
 }
 
-export function createAnalyseStreaksUseCase(): AnalyseStreaksUseCase {
-  return new AnalyseStreaksUseCase(fixtureRepositoryAdapter, rankingServiceAdapter, streakServiceAdapter);
+export function createAnalyseStreaksUseCase(
+  rankings: GetTeamStrengthRankingsUseCase,
+): AnalyseStreaksUseCase {
+  return new AnalyseStreaksUseCase(rankings, streakServiceAdapter);
 }

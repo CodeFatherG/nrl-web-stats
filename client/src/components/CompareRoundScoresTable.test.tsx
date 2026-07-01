@@ -14,6 +14,7 @@ function makePlayer(
     playerName: `Player ${id}`,
     teamCode: 'SYD',
     position: 'wing',
+    scPosition: null,
     seasonStats: null,
     scRounds: rounds.map(r => ({ round: r.round, totalScore: r.score, opponent: null, isComplete: true })),
     sc: seasonAverage !== undefined ? {

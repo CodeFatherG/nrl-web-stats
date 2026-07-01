@@ -1,6 +1,17 @@
 # Analytics
 
-Eight analytics capabilities are available, all computed on-demand from existing fixture, match, and player data. No persistent analytics storage — results are cached in-memory with version-based invalidation.
+Eight analytics capabilities are available.
+
+**Spec 037 — precomputed-artifact storage**: `team-form`, `match-outlook`,
+`player-trends`, and `composition-impact` are populated by a precompute
+pipeline (cron + scrape-driven job-queue fan-out) into KV-backed repositories.
+Read requests are served from the artifact stores; misses return
+`{ available: false, reason: 'precompute-pending' }` until the next
+precompute tick. Non-default `windowSize` / `significantOnly` query
+parameters bypass the artifact stores and run live compute on the request
+thread. The other endpoints (`contextual-profile`, `contextual-projection`,
+plus the projection / rankings / GSR endpoints from specs 034 and 036)
+continue to use their respective repositories or live-compute paths.
 
 ## Team Form Analysis
 
@@ -77,11 +88,36 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 
 **Output**: Array of player impacts with win rates, impact scores, and method used
 
+## Team Strength Rankings (Feature 039)
+
+**Endpoints**: `GET /api/rankings/:year`, `GET /api/rankings/:year/:code`, `GET /api/rankings/:year/:code/:round`
+
+**Inputs**: `FixtureRepository.findByYear(year)` (one read per precompute) + the shared `currentWatermark(year)` watermark.
+
+**Computation** (batched precompute in `ComputeTeamStrengthRankingsUseCase`):
+
+1. **Season thresholds** — strength ratings of non-bye fixtures, IQR-clamped (Q1−1.5·IQR, Q3+1.5·IQR), p33/p67 computed on the non-outlier set.
+2. **Per-round rankings** — for every round R, each team's opponent strength rating, percentile against the season-wide non-bye distribution, and classification (hard / medium / easy) via the season thresholds.
+3. **Per-team season rollup** — average opponent strength across all non-bye matches, percentile vs other teams, classification via `getCategoryFromPercentile`. Includes the chronological per-round breakdown.
+
+**Storage**: Each artifact is persisted via `TeamStrengthRankingsRepository` (KV in production, in-memory otherwise) under the `team-strength-rankings:v1:` key prefix. Three sub-artifact families per year:
+
+- `team-strength-rankings:v1:{year}:thresholds`
+- `team-strength-rankings:v1:{year}:season`
+- `team-strength-rankings:v1:{year}:round:{round}`
+
+**Read path**: `GetTeamStrengthRankingsUseCase` consults the repository AND the current watermark. Misses or watermark-mismatches return `null`; the handler renders these as the standard `{ available: false, asOfRound: null, reason: "precompute-pending" }` envelope. There is no live-compute fallback.
+
+**Refresh triggers**:
+
+- `EnqueueDueScrapesUseCase` — per-tick gap-set probe (any sub-artifact missing or lagging the watermark publishes one `precompute-team-strength-rankings` job per active year).
+- `ScrapeSupplementaryStatsUseCase` — on every successful round scrape, publishes a `precompute-team-strength-rankings` job with `asOfRound = round`. The consumer is idempotent against the same watermark.
+
 ## Streak Analysis
 
 **Endpoint**: `GET /api/streaks/:year/:code`
 
-**Inputs**: Team's fixture schedule with strength categories (hard/medium/easy)
+**Inputs**: Team's season ranking from `GetTeamStrengthRankingsUseCase` (precompute artifact); returns the availability envelope when the ranking artifact is pending.
 
 **Computation** (two-pass detection):
 
@@ -96,8 +132,12 @@ Constraints: minimum 3 matches played, minimum 5 total team matches. Players ran
 **Endpoints**:
 - `GET /api/supercoach/:year/player/:playerId/projection`
 - `GET /api/supercoach/:year/team/:teamCode/rankings?mode=composite|captaincy|selection|trade`
+- `GET /api/supercoach/:year/player/:playerId/contextual-projection?opponent=&venue=&weather=`
+- `GET /api/supercoach/:year/player/:playerId/contextual-profile`
 
 **Service**: `src/analytics/player-projection-service.ts`
+
+**Precomputed read path (spec 034)**: All four endpoints above first attempt to read a precomputed aggregate from the projection store before falling back to the live computation described below. The precompute is triggered automatically by the discovery use case whenever the watermark (latest complete round, where a round is "complete" iff every fixture has match result + player stats for both teams + supplementary stats) advances past the most recent successful precompute. Freshness is bound by the watermark, not by a clock-based TTL — users see updated projections immediately after the next precompute run following a scrape. See `docs/ARCHITECTURE.md` §Precomputed Projections for the layering, trigger predicate, failure modes, and operator runbook.
 
 **Purpose**: Decompose each player's Supercoach scoring history into two independent components — a predictable *floor* driven by volume stats, and a volatile *spike* driven by event stats. This separation makes the model more useful than raw averages for different Supercoach decisions: captaincy picks, trade targets, and team selection all weight floor vs. spike differently.
 
@@ -393,12 +433,13 @@ adjustedProjection = { total: base.total * combined, floor: base.floor * combine
 
 Only opponent and venue multipliers are included in the `multipliers[]` array. Weather is excluded.
 
-### Cache Key Strategy
+### Caching Strategy (spec 037)
 
-- Defensive profile: `opponent-defense-profile:${year}` with version `${year}:${latestCompleteRound}`
-- Per-player result: `contextual-projection:${playerId}:${opponent??'none'}:${venue??'none'}:${weather??'none'}:${year}` with same version
-- Cache invalidates naturally when `latestCompleteRound` increases (a new round completes)
-- 10-minute TTL safety net via `AnalyticsCache`
+The intermediate `AnalyticsCache` RAM layer was removed by spec 037. Contextual
+profile / projection results are not memoised between requests — each
+projection-store miss falls all the way through to live compute and writes
+the result through to the spec-034 projection store. Cross-isolate durability
+comes from the projection store, not from any per-isolate cache.
 
 ### Extensibility
 
@@ -465,16 +506,25 @@ Fixed: `base`, `scoring`, `create`, `evade`, `defence`, `negative`. The `base` c
 
 `sampleSizeWarning: true` is set on any team entry where `teamSamplesUsed < minRoundsForReliability` or `opponentSamplesUsed < minRoundsForReliability`. Default threshold: 3 rounds. The rating is still returned as a best-effort value.
 
-### Caching and Locking Behaviour
+### Storage and Locking Behaviour
 
-| Scenario | Storage | Stability |
-|----------|---------|-----------|
-| Round immediately after a completed round | D1 (`game_strength_ratings` table) | Locked — never changes |
-| Further future rounds | In-memory `GameStrengthCache` | Rebuilt on each round completion |
-| Non-default `halfLife` requests | None | Always computed on-demand |
-| On-demand fallback (cold cache) | None | Computed per request |
+Spec 036 unified the storage substrate behind a single `GameStrengthRepository` port (a composite adapter routing internally to D1 and KV).
 
-**Trigger**: `LockGameStrengthRatingsUseCase.execute(year, completedRound)` is called automatically after each supplementary stats scrape in the cron handler. It is idempotent — if the next round's GSR is already locked, it exits immediately. Completeness is verified by checking that all matches in the completed round have `isComplete: true` before locking.
+| Scenario | Backing store | Stability |
+|----------|--------------|-----------|
+| Round immediately after a completed round | D1 (`game_strength_ratings` table) | Locked — `INSERT OR IGNORE`; never overwritten |
+| Further future rounds | KV (`gsr-provisional:v1:{year}:{round}`) — durable, shared across isolates | Last-write-wins; rebuilt on each recompute |
+| Local dev / unit tests without `CACHE` | Per-isolate in-memory Map (provisional half only) | Lost on isolate recycle |
+| Non-default `halfLife` requests | None | Always computed on-demand (FR-008) |
+| Default-half-life requests with no precomputed artifact | None | Returns `null` → handler emits `{ available: false }`. Readers never compute on the request thread. |
+
+**Read path**: callers go through `GameStrengthRepository.read(year, round)`, which consults the D1 locked store first, then the KV provisional store, then returns `null`. The artifact returned carries `locked: boolean` and `lockedAt: string | null` so callers learn the state without knowing which storage backed it.
+
+**Recompute trigger**: a `recompute-game-strength` queue job (spec 033) dispatches `LockGameStrengthRatingsUseCase.execute(year, completedRound)`. Two enqueue paths:
+1. Post-scrape signal from `ScrapeSupplementaryStatsUseCase` on successful round completion.
+2. Cron-discovery gap-fill in `EnqueueDueScrapesUseCase` — publishes ONE job per year per tick when `(locked ∪ provisional)` does not cover every round the season expects.
+
+Both paths are idempotent (D1 INSERT OR IGNORE, KV last-write-wins). Custom-half-life requests bypass the repository entirely (artifact identity is `(year, round)` only).
 
 ### Implementation Notes
 

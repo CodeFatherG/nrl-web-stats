@@ -12,6 +12,7 @@ import { useState, useMemo } from 'react';
 import { useMatchDetailQuery, useMatchSupercoachQuery } from '../hooks/useMatchQuery';
 import { useAllRankingsQuery } from '../hooks/useTeamQuery';
 import { useGameStrengthQuery } from '../hooks/useRoundQuery';
+import { isGSRAvailable } from '../services/api';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SectionCard } from '../components/shared/SectionCard';
 import { DataTable } from '../components/shared/DataTable';
@@ -283,6 +284,7 @@ export function MatchDetailView() {
 
   const matchGSR = useMemo(() => {
     if (!gsrQuery.data || !matchQuery.data) return null;
+    if (!isGSRAvailable(gsrQuery.data)) return null;
     return gsrQuery.data.matches.find(
       m => m.homeTeam.teamCode === matchQuery.data!.homeTeamCode && m.awayTeam.teamCode === matchQuery.data!.awayTeamCode
     ) ?? null;

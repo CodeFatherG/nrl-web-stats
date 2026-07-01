@@ -102,6 +102,10 @@ export interface PlayerProjectionProfile {
 
 export type RankingMode = 'composite' | 'captaincy' | 'selection' | 'trade';
 
+/** Exhaustive list of ranking modes — single source of truth for callers that
+ *  need to iterate every mode (precompute discovery, team-rankings precompute). */
+export const ALL_RANKING_MODES: readonly RankingMode[] = ['composite', 'captaincy', 'selection', 'trade'] as const;
+
 export interface RankedPlayer {
   rank: number;
   compositeScore: number | null; // null when floorCv is null (< 2 eligible games)

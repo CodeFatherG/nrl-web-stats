@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ScrapeMatchResultsUseCase, findRoundsNeedingScrape, findRoundsNeedingPlayerStats, findRoundsInPlayerStatsUpdateWindow } from '../../src/application/use-cases/scrape-match-results.js';
 import type { MatchResultSource, MatchResult } from '../../src/domain/ports/match-result-source.js';
 import type { MatchRepository } from '../../src/domain/repositories/match-repository.js';
@@ -6,6 +6,7 @@ import type { PlayerRepository } from '../../src/domain/repositories/player-repo
 import type { Match } from '../../src/domain/match.js';
 import { MatchStatus, createMatchFromSchedule, enrichWithResult, createMatchId } from '../../src/domain/match.js';
 import { success, failure } from '../../src/domain/result.js';
+import { InMemoryMatchResultsScrapeWatermarkRepository } from '../../src/infrastructure/persistence/in-memory-match-results-scrape-watermark-repository.js';
 
 function createMockMatchResultSource(
   result: ReturnType<typeof success<MatchResult[]>> | ReturnType<typeof failure<MatchResult[]>>
@@ -720,5 +721,112 @@ describe('findRoundsInPlayerStatsUpdateWindow', () => {
     // After supp stats published: round is excluded
     const after = await findRoundsInPlayerStatsUpdateWindow(matchRepo, playerRepo, createMockSuppRepo(true));
     expect(after).toEqual([]);
+  });
+});
+
+// =============================================
+// Spec 040 — durable watermark freshness predicate
+// =============================================
+describe('ScrapeMatchResultsUseCase — durable watermark freshness predicate', () => {
+  const IN_PROGRESS_TTL_MS = 30 * 60 * 1000;
+  const NOW = new Date('2026-05-26T12:00:00Z');
+
+  let source: MatchResultSource & { fetchResults: ReturnType<typeof vi.fn> };
+  let repo: MatchRepository & { save: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn> };
+  let watermarkRepo: InMemoryMatchResultsScrapeWatermarkRepository;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    source = createMockMatchResultSource(success(testResults)) as typeof source;
+    repo = createMockMatchRepository();
+    watermarkRepo = new InMemoryMatchResultsScrapeWatermarkRepository();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('null watermark ⇒ scrape (fetch is called)', async () => {
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+    expect(source.fetchResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('allCompleted=true ⇒ skip forever (no fetch even after a long delay)', async () => {
+    // Pre-populate the watermark with allCompleted=true at time NOW.
+    await watermarkRepo.markScraped(2026, 5, true);
+    // Advance clock by 1 year.
+    vi.setSystemTime(new Date(NOW.getTime() + 365 * 24 * 60 * 60 * 1000));
+
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+    expect(source.fetchResults).not.toHaveBeenCalled();
+  });
+
+  it('allCompleted=false, age < 30min ⇒ skip', async () => {
+    await watermarkRepo.markScraped(2026, 5, false);
+    // Advance clock by 29 minutes — still within the TTL window.
+    vi.setSystemTime(new Date(NOW.getTime() + 29 * 60 * 1000));
+
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+    expect(source.fetchResults).not.toHaveBeenCalled();
+  });
+
+  it('allCompleted=false, age > 30min ⇒ scrape', async () => {
+    await watermarkRepo.markScraped(2026, 5, false);
+    // Advance clock by 31 minutes — past the TTL window.
+    vi.setSystemTime(new Date(NOW.getTime() + 31 * 60 * 1000));
+
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+    expect(source.fetchResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('allCompleted=false, age === 30min (boundary) ⇒ scrape (strict less-than)', async () => {
+    await watermarkRepo.markScraped(2026, 5, false);
+    // Advance exactly to the boundary. Predicate uses `age < TTL` so this MUST scrape.
+    vi.setSystemTime(new Date(NOW.getTime() + IN_PROGRESS_TTL_MS));
+
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+    expect(source.fetchResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('successful scrape writes the watermark with derivedAllCompleted=true when every result is Completed', async () => {
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2025, 1);
+
+    const watermark = await watermarkRepo.findByRound(2025, 1);
+    expect(watermark).not.toBeNull();
+    expect(watermark?.allCompleted).toBe(true);
+  });
+
+  it('successful scrape writes derivedAllCompleted=false when any result is not Completed', async () => {
+    const mixed: MatchResult[] = [
+      { ...testResults[0], status: MatchStatus.Completed },
+      { ...testResults[1], status: MatchStatus.Scheduled, homeScore: null as unknown as number, awayScore: null as unknown as number },
+    ];
+    const mixedSource = createMockMatchResultSource(success(mixed));
+    const useCase = new ScrapeMatchResultsUseCase(mixedSource, repo, watermarkRepo);
+    await useCase.execute(2025, 1);
+
+    const watermark = await watermarkRepo.findByRound(2025, 1);
+    expect(watermark?.allCompleted).toBe(false);
+  });
+
+  it('skip outcome leaves the existing watermark untouched (no markScraped call)', async () => {
+    await watermarkRepo.markScraped(2026, 5, true);
+    const before = await watermarkRepo.findByRound(2026, 5);
+
+    // Advance 1 second so any inadvertent re-mark would have a different timestamp.
+    vi.setSystemTime(new Date(NOW.getTime() + 1000));
+
+    const useCase = new ScrapeMatchResultsUseCase(source, repo, watermarkRepo);
+    await useCase.execute(2026, 5);
+
+    const after = await watermarkRepo.findByRound(2026, 5);
+    expect(after?.lastScrapedAt).toBe(before?.lastScrapedAt);
   });
 });

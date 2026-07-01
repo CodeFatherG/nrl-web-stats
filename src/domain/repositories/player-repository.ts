@@ -22,6 +22,7 @@ export interface PlayerSeasonSummary {
   readonly playerName: string;
   readonly teamCode: string;
   readonly position: string;
+  readonly scPosition: string | null;
   readonly gamesPlayed: number;
   readonly totalTries: number;
   readonly totalRunMetres: number;

@@ -63,7 +63,7 @@ def main() -> None:
     try:
         print(f"Exporting {PROD_DB_NAME} → {dump_path} ...")
         run(
-            ["npx", "wrangler", "d1", "export", PROD_DB_NAME, "--remote", "--output", dump_path],
+            ["npx", "wrangler", "d1", "export", PROD_DB_NAME, "--env", "production", "--remote", "--output", dump_path],
             "wrangler d1 export",
         )
 
@@ -79,7 +79,7 @@ def main() -> None:
 
         print(f"Applying dump to local {LOCAL_BINDING} database ...")
         run(
-            ["npx", "wrangler", "d1", "execute", LOCAL_BINDING, "--local", "--file", dump_path],
+            ["npx", "wrangler", "d1", "execute", LOCAL_BINDING, "--env", "staging", "--local", "--file", dump_path],
             "wrangler d1 execute",
         )
 

@@ -38,14 +38,29 @@ import type { TeamListRepository } from '../domain/repositories/team-list-reposi
 import type { ScrapeCasualtyWardUseCase } from '../application/use-cases/scrape-casualty-ward.js';
 import type { CasualtyWardRepository } from '../domain/repositories/casualty-ward-repository.js';
 import type { GetTeamFormUseCase } from '../application/use-cases/get-team-form.js';
+import { DEFAULT_TEAM_FORM_WINDOW_SIZE } from '../application/use-cases/get-team-form.js';
 import type { GetMatchOutlookUseCase } from '../application/use-cases/get-match-outlook.js';
+import { DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE } from '../application/use-cases/get-match-outlook.js';
 import type { GetPlayerTrendsUseCase } from '../application/use-cases/get-player-trends.js';
+import {
+  DEFAULT_PLAYER_TRENDS_WINDOW_SIZE,
+  DEFAULT_PLAYER_TRENDS_SIGNIFICANT_ONLY,
+} from '../application/use-cases/get-player-trends.js';
 import type { GetCompositionImpactUseCase } from '../application/use-cases/get-composition-impact.js';
+import type { TeamFormRepository } from '../domain/repositories/team-form-repository.js';
+import type { MatchOutlookRepository } from '../domain/repositories/match-outlook-repository.js';
+import type { PlayerTrendsRepository } from '../domain/repositories/player-trends-repository.js';
+import type { CompositionImpactRepository } from '../domain/repositories/composition-impact-repository.js';
+import type { TeamStrengthRankingsRepository } from '../domain/repositories/team-strength-rankings-repository.js';
+import type { LeagueRoundProjectionsRepository } from '../domain/repositories/league-round-projections-repository.js';
+import { available, precomputePending } from './availability-envelope.js';
 import type { GetPlayerProjectionUseCase } from '../application/use-cases/get-player-projection.js';
 import type { GetTeamProjectionRankingsUseCase } from '../application/use-cases/get-team-projection-rankings.js';
 import type { GetContextualProjectionUseCase } from '../application/use-cases/get-contextual-projection.js';
 import type { GetContextualProfileUseCase } from '../application/use-cases/get-contextual-profile.js';
-import type { PlayerMovementsCache } from '../analytics/player-movements-cache.js';
+import type { ProjectionRepository } from '../domain/repositories/projection-repository.js';
+import type { PlayerMovementsRepository } from '../domain/repositories/player-movements-repository.js';
+import type { GameStrengthRepository } from '../domain/repositories/game-strength-repository.js';
 import type { ComputePlayerMovementsUseCase } from '../application/use-cases/compute-player-movements.js';
 import type { RankingMode } from '../analytics/player-projection-types.js';
 import {
@@ -59,17 +74,12 @@ import { normalizeName, matchPlayerName } from '../config/player-name-matcher.js
 import type { MatchingContext } from '../config/player-name-matcher.js';
 import type { SupplementaryPlayerStats } from '../domain/ports/supplementary-stats-source.js';
 import { fixtures } from '../database/query.js';
-import {
-  getTeamRoundRanking,
-  getTeamSeasonRanking,
-  getAllTeamSeasonRankings,
-  calculateSeasonThresholds,
-} from '../database/rankings.js';
+import type { GetTeamStrengthRankingsUseCase } from '../application/use-cases/get-team-strength-rankings.js';
 import { VALID_TEAM_CODES } from '../models/team.js';
 import { VALID_VENUE_IDS, VENUE_NORMALISATION } from '../config/venue-normalisation.js';
 import { VALID_WEATHER_CATEGORIES } from '../config/weather-normalisation.js';
 import type { WeatherCategory } from '../config/weather-normalisation.js';
-import { cacheStore } from '../cache/store.js';
+import type { FixtureRepository } from '../domain/repositories/fixture-repository.js';
 import { createGetTeamScheduleUseCase } from '../application/use-cases/get-team-schedule.js';
 import { createGetSeasonSummaryUseCase } from '../application/use-cases/get-season-summary.js';
 import { createGetRoundDetailsUseCase } from '../application/use-cases/get-round-details.js';
@@ -114,14 +124,48 @@ export interface HandlerDeps {
   createGetContextualProjectionUseCase: (db: D1Database) => GetContextualProjectionUseCase;
   /** Factory to create a per-request GetContextualProfileUseCase from the DB binding */
   createGetContextualProfileUseCase: (db: D1Database) => GetContextualProfileUseCase;
-  /** In-memory cache for pre-computed player movements per round */
-  playerMovementsCache: PlayerMovementsCache;
+  /** Durable repository for precomputed player-movements artifacts (spec 035). */
+  playerMovementsRepository: PlayerMovementsRepository;
   /** Factory to create a per-request ComputePlayerMovementsUseCase from the DB binding */
   createComputePlayerMovementsUseCase: (db: D1Database) => ComputePlayerMovementsUseCase;
   /** Factory to create a per-request GetGameStrengthUseCase from the DB binding */
   createGetGameStrengthUseCase: (db: D1Database) => GetGameStrengthUseCase;
   /** Factory to create a per-request LockGameStrengthRatingsUseCase from the DB binding */
   createLockGameStrengthUseCase: (db: D1Database) => LockGameStrengthRatingsUseCase;
+  /** Precomputed projection store (spec 034). Use cases in subsequent phases
+   *  read this first and fall back to live computation on miss/stale. */
+  projectionRepository: ProjectionRepository;
+  /** Spec 036: factory for the unified game-strength-rating repository
+   *  (locked artifacts in D1 + provisional artifacts in KV, behind one port).
+   *  Per-request because the D1 sub-adapter is request-scoped. */
+  gameStrengthRepository: (db: D1Database) => GameStrengthRepository;
+  /** Spec 037: watermark function used by the four analytics handlers when
+   *  they fall through to live-compute (non-default windowSize / significantOnly).
+   *  Returns the highest round R such that match-performances are complete for
+   *  every team's match in (year, R). Reuses application/services/current-watermark. */
+  watermarkFn: (db: D1Database, year: number) => Promise<number>;
+  /** Spec 037: the four precomputed-artifact repositories. Exposed on deps so
+   *  the queue handler (which builds its own precompute use cases) and the
+   *  cron-discovery sweep can reach them without going through the use cases. */
+  teamFormRepository: TeamFormRepository;
+  matchOutlookRepository: MatchOutlookRepository;
+  playerTrendsRepository: PlayerTrendsRepository;
+  compositionImpactRepository: CompositionImpactRepository;
+  /** Spec 038: durable per-year fixture artifact repository. */
+  fixtureRepository: FixtureRepository;
+  /** Spec 038: queue producer used by the manual scrape-draw endpoint to
+   *  publish a `scrape-draw` job instead of running inline. */
+  jobProducer: import('../application/ports/job-queue.js').JobProducer;
+  /** Spec 039: factory for the team-strength-rankings read-path use case.
+   *  Per-request because the watermark function depends on the D1 binding. */
+  createGetTeamStrengthRankingsUseCase: (db: D1Database) => GetTeamStrengthRankingsUseCase;
+  /** Spec 039: durable team-strength-rankings store. Exposed on deps so the
+   *  cron-discovery sweep and queue consumer can reach it without going
+   *  through the read-path use case. */
+  teamStrengthRankingsRepository: TeamStrengthRankingsRepository;
+  /** League-round dashboard artifact store. Read-only on the handler side
+   *  (writer is the precompute use case in the queue handler). */
+  leagueRoundProjectionsRepository: LeagueRoundProjectionsRepository;
 }
 
 // Environment bindings type
@@ -151,12 +195,15 @@ function errorResponse(c: ApiContext, code: string, message: string, status: num
  */
 export function getHealth(deps: HandlerDeps) {
   return async (c: ApiContext) => {
-    const cacheStatus = cacheStore.getStatus();
-    const response: HealthResponse & { cache: typeof cacheStatus } = {
+    const scrapedYearsMap = await deps.fixtureRepository.listScrapedYears();
+    const scrapedYears = Array.from(scrapedYearsMap.entries())
+      .sort(([a], [b]) => b - a)
+      .map(([year, lastScrapedAt]) => ({ year, lastScrapedAt }));
+    const response: HealthResponse & { fixtures: { scrapedYears: typeof scrapedYears } } = {
       status: 'ok',
       loadedYears: await deps.matchRepository.getLoadedYears(),
       totalFixtures: await deps.matchRepository.getMatchCount(),
-      cache: cacheStatus,
+      fixtures: { scrapedYears },
     };
     return c.json(response);
   };
@@ -169,7 +216,7 @@ export function getYears(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     const response: YearsResponse = {
       years: await deps.matchRepository.getLoadedYears(),
-      lastUpdated: getLastScrapeTimes(),
+      lastUpdated: await getLastScrapeTimes(),
     };
     return c.json(response);
   };
@@ -201,7 +248,12 @@ export function getTeamSchedule(deps: HandlerDeps) {
     }
     const yearParam = c.req.query('year');
     const year = yearParam ? YearSchema.safeParse(yearParam).data : undefined;
-    const result = await createGetTeamScheduleUseCase(deps.matchRepository).execute(code, year);
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createGetTeamScheduleUseCase(
+      deps.fixtureRepository,
+      rankingsUseCase,
+      deps.matchRepository,
+    ).execute(code, year);
     return c.json({
       team,
       schedule: result.schedule,
@@ -239,6 +291,12 @@ export async function getFixtures(c: ApiContext) {
   }
 
   const params = parseResult.data;
+
+  // Year is required after the spec-038 repository migration (cross-year
+  // fixture queries are no longer supported).
+  if (params.year === undefined) {
+    return errorResponse(c, 'INVALID_PARAMETER', 'Query parameter `year` is required', 400);
+  }
 
   // Validate team code if provided
   if (params.team && !VALID_TEAM_CODES.includes(params.team)) {
@@ -282,7 +340,7 @@ export async function getFixtures(c: ApiContext) {
     query = query.opponent(params.opponent);
   }
 
-  const fixtureList = query.execute();
+  const fixtureList = await query.execute();
 
   return c.json(fixtureList);
 }
@@ -305,7 +363,7 @@ export function getRoundDetails(deps: HandlerDeps) {
       return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
     }
     const teamListRepo = deps.createTeamListRepository(c.env.DB);
-    const result = await createGetRoundDetailsUseCase(deps.matchRepository, teamListRepo).execute(yearResult.data, roundResult.data);
+    const result = await createGetRoundDetailsUseCase(deps.fixtureRepository, deps.matchRepository, teamListRepo).execute(yearResult.data, roundResult.data);
     return c.json(result);
   };
 }
@@ -315,112 +373,121 @@ export function getRoundDetails(deps: HandlerDeps) {
 // ============================================
 
 /**
- * GET /api/rankings/:year - Get all teams ranking for year
+ * GET /api/rankings/:year - Get all teams ranking for year.
+ *
+ * Returns the standard availability envelope: when the precompute artifact
+ * for the year is missing or stale (cold-start / pre-watermark-advance),
+ * responds with `{ available: false, asOfRound: null, reason: ... }`.
  */
-export async function getAllTeamsRanking(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
+export function getAllTeamsRanking(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
+    const year = yearResult.data;
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const rankedTeams = await useCase.getAllSeasonRankings(year);
+    const thresholds = await useCase.getSeasonThresholds(year);
 
-  const year = yearResult.data;
-  const rankedTeams = getAllTeamSeasonRankings(year);
+    if (rankedTeams === null || thresholds === null) {
+      return c.json(precomputePending());
+    }
 
-  if (rankedTeams.length === 0) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${year}`, 404);
-  }
+    const response: AllTeamsRankingResponse = {
+      year,
+      thresholds,
+      rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
+        const team = getTeamByCode(teamCode);
+        return {
+          team: team || { code: teamCode, name: teamCode },
+          totalStrength: ranking.totalStrength,
+          averageStrength: ranking.averageStrength,
+          percentile: ranking.percentile,
+          category: ranking.category,
+          rank,
+        };
+      }),
+    };
 
-  const response: AllTeamsRankingResponse = {
-    year,
-    thresholds: calculateSeasonThresholds(year),
-    rankings: rankedTeams.map(({ teamCode, ranking, rank }) => {
-      const team = getTeamByCode(teamCode);
-      return {
-        team: team || { code: teamCode, name: teamCode },
-        totalStrength: ranking.totalStrength,
-        averageStrength: ranking.averageStrength,
-        percentile: ranking.percentile,
-        category: ranking.category,
-        rank,
-      };
-    }),
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 /**
- * GET /api/rankings/:year/:code - Get team season ranking
+ * GET /api/rankings/:year/:code - Get team season ranking.
+ *
+ * Returns the availability envelope when the artifact is missing or stale.
  */
-export async function getTeamRanking(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const code = c.req.param('code')?.toUpperCase();
+export function getTeamRanking(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const code = c.req.param('code')?.toUpperCase();
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
 
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
 
-  const year = yearResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
+    const year = yearResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
 
-  const ranking = getTeamSeasonRanking(year, code);
-  if (!ranking) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
-  }
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const ranking = await useCase.getSeasonRanking(year, code);
+    if (!ranking) {
+      return c.json(precomputePending());
+    }
 
-  const response: TeamSeasonRankingResponse = {
-    team,
-    ranking,
+    const response: TeamSeasonRankingResponse = { team, ranking };
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 /**
- * GET /api/rankings/:year/:code/:round - Get team round ranking
+ * GET /api/rankings/:year/:code/:round - Get team round ranking.
+ *
+ * Returns the availability envelope when the artifact is missing or stale.
  */
-export async function getTeamRoundRankingHandler(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const roundResult = RoundSchema.safeParse(c.req.param('round'));
-  const code = c.req.param('code')?.toUpperCase();
+export function getTeamRoundRankingHandler(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+    const code = c.req.param('code')?.toUpperCase();
 
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
-  if (!roundResult.success) {
-    return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
-  }
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be between 1 and 27', 400);
+    }
 
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
 
-  const year = yearResult.data;
-  const round = roundResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
+    const year = yearResult.data;
+    const round = roundResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
 
-  const ranking = getTeamRoundRanking(year, code, round);
-  if (!ranking) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in round ${round} of ${year}`, 404);
-  }
+    const useCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const ranking = await useCase.getRoundRanking(year, round, code);
+    if (!ranking) {
+      return c.json(precomputePending());
+    }
 
-  const response: TeamRoundRankingResponse = {
-    team,
-    ranking,
+    const response: TeamRoundRankingResponse = { team, ranking };
+    return c.json(response);
   };
-
-  return c.json(response);
 }
 
 // ============================================
@@ -430,26 +497,29 @@ export async function getTeamRoundRankingHandler(c: ApiContext) {
 /**
  * GET /api/streaks/:year/:code - Get team streak analysis
  */
-export async function getTeamStreaks(c: ApiContext) {
-  const yearResult = YearSchema.safeParse(c.req.param('year'));
-  const code = c.req.param('code')?.toUpperCase();
-  if (!yearResult.success) {
-    return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
-  }
-  if (!code || !VALID_TEAM_CODES.includes(code)) {
-    return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
-  }
-  const year = yearResult.data;
-  const team = getTeamByCode(code);
-  if (!team) {
-    return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
-  }
-  const result = createAnalyseStreaksUseCase().execute(year, code);
-  if (!result) {
-    return errorResponse(c, 'NOT_FOUND', `No data found for ${code} in ${year}`, 404);
-  }
-  const response: TeamStreaksResponse = { team, year, streaks: result.streaks, summary: result.summary };
-  return c.json(response);
+export function getTeamStreaks(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    const code = c.req.param('code')?.toUpperCase();
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    if (!code || !VALID_TEAM_CODES.includes(code)) {
+      return errorResponse(c, 'INVALID_TEAM', `Unknown team code: ${code}`, 400, VALID_TEAM_CODES);
+    }
+    const year = yearResult.data;
+    const team = getTeamByCode(code);
+    if (!team) {
+      return errorResponse(c, 'TEAM_NOT_FOUND', `Team not found: ${code}`, 404, VALID_TEAM_CODES);
+    }
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createAnalyseStreaksUseCase(rankingsUseCase).execute(year, code);
+    if (!result) {
+      return c.json(precomputePending());
+    }
+    const response: TeamStreaksResponse = { team, year, streaks: result.streaks, summary: result.summary };
+    return c.json(response);
+  };
 }
 
 // ============================================
@@ -472,7 +542,13 @@ export function getSeasonSummary(deps: HandlerDeps) {
       return errorResponse(c, 'NOT_FOUND', `Season data for ${year} has not been loaded${validYearsStr}`, 404);
     }
     const teamListRepo = deps.createTeamListRepository(c.env.DB);
-    const result = await createGetSeasonSummaryUseCase(deps.matchRepository, teamListRepo).execute(year);
+    const rankingsUseCase = deps.createGetTeamStrengthRankingsUseCase(c.env.DB);
+    const result = await createGetSeasonSummaryUseCase(
+      deps.fixtureRepository,
+      rankingsUseCase,
+      deps.matchRepository,
+      teamListRepo,
+    ).execute(year);
     return c.json(result as SeasonSummaryResponse);
   };
 }
@@ -482,8 +558,12 @@ export function getSeasonSummary(deps: HandlerDeps) {
 // ============================================
 
 /**
- * POST /api/scrape - Trigger scrape operation
- * Uses cache with request coalescing to prevent duplicate concurrent scrapes
+ * POST /api/scrape/draw - Enqueue a draw-scrape job.
+ *
+ * Spec 038: instead of running an inline scrape, publish a `scrape-draw`
+ * job onto the queue. The queue consumer drains within ~60 seconds and
+ * writes the artifact via `FixtureRepository.save`. Response is 202
+ * Accepted with a job acknowledgement envelope.
  */
 export function triggerScrape(deps: HandlerDeps) {
   return async (c: ApiContext) => {
@@ -493,17 +573,17 @@ export function triggerScrape(deps: HandlerDeps) {
       if (!parseResult.success) {
         return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
       }
-      const { year, force } = parseResult.data;
-      const result = await deps.scrapeDrawUseCase.execute(year, force);
-
-      // After draw loads, also scrape match results so analytics have data
-      try {
-        await deps.scrapeMatchResultsUseCase.execute(year);
-      } catch {
-        // Match results are optional — don't fail the draw scrape
-      }
-
-      return c.json(result);
+      const { year } = parseResult.data;
+      await deps.jobProducer.publish({ type: 'scrape-draw', version: 1, year });
+      return c.json(
+        {
+          success: true,
+          enqueued: true,
+          job: { type: 'scrape-draw', year },
+          message: 'Scrape job enqueued; durable artifact will update within ~60 seconds.',
+        },
+        202,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'SCRAPE_FAILED', message, 500);
@@ -654,6 +734,10 @@ export function getPlayer(deps: HandlerDeps) {
     const performanceSeasons = new Set(player.performances.map(p => p.year));
     const seasonsToQuery = seasonFilter ? [seasonFilter] : [...performanceSeasons];
 
+    // Track the most-recent (year, round) sc_position seen across all seasons
+    // so the response carries a top-level scPosition for chip display.
+    let latestScPosition: { year: number; round: number; value: string } | null = null;
+
     // Build opponent lookup from match_performances table
     // For each match_id, find the other team_code that participated
     const opponentMap = new Map<string, string>();
@@ -716,7 +800,16 @@ export function getPlayer(deps: HandlerDeps) {
           const identityMatch = matchPlayerName(playerId, firstName, lastName, player.teamCode, supplementaryNames, ctx);
           if (identityMatch) {
             const matched = roundSupp.find(s => s.playerName === identityMatch.supplementaryName);
-            if (matched) suppByRound.set(round, matched);
+            if (matched) {
+              suppByRound.set(round, matched);
+              if (matched.scPosition && (
+                latestScPosition === null ||
+                year > latestScPosition.year ||
+                (year === latestScPosition.year && round > latestScPosition.round)
+              )) {
+                latestScPosition = { year, round, value: matched.scPosition };
+              }
+            }
 
             // Auto-persist new link on first discovery
             if (!linkPersisted && identityMatch.confidence !== 'linked') {
@@ -755,6 +848,7 @@ export function getPlayer(deps: HandlerDeps) {
               heldUpInGoal: supp?.heldUpInGoal ?? null,
               price: supp?.price ?? null,
               breakEven: supp?.breakEven ?? null,
+              scPosition: supp?.scPosition ?? null,
             };
           }),
         };
@@ -765,6 +859,7 @@ export function getPlayer(deps: HandlerDeps) {
       id: player.id,
       name: player.name,
       position: player.position,
+      scPosition: latestScPosition?.value ?? null,
       teamCode: player.teamCode,
       seasons,
     });
@@ -850,8 +945,18 @@ export function getTeamForm(deps: HandlerDeps) {
     const { year, teamCode } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const trajectory = await deps.getTeamFormUseCase.execute(teamCode, year, windowSize);
-    return c.json(trajectory);
+    if (windowSize === DEFAULT_TEAM_FORM_WINDOW_SIZE) {
+      const aggregate = await deps.getTeamFormUseCase.findPrecomputed(teamCode, year);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.trajectory));
+    }
+
+    // Non-default windowSize: live-compute and stamp current watermark.
+    const trajectory = await deps.getTeamFormUseCase.computeLive(teamCode, year, windowSize);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, trajectory));
   };
 }
 
@@ -879,8 +984,17 @@ export function getMatchOutlook(deps: HandlerDeps) {
     const { year, round } = paramsResult.data;
     const { window: windowSize } = queryResult.data;
 
-    const result = await deps.getMatchOutlookUseCase.execute(year, round, windowSize);
-    return c.json(result);
+    if (windowSize === DEFAULT_MATCH_OUTLOOK_WINDOW_SIZE) {
+      const aggregate = await deps.getMatchOutlookUseCase.findPrecomputed(year, round);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.outlook));
+    }
+
+    const outlook = await deps.getMatchOutlookUseCase.computeLive(year, round, windowSize);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, outlook));
   };
 }
 
@@ -909,10 +1023,22 @@ export function getPlayerTrends(deps: HandlerDeps) {
     const { year, teamCode } = paramsResult.data;
     const { window: windowSize, significantOnly } = queryResult.data;
 
-    const result = await deps.getPlayerTrendsUseCase.execute(
+    if (
+      windowSize === DEFAULT_PLAYER_TRENDS_WINDOW_SIZE &&
+      significantOnly === DEFAULT_PLAYER_TRENDS_SIGNIFICANT_ONLY
+    ) {
+      const aggregate = await deps.getPlayerTrendsUseCase.findPrecomputed(teamCode, year);
+      if (aggregate === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(aggregate.asOfRound, aggregate.trends));
+    }
+
+    const trends = await deps.getPlayerTrendsUseCase.computeLive(
       c.env.DB, teamCode, year, windowSize, significantOnly
     );
-    return c.json(result);
+    const watermark = await deps.watermarkFn(c.env.DB, year);
+    return c.json(available(watermark, trends));
   };
 }
 
@@ -932,8 +1058,12 @@ export function getCompositionImpact(deps: HandlerDeps) {
 
     const { year, teamCode } = paramsResult.data;
 
-    const result = await deps.getCompositionImpactUseCase.execute(c.env.DB, teamCode, year);
-    return c.json(result);
+    // Composition-impact has no parameter-based bypass — always consult repo first.
+    const aggregate = await deps.getCompositionImpactUseCase.findPrecomputed(teamCode, year);
+    if (aggregate === null) {
+      return c.json(precomputePending());
+    }
+    return c.json(available(aggregate.asOfRound, aggregate.impact));
   };
 }
 
@@ -1596,7 +1726,13 @@ export function getContextualProfile(deps: HandlerDeps) {
  * GET /api/supercoach/:year/game-strength/:round
  * Returns Game Strength Ratings for every non-bye fixture in the specified round.
  * Optional ?halfLife query param (default 6) controls recency decay.
- * Locked rounds are served from D1; future rounds from in-memory cache; others computed on-demand.
+ *
+ * For the default half-life: locked rounds are served from the D1
+ * `game_strength_ratings` table; future rounds from the durable provisional
+ * store (KV in production, in-memory in dev/test). Missing artifacts surface
+ * as `{ available: false }` — readers never compute on the request thread.
+ * For a custom half-life: always computed on demand (the stored artifacts
+ * are keyed by `(year, round)` only).
  */
 export function getGameStrengthRatings(deps: HandlerDeps) {
   return async (c: ApiContext) => {
@@ -1624,6 +1760,9 @@ export function getGameStrengthRatings(deps: HandlerDeps) {
     try {
       const useCase = deps.createGetGameStrengthUseCase(c.env.DB);
       const result = await useCase.execute(yearResult.data, roundResult.data, halfLife);
+      if (result === null) {
+        return c.json({ available: false } as const);
+      }
       return c.json(result);
     } catch (error) {
       if (error instanceof Error && (error as Error & { code?: string }).code === 'NO_FIXTURES_FOUND') {
@@ -1642,46 +1781,71 @@ export function getPlayerMovements(deps: HandlerDeps) {
   return async (c: ApiContext) => {
     try {
       const year = (await deps.matchRepository.getLoadedYears())[0];
-      let round = deps.playerMovementsCache.getMostRecentCachedRound(year);
+      const round = await deps.playerMovementsRepository.findMostRecentRound(year);
       if (round === null) {
-        // Cache is cold (fresh deploy / isolate restart). Derive the current round
-        // from match data and compute on-demand to warm the cache.
-        const allMatches = await deps.matchRepository.findByYear(year);
-        const now = new Date();
-        const inProgressRounds = [...new Set(
-          allMatches.filter(m => m.status === 'InProgress').map(m => m.round)
-        )];
-        let derivedRound: number | undefined;
-        if (inProgressRounds.length > 0) {
-          derivedRound = Math.max(...inProgressRounds);
-        } else {
-          const pastRounds = allMatches
-            .filter(m => m.scheduledTime !== null && new Date(m.scheduledTime) <= now)
-            .map(m => m.round);
-          if (pastRounds.length > 0) derivedRound = Math.max(...pastRounds);
-        }
-        if (derivedRound === undefined) return c.json({ pending: true });
-        
-        const computeUseCase = deps.createComputePlayerMovementsUseCase(c.env.DB);
-
-        // Try the upcoming round first — team lists drop before kickoff
-        const nextRound = derivedRound + 1;
-        await computeUseCase.execute(year, nextRound);
-
-        if (deps.playerMovementsCache.get(year, nextRound)) {
-          round = nextRound;
-        } else {
-          // Team lists not yet complete for next round — fall back to latest played round
-          await computeUseCase.execute(year, derivedRound);
-          round = derivedRound;
-        }
+        return c.json({ available: false });
       }
-
-      const result = deps.playerMovementsCache.get(year, round);
-      return c.json(result ?? { pending: true });
+      const artifact = await deps.playerMovementsRepository.findByYearAndRound(year, round);
+      if (artifact === null) {
+        // Race: round vanished between findMostRecentRound and findByYearAndRound.
+        return c.json({ available: false });
+      }
+      // Explicit projection — DO NOT spread `artifact`. Storage-internal fields
+      // (computedAt, the duplicate `year` identity) must not leak (FR-004a).
+      return c.json({
+        available: true,
+        season:              artifact.season,
+        round:               artifact.round,
+        ...(artifact.noPreviousRound !== undefined && { noPreviousRound: artifact.noPreviousRound }),
+        injured:             artifact.injured,
+        dropped:             artifact.dropped,
+        benched:             artifact.benched,
+        returningFromInjury: artifact.returningFromInjury,
+        coveringInjury:      artifact.coveringInjury,
+        promoted:            artifact.promoted,
+        positionChanged:     artifact.positionChanged,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return errorResponse(c, 'INTERNAL_ERROR', `Failed to get player movements: ${message}`, 500);
+    }
+  };
+}
+
+/**
+ * GET /api/supercoach/:year/round/:round/dashboard
+ *
+ * Returns the precomputed league-round dashboard artifact (top/bottom
+ * break-evens + contextual top scorers + contextual top captains). Returns
+ * `{ available: false }` until the precompute fills the gap.
+ */
+export function getRoundDashboard(deps: HandlerDeps) {
+  return async (c: ApiContext) => {
+    const yearResult = YearSchema.safeParse(c.req.param('year'));
+    if (!yearResult.success) {
+      return errorResponse(c, 'INVALID_YEAR', 'Year must be 1998 or later', 400);
+    }
+    const roundResult = RoundSchema.safeParse(c.req.param('round'));
+    if (!roundResult.success) {
+      return errorResponse(c, 'INVALID_ROUND', 'Round must be a positive integer', 400);
+    }
+
+    try {
+      const artifact = await deps.leagueRoundProjectionsRepository
+        .findByYearAndRound(yearResult.data, roundResult.data);
+      if (artifact === null) {
+        return c.json(precomputePending());
+      }
+      return c.json(available(artifact.asOfRound, {
+        year: artifact.year,
+        round: artifact.round,
+        breakEvens: artifact.breakEvens,
+        scorers: artifact.scorers,
+        captains: artifact.captains,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return errorResponse(c, 'INTERNAL_ERROR', `Failed to get round dashboard: ${message}`, 500);
     }
   };
 }

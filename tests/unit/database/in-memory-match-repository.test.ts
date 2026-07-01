@@ -1,15 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { InMemoryMatchRepository } from '../../../src/database/in-memory-match-repository.js';
 import { createMatchFromSchedule } from '../../../src/domain/match.js';
 import type { Match } from '../../../src/domain/match.js';
-
-// Mock legacy-fixture-bridge to avoid side effects from the legacy bridge
-vi.mock('../../../src/database/legacy-fixture-bridge.js', () => ({
-  buildLegacyFixtureBridge: vi.fn(),
-}));
-
-import { buildLegacyFixtureBridge } from '../../../src/database/legacy-fixture-bridge.js';
-const mockBuildBridge = vi.mocked(buildLegacyFixtureBridge);
 
 function createTestMatch(overrides: Partial<Parameters<typeof createMatchFromSchedule>[0]> = {}): Match {
   return createMatchFromSchedule({
@@ -27,7 +19,6 @@ describe('InMemoryMatchRepository', () => {
   let repo: InMemoryMatchRepository;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     repo = new InMemoryMatchRepository();
   });
 
@@ -170,26 +161,6 @@ describe('InMemoryMatchRepository', () => {
       expect(await repo.findByYear(2026)).toHaveLength(1);
     });
 
-    it('calls legacy fixture bridge with converted fixtures including byes', async () => {
-      const matches = [createTestMatch()];
-      await repo.saveAll(matches);
-
-      expect(mockBuildBridge).toHaveBeenCalledWith(2026, matches);
-    });
-
-    it('infers bye fixtures via bridge for each round independently', async () => {
-      const round1Match = createTestMatch({ round: 1, homeTeamCode: 'BRO', awayTeamCode: 'MEL' });
-      const round2Match = createTestMatch({ round: 2, homeTeamCode: 'SYD', awayTeamCode: 'PAR' });
-      await repo.saveAll([round1Match, round2Match]);
-
-      expect(mockBuildBridge).toHaveBeenCalledWith(2026, [round1Match, round2Match]);
-    });
-
-    it('does not call bridge for empty match list', async () => {
-      await repo.saveAll([]);
-
-      expect(mockBuildBridge).not.toHaveBeenCalled();
-    });
   });
 
   describe('metadata methods', () => {

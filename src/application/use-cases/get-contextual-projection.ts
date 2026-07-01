@@ -5,9 +5,9 @@
 
 import type { PlayerRepository } from '../../domain/repositories/player-repository.js';
 import type { MatchRepository } from '../../domain/repositories/match-repository.js';
+import type { ProjectionRepository } from '../../domain/repositories/projection-repository.js';
 import type { GetSupercoachScoresUseCase } from './get-supercoach-scores.js';
-import type { GetPlayerProjectionUseCase } from './get-player-projection.js';
-import type { AnalyticsCache } from '../../analytics/analytics-cache.js';
+import type { GetPlayerProjectionUseCase, WatermarkFn } from './get-player-projection.js';
 import type {
   ContextualEligibleGame,
   ContextualProjectionResult,
@@ -47,7 +47,8 @@ export class GetContextualProjectionUseCase {
     private readonly supercoachUseCase: GetSupercoachScoresUseCase,
     private readonly projectionUseCase: GetPlayerProjectionUseCase,
     private readonly matchRepository: MatchRepository,
-    private readonly analyticsCache: AnalyticsCache,
+    private readonly projectionRepository: ProjectionRepository,
+    private readonly watermarkFn: WatermarkFn,
   ) {}
 
   async execute(
@@ -57,6 +58,51 @@ export class GetContextualProjectionUseCase {
     venue?: string,
     weather?: WeatherCategory,
   ): Promise<ContextualProjectionOutcome> {
+    // ── Repo-first read path (spec 034, US3) ─────────────────────────────
+    // The (player, year) aggregate already contains baseProfile + the full
+    // contextualProfile fan-out. On a warm hit we slice the requested
+    // opponent/venue/weather in memory and return — no D1 work needed.
+    try {
+      const agg = await this.projectionRepository.findPlayerAggregate(year, playerId);
+      if (agg !== null && agg.asOfRound >= (await this.watermarkFn(year))) {
+        const baseProjection: ProjectionValues = {
+          total: agg.baseProfile.projectedTotal,
+          floor: agg.baseProfile.projectedFloor,
+          ceiling: agg.baseProfile.projectedCeiling,
+        };
+        const adjustments: ContextualProjectionResult['adjustments'] = {};
+        const multipliers: number[] = [];
+        if (opponent) {
+          const o = agg.contextualProfile.opponents[opponent];
+          if (o) { adjustments.opponent = o; multipliers.push(o.multiplier); }
+        }
+        if (venue) {
+          const v = agg.contextualProfile.venues[venue];
+          if (v) { adjustments.venue = v; multipliers.push(v.multiplier); }
+        }
+        if (weather) {
+          const w = agg.contextualProfile.weather[weather];
+          if (w) { adjustments.weather = w; } // weather not applied to projection
+        }
+        const result: ContextualProjectionResult = {
+          playerId: agg.contextualProfile.playerId,
+          playerName: agg.contextualProfile.playerName,
+          teamCode: agg.contextualProfile.teamCode,
+          position: agg.contextualProfile.position,
+          year,
+          baseProjection,
+          adjustedProjection: applyMultipliers(baseProjection, multipliers),
+          adjustments,
+        };
+        return { kind: 'ok', result };
+      }
+    } catch (err) {
+      logger.warn('contextual projection repository read failed; falling back to live', {
+        playerId, year, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // ── Live fallback ────────────────────────────────────────────────────
     const player = await this.playerRepository.findById(playerId);
     if (!player) return { kind: 'player_not_found' };
 
@@ -69,10 +115,10 @@ export class GetContextualProjectionUseCase {
       .map(m => m.round);
     const latestCompleteRound = completedRounds.length > 0 ? Math.max(...completedRounds) : 0;
 
-    const cacheVersion = `${year}:${latestCompleteRound}`;
-    const perPlayerKey = `contextual-projection:${playerId}:${opponent ?? 'none'}:${venue ?? 'none'}:${weather ?? 'none'}:${year}`;
-    const cachedResult = this.analyticsCache.get<ContextualProjectionResult>(perPlayerKey, cacheVersion);
-    if (cachedResult) return { kind: 'ok', result: cachedResult };
+    // Spec 037 — RAM memoization (AnalyticsCache) removed. The projection
+    // store (spec 034) provides cross-isolate durable caching of the player
+    // aggregate; per-(opponent,venue,weather) results are sliced from that
+    // aggregate on each live-compute path.
 
     const loadedYears = await this.matchRepository.getLoadedYears();
 
@@ -102,7 +148,7 @@ export class GetContextualProjectionUseCase {
     const multipliers: number[] = [];
 
     if (opponent) {
-      const defenseProfile = await this.getOrBuildDefenseProfile(year, latestCompleteRound, cacheVersion);
+      const defenseProfile = await this.buildDefenseProfile(year, latestCompleteRound);
       const opponentAdj = computeOpponentMultiplier(defenseProfile, player.position, opponent, playerGames);
       adjustments.opponent = opponentAdj;
       multipliers.push(opponentAdj.multiplier);
@@ -133,20 +179,14 @@ export class GetContextualProjectionUseCase {
       adjustments,
     };
 
-    this.analyticsCache.set(perPlayerKey, result, cacheVersion);
     logger.info('Computed contextual projection', { playerId, year, opponent, venue, weather });
     return { kind: 'ok', result };
   }
 
-  private async getOrBuildDefenseProfile(
+  private async buildDefenseProfile(
     year: number,
     latestCompleteRound: number,
-    cacheVersion: string,
   ): Promise<OpponentDefensiveProfile> {
-    const defenseKey = `opponent-defense-profile:${year}`;
-    const cached = this.analyticsCache.get<OpponentDefensiveProfile>(defenseKey, cacheVersion);
-    if (cached) return cached;
-
     const loadedYears = await this.matchRepository.getLoadedYears();
     const minSeason = loadedYears.length > 0 ? Math.min(...loadedYears) : year;
     const maxSeason = loadedYears.length > 0 ? Math.max(...loadedYears) : year;
@@ -188,7 +228,6 @@ export class GetContextualProjectionUseCase {
     }
 
     const profile = buildOpponentDefenseProfile(allGames, positions, year, latestCompleteRound);
-    this.analyticsCache.set(defenseKey, profile, cacheVersion);
     logger.info('Built opponent defense profile', {
       year,
       latestCompleteRound,

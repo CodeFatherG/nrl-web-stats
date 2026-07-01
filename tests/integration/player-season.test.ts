@@ -75,9 +75,17 @@ describe('GET /api/players/season/:year', () => {
 
     db = await mf.getD1Database('DB') as unknown as D1Database;
 
-    // Apply migration
-    const migrationPath = path.resolve(__dirname, '../../migrations/0001_create_player_tables.sql');
-    if (fs.existsSync(migrationPath)) {
+    // Apply migrations needed by the season-summary handler.
+    // 0001 creates players + match_performances; 0004 creates supplementary_stats
+    // (referenced by the sc_position subquery); 0015 adds sc_position column to it.
+    const migrationFiles = [
+      '0001_create_player_tables.sql',
+      '0004_create_supplementary_stats.sql',
+      '0015_add_sc_position_to_supplementary_stats.sql',
+    ];
+    for (const filename of migrationFiles) {
+      const migrationPath = path.resolve(__dirname, '../../migrations', filename);
+      if (!fs.existsSync(migrationPath)) continue;
       const migrationSql = fs.readFileSync(migrationPath, 'utf-8');
       const statements = migrationSql
         .split(/;\s*\n/)

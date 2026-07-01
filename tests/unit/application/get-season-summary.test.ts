@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { GetSeasonSummaryUseCase } from '../../../src/application/use-cases/get-season-summary.js';
-import type { FixtureRepository } from '../../../src/application/ports/fixture-repository.js';
-import type { RankingService } from '../../../src/application/ports/ranking-service.js';
+import type { FixtureArtifact, FixtureRepository } from '../../../src/domain/repositories/fixture-repository.js';
+import type { GetTeamStrengthRankingsUseCase } from '../../../src/application/use-cases/get-team-strength-rankings.js';
 import type { Fixture } from '../../../src/models/fixture.js';
-import type { Team } from '../../../src/models/team.js';
+import type { SeasonThresholds } from '../../../src/models/types.js';
 
 function createMockFixture(overrides: Partial<Fixture> = {}): Fixture {
   return {
+    id: 'fixture-mock',
     teamCode: 'MNL',
     opponentCode: 'SYD',
     round: 1,
@@ -18,38 +19,42 @@ function createMockFixture(overrides: Partial<Fixture> = {}): Fixture {
   };
 }
 
-const defaultThresholds = { soft: 3.5, moderate: 5.0, tough: 6.5, count: 0 };
+const defaultThresholds: SeasonThresholds = { p33: 100, p67: 150, lowerFence: 50, upperFence: 200 };
 
-function createMockFixtureRepo(fixtures: Fixture[] = [], yearLoaded = true): FixtureRepository {
+function makeArtifact(year: number, fixtures: Fixture[]): FixtureArtifact {
   return {
-    findByYear: () => fixtures,
-    findByTeam: () => [],
-    findByRound: () => [],
-    findByYearAndTeam: () => [],
-    isYearLoaded: () => yearLoaded,
-    getLoadedYears: () => yearLoaded ? [2025] : [],
-    getAllTeams: () => [],
-    getTeamByCode: () => undefined,
-    getLastScrapeTimes: () => ({}),
-    getTotalFixtureCount: () => fixtures.length,
-    loadFixtures: () => {},
+    year,
+    computedAt: '2026-05-20T00:00:00.000Z',
+    freshness: { lastScrapedAt: '2026-05-20T00:00:00.000Z' },
+    payload: fixtures,
   };
 }
 
-function createMockRankingService(): RankingService {
+function createMockFixtureRepo(fixtures: Fixture[] = [], yearLoaded = true): FixtureRepository {
   return {
-    getTeamRoundRanking: () => null,
-    getTeamSeasonRanking: () => null,
-    getAllTeamSeasonRankings: () => [],
-    calculateSeasonThresholds: () => defaultThresholds,
+    findByYear: async (year) => (yearLoaded ? makeArtifact(year, fixtures) : null),
+    findByYearAndTeam: async () => null,
+    listScrapedYears: async () => yearLoaded ? new Map([[2025, '2026-05-20T00:00:00.000Z']]) : new Map(),
+    save: async () => {},
   };
+}
+
+function createMockRankings(
+  thresholds: SeasonThresholds | null = defaultThresholds,
+): GetTeamStrengthRankingsUseCase {
+  return {
+    getSeasonThresholds: async () => thresholds,
+    getSeasonRanking: async () => null,
+    getRoundRanking: async () => null,
+    getAllSeasonRankings: async () => null,
+  } as unknown as GetTeamStrengthRankingsUseCase;
 }
 
 describe('GetSeasonSummaryUseCase', () => {
   it('returns null when year is not loaded', async () => {
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo([], false),
-      createMockRankingService()
+      createMockRankings(),
     );
     expect(await useCase.execute(2025)).toBeNull();
   });
@@ -57,7 +62,7 @@ describe('GetSeasonSummaryUseCase', () => {
   it('returns 27 rounds for a loaded year with no fixtures', async () => {
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo([], true),
-      createMockRankingService()
+      createMockRankings(),
     );
     const result = await useCase.execute(2025);
     expect(result).not.toBeNull();
@@ -73,7 +78,7 @@ describe('GetSeasonSummaryUseCase', () => {
     ];
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService()
+      createMockRankings(),
     );
     const result = (await useCase.execute(2025))!;
     const round1 = result.rounds[0];
@@ -92,11 +97,20 @@ describe('GetSeasonSummaryUseCase', () => {
     ];
     const useCase = new GetSeasonSummaryUseCase(
       createMockFixtureRepo(fixtures),
-      createMockRankingService()
+      createMockRankings(),
     );
     const result = (await useCase.execute(2025))!;
     const round3 = result.rounds[2];
     expect(round3.matches).toHaveLength(0);
     expect(round3.byeTeams).toEqual(['MNL', 'SYD']);
+  });
+
+  it('returns null thresholds when the precompute artifact is missing', async () => {
+    const useCase = new GetSeasonSummaryUseCase(
+      createMockFixtureRepo([], true),
+      createMockRankings(null),
+    );
+    const result = await useCase.execute(2025);
+    expect(result?.thresholds).toBeNull();
   });
 });

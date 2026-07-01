@@ -1,236 +1,113 @@
 /**
- * In-memory database store with indexes
- * Adapted for Cloudflare Workers (singleton within isolate)
+ * Database store — owns the static teams registry and the async fixture
+ * accessors that delegate to the injected FixtureRepository.
+ *
+ * The in-RAM fixture cache (CacheStore-era indexes) is gone after spec 038.
+ * Fixture reads now go through the durable repository; this module is the
+ * chokepoint where stale-artifact observability is emitted.
  */
 
 import type { Fixture } from '../models/fixture.js';
 import type { Team } from '../models/team.js';
+import type { FixtureRepository } from '../domain/repositories/fixture-repository.js';
 import { TEAM_NAMES, VALID_TEAM_CODES } from '../models/team.js';
 import { logger } from '../utils/logger.js';
 
 interface DatabaseState {
-  // Primary storage
   teams: Map<string, Team>;
-  fixtures: Fixture[];
-
-  // Indexes for fast queries
-  byYear: Map<number, Fixture[]>;
-  byTeam: Map<string, Fixture[]>;
-  byRound: Map<string, Fixture[]>;
-  byYearTeam: Map<string, Fixture[]>;
-
-  // Metadata
-  loadedYears: Set<number>;
-  lastScrape: Map<number, Date>;
 }
 
-/** Singleton database instance */
 let db: DatabaseState | null = null;
-
-/** Rankings cache reference for clearing */
-let clearRankingsCacheFn: ((year?: number) => void) | null = null;
+let injectedRepository: FixtureRepository | null = null;
 
 /**
- * Set the rankings cache clear function (called from rankings module)
+ * Inject the FixtureRepository used by every fixture accessor below.
+ * Called once during composition-root initialisation in worker.ts.
  */
-export function setRankingsCacheClearFn(fn: (year?: number) => void): void {
-  clearRankingsCacheFn = fn;
+export function setFixtureRepository(repo: FixtureRepository): void {
+  injectedRepository = repo;
 }
 
-/**
- * Initialize or get the database
- */
+function requireRepository(): FixtureRepository {
+  if (!injectedRepository) {
+    throw new Error(
+      'FixtureRepository not initialised — call setFixtureRepository() from the composition root before any read.',
+    );
+  }
+  return injectedRepository;
+}
+
+/** Initialise or get the database (teams registry only). */
 export function getDatabase(): DatabaseState {
   if (!db) {
-    db = {
-      teams: new Map(),
-      fixtures: [],
-      byYear: new Map(),
-      byTeam: new Map(),
-      byRound: new Map(),
-      byYearTeam: new Map(),
-      loadedYears: new Set(),
-      lastScrape: new Map(),
-    };
-
-    // Initialize teams from constants
+    db = { teams: new Map() };
     for (const code of VALID_TEAM_CODES) {
       db.teams.set(code, { code, name: TEAM_NAMES[code] });
     }
-
     logger.info('Database initialized', { teamCount: db.teams.size });
   }
   return db;
 }
 
-/**
- * Load fixtures for a year into the database
- */
-export function loadFixtures(year: number, fixtures: Fixture[]): void {
-  const database = getDatabase();
+/** 8 days in milliseconds — the stale-warn threshold (one day past the
+ *  weekly cron cadence). See research.md Decision 3. */
+const STALE_WARN_THRESHOLD_MS = 8 * 24 * 60 * 60 * 1000;
 
-  // Remove existing fixtures for this year
-  database.fixtures = database.fixtures.filter(f => f.year !== year);
-
-  // Add new fixtures
-  database.fixtures.push(...fixtures);
-
-  // Rebuild indexes
-  rebuildIndexes();
-
-  // Clear rankings cache for this year
-  if (clearRankingsCacheFn) {
-    clearRankingsCacheFn(year);
+function warnIfStale(year: number, lastScrapedAt: string): void {
+  const ageMs = Date.now() - Date.parse(lastScrapedAt);
+  if (!Number.isFinite(ageMs)) return;
+  if (ageMs > STALE_WARN_THRESHOLD_MS) {
+    logger.warn('fixture-artifact-stale', {
+      year,
+      lastScrapedAt,
+      ageDays: Math.round(ageMs / (24 * 60 * 60 * 1000)),
+    });
   }
-
-  // Update metadata
-  database.loadedYears.add(year);
-  database.lastScrape.set(year, new Date());
-
-  logger.info('Fixtures loaded', {
-    year,
-    fixtureCount: fixtures.length,
-    totalFixtures: database.fixtures.length,
-  });
 }
 
-/**
- * Rebuild all indexes from fixtures array
- */
-function rebuildIndexes(): void {
-  const database = getDatabase();
-
-  // Clear existing indexes
-  database.byYear.clear();
-  database.byTeam.clear();
-  database.byRound.clear();
-  database.byYearTeam.clear();
-
-  // Rebuild from fixtures
-  for (const fixture of database.fixtures) {
-    // By year
-    if (!database.byYear.has(fixture.year)) {
-      database.byYear.set(fixture.year, []);
-    }
-    database.byYear.get(fixture.year)!.push(fixture);
-
-    // By team
-    if (!database.byTeam.has(fixture.teamCode)) {
-      database.byTeam.set(fixture.teamCode, []);
-    }
-    database.byTeam.get(fixture.teamCode)!.push(fixture);
-
-    // By round (year-round)
-    const roundKey = `${fixture.year}-${fixture.round}`;
-    if (!database.byRound.has(roundKey)) {
-      database.byRound.set(roundKey, []);
-    }
-    database.byRound.get(roundKey)!.push(fixture);
-
-    // By year-team
-    const yearTeamKey = `${fixture.year}-${fixture.teamCode}`;
-    if (!database.byYearTeam.has(yearTeamKey)) {
-      database.byYearTeam.set(yearTeamKey, []);
-    }
-    database.byYearTeam.get(yearTeamKey)!.push(fixture);
-  }
-
-  logger.debug('Indexes rebuilt', {
-    yearCount: database.byYear.size,
-    teamCount: database.byTeam.size,
-    roundCount: database.byRound.size,
-  });
+/** Get fixtures by year via the injected repository. Returns `[]` on miss
+ *  (artifact absent). Emits a `warn` log when the artifact is older than
+ *  8 days. */
+export async function getFixturesByYear(year: number): Promise<Fixture[]> {
+  const artifact = await requireRepository().findByYear(year);
+  if (!artifact) return [];
+  warnIfStale(year, artifact.freshness.lastScrapedAt);
+  return [...artifact.payload];
 }
 
-/**
- * Get loaded years
- */
-export function getLoadedYears(): number[] {
-  return Array.from(getDatabase().loadedYears).sort();
+/** Get fixtures by year + team via the injected repository. Returns `[]` on
+ *  miss or when the team has zero rows in the year's artifact. */
+export async function getFixturesByYearTeam(
+  year: number,
+  teamCode: string,
+): Promise<Fixture[]> {
+  const artifact = await requireRepository().findByYearAndTeam(year, teamCode);
+  if (!artifact) return [];
+  return [...artifact.payload];
 }
 
-/**
- * Get last scrape times
- */
-export function getLastScrapeTimes(): Record<string, string> {
-  const database = getDatabase();
+/** Async year → lastScrapedAt ISO map, derived from the repository. */
+export async function getLastScrapeTimes(): Promise<Record<string, string>> {
+  const map = await requireRepository().listScrapedYears();
   const result: Record<string, string> = {};
-  for (const [year, date] of database.lastScrape) {
-    result[year.toString()] = date.toISOString();
-  }
+  for (const [year, ts] of map) result[year.toString()] = ts;
   return result;
 }
 
-/**
- * Get total fixture count
- */
-export function getTotalFixtureCount(): number {
-  return getDatabase().fixtures.length;
-}
-
-/**
- * Get all fixtures
- */
-export function getAllFixtures(): Fixture[] {
-  return [...getDatabase().fixtures];
-}
-
-/**
- * Get fixtures by year
- */
-export function getFixturesByYear(year: number): Fixture[] {
-  return getDatabase().byYear.get(year) || [];
-}
-
-/**
- * Get fixtures by team
- */
-export function getFixturesByTeam(teamCode: string): Fixture[] {
-  return getDatabase().byTeam.get(teamCode.toUpperCase()) || [];
-}
-
-/**
- * Get fixtures by round
- */
-export function getFixturesByRound(year: number, round: number): Fixture[] {
-  return getDatabase().byRound.get(`${year}-${round}`) || [];
-}
-
-/**
- * Get fixtures by year and team
- */
-export function getFixturesByYearTeam(year: number, teamCode: string): Fixture[] {
-  return getDatabase().byYearTeam.get(`${year}-${teamCode.toUpperCase()}`) || [];
-}
-
-/**
- * Check if a year is loaded
- */
-export function isYearLoaded(year: number): boolean {
-  return getDatabase().loadedYears.has(year);
-}
-
-/**
- * Get all teams
- */
+/** All static team rows (deterministic order). */
 export function getAllTeamsFromDb(): Team[] {
   return Array.from(getDatabase().teams.values());
 }
 
-/**
- * Get team by code
- */
+/** Static team lookup. */
 export function getTeamByCode(code: string): Team | undefined {
   return getDatabase().teams.get(code.toUpperCase());
 }
 
-/**
- * Reset database (for testing)
- */
+/** Reset state — used in tests. Clears teams registry and forgets the
+ *  injected repository. */
 export function resetDatabase(): void {
   db = null;
-  if (clearRankingsCacheFn) {
-    clearRankingsCacheFn();
-  }
+  injectedRepository = null;
   logger.info('Database reset');
 }

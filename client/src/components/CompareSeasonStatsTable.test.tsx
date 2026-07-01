@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '../test/utils';
+import { render, screen } from '../test/utils';
 import { CompareSeasonStatsTable, SC_COLS, NRL_COLS } from './CompareSeasonStatsTable';
 import type { PlayerComparisonData, SeasonStatsSnapshot } from '../views/CompareView';
 
@@ -70,6 +70,7 @@ function makePlayer(id: string, statsOverride: Partial<SeasonStatsSnapshot> = {}
     playerName: `Player ${id}`,
     teamCode: 'BRO',
     position: 'prop',
+    scPosition: null,
     seasonStats: { ...BASE_STATS, ...statsOverride },
     scRounds: [],
     sc: null,
@@ -81,7 +82,7 @@ function makePlayer(id: string, statsOverride: Partial<SeasonStatsSnapshot> = {}
 }
 
 describe('CompareSeasonStatsTable', () => {
-  it('renders player names as row labels', () => {
+  it('renders player names as column headers', () => {
     render(<CompareSeasonStatsTable players={[makePlayer('a'), makePlayer('b')]} />);
     expect(screen.getAllByText('Player a').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Player b').length).toBeGreaterThan(0);
@@ -94,7 +95,7 @@ describe('CompareSeasonStatsTable', () => {
     expect(dashes.length).toBeGreaterThan(0);
   });
 
-  it('renders SC and NRL column headers by default', () => {
+  it('renders SC and NRL stat row labels by default', () => {
     render(<CompareSeasonStatsTable players={[makePlayer('a')]} />);
     expect(screen.getByText('SC Tot')).toBeTruthy();  // SC group
     expect(screen.getByText('GP')).toBeTruthy();       // NRL group
@@ -106,9 +107,9 @@ describe('CompareSeasonStatsTable', () => {
     expect(screen.queryByText('GP')).toBeNull();
   });
 
-  it('renders stat column headers including extended NRL stats', () => {
+  it('renders stat row labels including extended NRL stats', () => {
     render(<CompareSeasonStatsTable players={[makePlayer('a')]} cols={NRL_COLS} />);
-    // Abbreviated column labels
+    // Abbreviated row labels
     expect(screen.getByText('TA')).toBeTruthy();   // Try Assists
     expect(screen.getByText('LBA')).toBeTruthy();  // LB Assists
     expect(screen.getByText('DHR')).toBeTruthy();  // Dummy Half Runs
@@ -197,17 +198,4 @@ describe('CompareSeasonStatsTable', () => {
     expect(cellNull?.style.backgroundColor ?? '').toBe('');
   });
 
-  it('sorts player rows by column on header click', () => {
-    const p1 = makePlayer('a', { totalRunMetres: 1000 });
-    const p2 = makePlayer('b', { totalRunMetres: 500 });
-    const p3 = makePlayer('c', { totalRunMetres: 750 });
-    render(<CompareSeasonStatsTable players={[p1, p2, p3]} />);
-
-    fireEvent.click(screen.getByText('Run M'));
-
-    const rows = screen.getAllByRole('row');
-    const dataRows = rows.filter(r => r.querySelector('[data-testid^="cell-totalRunMetres-"]'));
-    const first = dataRows[0]?.querySelector('[data-testid^="cell-totalRunMetres-"]');
-    expect(first?.getAttribute('data-testid')).toBe('cell-totalRunMetres-a');
-  });
 });

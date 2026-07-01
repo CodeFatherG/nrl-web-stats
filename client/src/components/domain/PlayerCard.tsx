@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import { getTeamPrimary } from '../../utils/teamColors';
 import { InjuryStatusChip } from './InjuryStatusChip';
+import { SupercoachPositionChips } from './SupercoachPositionChips';
 import type { PlayerSeasonSummary } from '../../types';
 
 interface PlayerCardProps {
@@ -31,9 +32,11 @@ export function PlayerCard({ player, isInjured }: PlayerCardProps) {
             </Typography>
             {isInjured && <InjuryStatusChip status="injured" />}
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
             <Chip label={player.teamCode} size="small" variant="outlined" />
-            {player.position && <Chip label={player.position} size="small" variant="outlined" />}
+            {player.scPosition
+              ? <SupercoachPositionChips scPosition={player.scPosition} />
+              : (player.position && <Chip label={player.position} size="small" variant="outlined" />)}
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
             <StatRow label="SC Avg" value={player.averageFantasyPoints?.toFixed(1) ?? '—'} />
